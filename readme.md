@@ -55,7 +55,7 @@ The basic flow is:
 - `admin/php/`: PHP bootstrap copied into the flattened plugin `admin/` directory.
 - `admin/dist/`: compiled WordPress-ready JavaScript and CSS.
 - `core/`: transport-free TypeScript interfaces and constants published as `@smart-cloud/agent-composer-core`.
-- `presets/`: portable and site-specific configuration fixtures used by the plugin.
+- `tools/refresh-execution-manifest.mjs`: regenerates the SHA-256 manifest for the public Composer execution sources.
 - `tests/`: PHP, source-contract, WordPress integration, multisite, migration, and uninstall tests.
 - `docs/`: architecture and development notes.
 - `uninstall.php`: multisite-aware cleanup for Composer-owned configuration, audit, role, cron, receipts, and temporary previews.
@@ -197,7 +197,7 @@ The assembler flattens these source inputs:
 
 - `admin/dist/*` -> packaged `admin/*`
 - `admin/php/*` -> packaged `admin/*`
-- Composer runtime PHP, presets, `readme.txt`, `LICENSE`, and `uninstall.php` -> plugin root
+- Composer runtime PHP, `readme.txt`, `LICENSE`, and `uninstall.php` -> plugin root
 
 It also assembles `hub-for-wpsuiteio/` from the separate shared workspaces:
 
@@ -207,6 +207,8 @@ It also assembles `hub-for-wpsuiteio/` from the separate shared workspaces:
 - `common/wpsuite-*-vendor/dist/*.css` -> `hub-for-wpsuiteio/assets/css/`
 
 Do not hand-package a release directly from this source directory. The versioned ZIP recorded in `wpsuite-plugins/release-manifest.json` is the canonical development-server and release candidate artifact.
+
+The workspace-only `presets/wpsuite/` migration fixture is not part of the public source repository or the distributable plugin. The two portable presets and the detected-theme starter are implemented by the public PHP preset services under `src/`.
 
 ## WordPress.org source-code requirement
 

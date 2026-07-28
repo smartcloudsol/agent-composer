@@ -21,7 +21,9 @@ test("WordPress identifiers use the approved Composer prefix and role", () => {
   assert.ok("smartcloud_composer".length <= 20, "WordPress post type identifier exceeds 20 characters");
 });
 
-test("WP Suite preset contains every one of the 15 baseline page types", () => {
+test("workspace-only WP Suite preset contains every one of the 15 current page types", {
+  skip: !fs.existsSync(path.join(root, "presets/wpsuite/page-types.json"))
+}, () => {
   const preset = JSON.parse(read("presets/wpsuite/page-types.json"));
   const ids = preset.blueprints.map((blueprint) => blueprint.id).sort();
   assert.equal(ids.length, 15);
@@ -83,12 +85,12 @@ test("uninstall cleanup is packaged and preserves ordinary content drafts", () =
 test("Composer execution contract is checksum-pinned and canonical names are frozen", () => {
   const manifest = JSON.parse(read("src/Execution/execution-manifest.json"));
   assert.equal(manifest.contract, "smartcloud-agent-composer-execution");
-  assert.equal(manifest.baseline, "0.6.8");
   for (const [filename, expected] of Object.entries(manifest.files)) {
     const digest = `sha256:${crypto.createHash("sha256").update(read(`src/Execution/${filename}`)).digest("hex")}`;
     assert.equal(digest, expected, `${filename} differs from its pinned execution contract`);
   }
-  const surface = JSON.parse(read("tests/fixtures/execution-0.6.8-ability-surface.json"));
+  const surface = JSON.parse(read("tests/fixtures/execution-ability-surface.json"));
+  assert.equal(surface.contract, manifest.contract);
   const aliases = read("src/Integration/Abilities/ExecutionAbilityAliases.php");
   assert.equal(surface.operations.length, 18);
   for (const alias of surface.preferred_aliases) {
@@ -125,7 +127,7 @@ test("configuration lifecycle is nonce and capability protected with conflict-sa
 });
 
 test("release copy contains no internal milestone or retired theme-contract narrative", () => {
-  const content = ["README.md", "CHANGELOG.md", "readme.txt", "admin/src/App.tsx", "src/Application/Execution/ExecutionRuntime.php", "src/Infrastructure/WordPress/StatusController.php"].map(read).join("\n");
+  const content = ["readme.md", "CHANGELOG.md", "readme.txt", "admin/src/App.tsx", "src/Application/Execution/ExecutionRuntime.php", "src/Infrastructure/WordPress/StatusController.php"].map(read).join("\n");
   assert.doesNotMatch(content, /\bC[0-9]\b|premium build|community build|legacy theme contract|LegacyThemeContract/i);
   assert.doesNotMatch(read("readme.txt"), /development milestone|not yet (?:the )?final/i);
   assert.match(read("smartcloud-agent-composer.php"), /License:\s+MIT/);
@@ -182,7 +184,7 @@ test("portable presets prefer an available agent-safe no-title template", () => 
 
 test("retired internal prototype names are absent from Composer source and public documentation", () => {
   const files = [
-    "README.md", "CHANGELOG.md", "readme.txt", "smartcloud-agent-composer.php",
+    "readme.md", "CHANGELOG.md", "readme.txt", "smartcloud-agent-composer.php",
     "admin/src/App.tsx", "admin/src/DocSidebar.tsx", "src/Plugin.php",
     "src/Integration/Mcp/ComposerMcpServer.php", "src/Integration/Abilities/ExecutionAbilityAliases.php"
   ];

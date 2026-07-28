@@ -1,5 +1,5 @@
 {
-  "baseline": "0.6.8",
+  "contract": "smartcloud-agent-composer-execution",
   "canonical_prefix": "smartcloud-agent-composer/",
   "operations": [
     "get-page-blueprint",

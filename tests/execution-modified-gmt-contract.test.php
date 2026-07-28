@@ -56,7 +56,7 @@ namespace SmartCloud\AgentComposer\Execution {
 	assert_same(
 		'1970-01-01T00:00:00Z',
 		$token_method->invoke($service, ''),
-		'An empty stored modification date must become the legacy concurrency token.'
+		'An empty stored modification date must become the zero-date concurrency token.'
 	);
 
 	$expected_method = new \ReflectionMethod(Draft_Service::class, 'normalize_expected_modified_gmt');
@@ -65,7 +65,7 @@ namespace SmartCloud\AgentComposer\Execution {
 	assert_same(
 		'1970-01-01T00:00:00Z',
 		$expected_method->invoke($service, '1970-01-01T00:00:00Z'),
-		'The legacy token returned by the Composer must round-trip.'
+		'The zero-date token returned by the Composer must round-trip.'
 	);
 
 	$post = new \WP_Post();

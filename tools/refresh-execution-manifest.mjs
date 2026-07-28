@@ -11,7 +11,6 @@ const files = fs.readdirSync(executionRoot)
 
 const manifest = {
   contract: "smartcloud-agent-composer-execution",
-  baseline: "0.6.8",
   files: Object.fromEntries(files.map((filename) => {
     const contents = fs.readFileSync(path.join(executionRoot, filename));
     return [filename, `sha256:${crypto.createHash("sha256").update(contents).digest("hex")}`];

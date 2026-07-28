@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "php domain-contract.test.php && php execution-068-block-removal-contract.test.php && php execution-068-media-image-contract.test.php && php execution-068-modified-gmt-contract.test.php && php execution-068-preview-url-contract.test.php && php excerpt-policy-contract.test.php && php theme-manifest-security-contract.test.php && node --test source-contract.test.mjs"
+    "test": "php domain-contract.test.php && php execution-block-removal-contract.test.php && php execution-media-image-contract.test.php && php execution-modified-gmt-contract.test.php && php execution-preview-url-contract.test.php && php excerpt-policy-contract.test.php && php theme-manifest-security-contract.test.php && node --test source-contract.test.mjs"
   }
 }

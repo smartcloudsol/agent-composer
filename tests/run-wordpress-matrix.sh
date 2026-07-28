@@ -3,7 +3,8 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 FAMILY_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
-PLUGIN_ZIP="${1:-${FAMILY_ROOT}/wpsuite-plugins/dist/smartcloud-agent-composer-1.0.0.zip}"
+PLUGIN_VERSION="$(awk '/^ \* Version:/ { print $3; exit }' "${SCRIPT_DIR}/../smartcloud-agent-composer.php")"
+PLUGIN_ZIP="${1:-${FAMILY_ROOT}/wpsuite-plugins/dist/smartcloud-agent-composer-${PLUGIN_VERSION}.zip}"
 WP_VERSION="${WP_VERSION:-7.0.2}"
 WP_CLI="${WP_CLI:-/usr/local/bin/wp}"
 PHP_BINARIES=(php8.1 php8.2 php8.3 php8.4)

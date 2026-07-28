@@ -16,7 +16,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 define( 'SMARTCLOUD_COMPOSER_VERSION', '1.0.0' );
-define( 'SMARTCLOUD_COMPOSER_EXECUTION_BUILD', 'composer-0.6.8-20260725-canonical-core-image-delimiters' );
 define( 'SMARTCLOUD_COMPOSER_FILE', __FILE__ );
 define( 'SMARTCLOUD_COMPOSER_DIR', plugin_dir_path( __FILE__ ) );
 define( 'SMARTCLOUD_COMPOSER_URL', plugin_dir_url( __FILE__ ) );
