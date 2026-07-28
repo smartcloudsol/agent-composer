@@ -1,0 +1,49 @@
+{
+  "name": "@smart-cloud/agent-composer-admin",
+  "version": "0.8.0-dev.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "build:wp": "WPSUITE_PREMIUM=true wp-scripts build --config=webpack.config.cjs --webpack-copy-php --stats-error-details --output-path=dist",
+    "lint": "eslint 'src/**/*.ts' 'src/**/*.tsx' --report-unused-disable-directives --max-warnings 0",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@smart-cloud/agent-composer-core": "0.8.0-dev.0",
+    "@tabler/icons-react": "^3.44.0"
+  },
+  "peerDependencies": {
+    "@mantine/core": "^8.3.18",
+    "@mantine/hooks": "^8.3.18",
+    "@mantine/notifications": "^8.3.18",
+    "@wordpress/api-fetch": "^7.36.0",
+    "@wordpress/i18n": "^6.20.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@mantine/core": "^8.3.18",
+    "@mantine/hooks": "^8.3.18",
+    "@mantine/notifications": "^8.3.18",
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.7",
+    "@typescript-eslint/eslint-plugin": "^8.60.0",
+    "@typescript-eslint/parser": "^8.60.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "@wordpress/api-fetch": "^7.36.0",
+    "@wordpress/i18n": "^6.20.0",
+    "@wordpress/scripts": "^32.3.0",
+    "eslint": "^10.4.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.6.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.60.0",
+    "vite": "^8.0.15"
+  }
+}

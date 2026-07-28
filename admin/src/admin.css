@@ -1,0 +1,42 @@
+#smartcloud-composer-admin {
+  color: #101113;
+  min-width: 0;
+}
+
+#smartcloud-composer-admin .mantine-Container-root {
+  margin-inline: 0;
+}
+
+#smartcloud-composer-admin .mantine-NavLink-root {
+  border-radius: 0;
+}
+
+#smartcloud-composer-admin .mantine-Title-root {
+  line-height: 1.2;
+}
+
+/* WordPress adds its own checked pseudo-element; Mantine already renders the icon. */
+#smartcloud-composer-admin input[type="checkbox"]::before {
+  content: none !important;
+  display: none !important;
+}
+
+#smartcloud-composer-admin .mantine-Checkbox-input:not(:disabled),
+#smartcloud-composer-admin .mantine-Checkbox-label,
+#smartcloud-composer-admin .mantine-Switch-input:not(:disabled),
+#smartcloud-composer-admin .mantine-Switch-label {
+  cursor: pointer;
+}
+
+#smartcloud-composer-admin .mantine-Checkbox-input:disabled + .mantine-Checkbox-icon,
+#smartcloud-composer-admin .mantine-Switch-input:disabled,
+#smartcloud-composer-admin .mantine-Checkbox-input:disabled {
+  cursor: not-allowed;
+}
+
+@media (max-width: 782px) {
+  #smartcloud-composer-admin .mantine-Container-root {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+}

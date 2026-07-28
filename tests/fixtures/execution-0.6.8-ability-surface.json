@@ -1,0 +1,31 @@
+{
+  "baseline": "0.6.8",
+  "canonical_prefix": "smartcloud-agent-composer/",
+  "operations": [
+    "get-page-blueprint",
+    "get-design-context",
+    "get-runtime-capabilities",
+    "list-approved-patterns",
+    "read-reference-page",
+    "search-media",
+    "materialize-media-image",
+    "list-content-drafts",
+    "insert-or-update-blocks",
+    "inspect-draft-for-adoption",
+    "adopt-content-draft",
+    "validate-content-draft",
+    "create-content-draft",
+    "validate-page-draft",
+    "create-page-draft",
+    "update-own-draft",
+    "get-draft",
+    "get-preview"
+  ],
+  "preferred_aliases": [
+    "materialize-image",
+    "list-editable-content",
+    "insert-blocks",
+    "adopt-draft",
+    "update-content-draft"
+  ]
+}

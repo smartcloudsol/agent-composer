@@ -1,0 +1,19 @@
+{
+  "name": "smartcloud-agent-composer-source",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "core",
+    "admin",
+    "tests"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace=@smart-cloud/agent-composer-core && npm run build:wp --workspace=@smart-cloud/agent-composer-admin",
+    "lint": "npm run lint --workspace=@smart-cloud/agent-composer-core && npm run lint --workspace=@smart-cloud/agent-composer-admin",
+    "typecheck": "npm run typecheck --workspace=@smart-cloud/agent-composer-core && npm run typecheck --workspace=@smart-cloud/agent-composer-admin",
+    "test": "npm run test --workspace=@smart-cloud/agent-composer-core && npm run test --workspace=smartcloud-agent-composer-php-contract-tests"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
