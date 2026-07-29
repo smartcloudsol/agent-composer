@@ -1,5 +1,5 @@
 <?php
-/* Generated from SmartCloud Agent Composer execution baseline 0.6.8 by the frozen Composer execution contract. */
+/* SmartCloud Agent Composer execution contract. */
 
 namespace SmartCloud\AgentComposer\Execution;
 
@@ -110,7 +110,7 @@ final class Pattern_Repository {
 				$blueprint = $this->config->get_blueprint( $page_type );
 				$names     = array_merge( $names, $blueprint['allowed_patterns'] );
 			} catch ( Execution_Exception $error ) {
-				do_action( 'wpsuite_agent_composer_pattern_preload_error', $error, $page_type );
+				do_action( 'smartcloud_composer_pattern_preload_error', $error, $page_type );
 			}
 		}
 

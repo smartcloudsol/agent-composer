@@ -1,5 +1,5 @@
 <?php
-/* Generated from SmartCloud Agent Composer execution baseline 0.6.8 by the frozen Composer execution contract. */
+/* SmartCloud Agent Composer execution contract. */
 
 namespace SmartCloud\AgentComposer\Execution;
 

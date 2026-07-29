@@ -1,5 +1,5 @@
 <?php
-/* Generated from SmartCloud Agent Composer execution baseline 0.6.8 by the frozen Composer execution contract. */
+/* SmartCloud Agent Composer execution contract. */
 
 namespace SmartCloud\AgentComposer\Execution;
 
@@ -7,7 +7,8 @@ use SmartCloud\AgentComposer\Integration\Mcp\ComposerMcpServer;
 
 final class Abilities {
 	public const CATEGORY = 'smartcloud-agent-composer';
-	public const PREFIX = 'smartcloud-agent-composer/';
+	public const PREFIX   = 'smartcloud-agent-composer/';
+	public const CONTRACT = 'smartcloud-agent-composer-execution';
 
 	private Config_Repository $config;
 	private Draft_Service $drafts;
@@ -253,8 +254,7 @@ final class Abilities {
 					'composer'                 => array(
 						'name'    => 'SmartCloud Agent Composer',
 						'version' => SMARTCLOUD_COMPOSER_VERSION,
-						'build'   => SMARTCLOUD_COMPOSER_EXECUTION_BUILD,
-						'execution_baseline' => '0.6.8',
+						'execution_contract' => self::CONTRACT,
 					),
 					'abilities_api_available'  => function_exists( 'wp_get_ability' ),
 					'block_extensions'         => array(

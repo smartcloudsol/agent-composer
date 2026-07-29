@@ -21,6 +21,20 @@ test("WordPress identifiers use the approved Composer prefix and role", () => {
   assert.ok("smartcloud_composer".length <= 20, "WordPress post type identifier exceeds 20 characters");
 });
 
+test("WordPress Plugin Checker conventions remain explicit", () => {
+  const presets = read("src/Application/Configuration/PresetPatternRegistry.php");
+  const persistence = read("src/Infrastructure/Persistence/WordPressConfigurationRepository.php");
+  const execution = [
+    read("src/Execution/Config_Repository.php"),
+    read("src/Execution/Pattern_Repository.php")
+  ].join("\n");
+  assert.match(presets, /translators: %s: title of the active theme pattern/);
+  assert.match(persistence, /WordPress\.Security\.EscapeOutput\.ExceptionNotEscaped/);
+  assert.match(execution, /smartcloud_composer_design_policy/);
+  assert.match(execution, /smartcloud_composer_pattern_preload_error/);
+  assert.doesNotMatch(execution, /wpsuite_agent_composer_(?:design_policy|pattern_preload_error)/);
+});
+
 test("workspace-only WP Suite preset contains every one of the 15 current page types", {
   skip: !fs.existsSync(path.join(root, "presets/wpsuite/page-types.json"))
 }, () => {

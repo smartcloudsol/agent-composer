@@ -1,5 +1,5 @@
 <?php
-/* Generated from SmartCloud Agent Composer execution baseline 0.6.8 by the frozen Composer execution contract. */
+/* SmartCloud Agent Composer execution contract. */
 
 namespace SmartCloud\AgentComposer\Execution;
 
@@ -108,7 +108,7 @@ final class Config_Repository {
 			max( 1, (int) $policy['constraints']['maximum_words'] )
 		);
 
-		$filtered = apply_filters( 'wpsuite_agent_composer_design_policy', $policy );
+		$filtered = apply_filters( 'smartcloud_composer_design_policy', $policy );
 		if ( ! is_array( $filtered ) ) {
 			throw new Execution_Exception( 'invalid_filtered_design_policy', 'The filtered design policy must remain an object.' );
 		}
@@ -172,7 +172,7 @@ final class Config_Repository {
 		return array(
 			'composer'      => array(
 				'version'                    => SMARTCLOUD_COMPOSER_VERSION,
-				'build'                      => defined( 'SMARTCLOUD_COMPOSER_EXECUTION_BUILD' ) ? SMARTCLOUD_COMPOSER_EXECUTION_BUILD : '',
+				'execution_contract'         => Abilities::CONTRACT,
 				'assembly_format'            => 'root-block-metadata',
 				'markup_contract_validation' => null !== $contract,
 				'block_ast_extensions'       => ! empty( $policy['block_extensions']['allowed_core_blocks'] )

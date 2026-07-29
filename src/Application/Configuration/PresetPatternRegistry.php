@@ -23,6 +23,7 @@ final class PresetPatternRegistry {
 				self::DETECTED_PATTERN,
 				array(
 					'title'       => __( 'Detected theme starter', 'smartcloud-agent-composer' ),
+					/* translators: %s: title of the active theme pattern used to generate the starter. */
 					'description' => sprintf( __( 'A generated starter based on the active theme pattern: %s.', 'smartcloud-agent-composer' ), $detected['title'] ),
 					'categories'  => array( 'featured', 'text' ),
 					'content'     => '<!-- wp:group {"layout":{"type":"constrained"}} --><div class="wp-block-group"><!-- wp:heading {"level":1} --><h1 class="wp-block-heading">{{wpsuite:text:title}}</h1><!-- /wp:heading --><!-- wp:paragraph --><p>{{wpsuite:text:introduction}}</p><!-- /wp:paragraph -->' . serialize_block( $detected['root'] ) . '</div><!-- /wp:group -->',

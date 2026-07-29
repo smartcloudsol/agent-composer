@@ -71,7 +71,7 @@ final class ExecutionAbilityAliases {
 				'meta'                => array(
 					'show_in_rest'        => false,
 					'mcp'                 => array( 'public' => false ),
-					'smartcloud_composer' => array( 'execution_baseline' => '0.6.8', 'alias_of' => Abilities::PREFIX . $target ),
+					'smartcloud_composer' => array( 'execution_contract' => Abilities::CONTRACT, 'alias_of' => Abilities::PREFIX . $target ),
 				),
 			)
 		);

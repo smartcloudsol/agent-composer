@@ -102,7 +102,8 @@ final class WordPressConfigurationRepository {
 			if ( null !== $submitted ) {
 				$details['base_to_submitted'] = array( 'changed' => true, 'submitted' => $submitted );
 			}
-			throw new ConfigurationConflict( $details );
+			// Structured conflict details are carried to REST error serialization and are never rendered as HTML.
+			throw new ConfigurationConflict( $details ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
 		}
 		return $current;
 	}

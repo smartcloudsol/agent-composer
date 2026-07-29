@@ -4,6 +4,7 @@ namespace SmartCloud\AgentComposer\Integration\Abilities;
 
 use SmartCloud\AgentComposer\Infrastructure\WordPress\Activation;
 use SmartCloud\AgentComposer\Integration\Providers\ProviderRegistry;
+use SmartCloud\AgentComposer\Execution\Abilities;
 
 final class ComposerAbilities {
 	public const CATEGORY = 'smartcloud-agent-composer';
@@ -46,7 +47,7 @@ final class ComposerAbilities {
 			'version'           => SMARTCLOUD_COMPOSER_VERSION,
 			'active_config_set' => (string) get_option( 'smartcloud_composer_active_config_set', '' ),
 			'providers'         => $this->providers->profiles(),
-			'execution_baseline'   => '0.6.8',
+			'execution_contract' => Abilities::CONTRACT,
 		);
 	}
 }

@@ -221,7 +221,6 @@ export function ConfigurationBlueprintsPanel({ selectedSet, selectedId, run, ref
     </>}
   </Stack>;
 }
-
 function RequiredEntityCard({ title, description, entity, immutable, status, edit }: { title: string; description: string; entity: ConfigEntity | null; immutable: boolean; status: "added" | "modified" | "deleted" | null; edit: (entity: ConfigEntity) => void }) {
   return <Card withBorder radius="md" p="md"><Stack gap="sm" h="100%">
     <div><Title order={3}>{title}</Title><Text size="sm" c="dimmed" mt={4}>{description}</Text></div>
@@ -293,4 +292,3 @@ function stableJson(value: unknown): string {
   }
   return JSON.stringify(value) ?? "undefined";
 }
-
