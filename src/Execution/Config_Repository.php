@@ -42,6 +42,7 @@ final class Config_Repository {
 			'schema_version'            => 1,
 			'allowed_pattern_namespaces' => array( 'wpsuite' ),
 			'post_type_contract'         => array( 'page' => 'page' ),
+			'content_access'             => array(),
 			'disallowed_blocks'         => array(
 				'core/html',
 				'core/shortcode',
@@ -84,6 +85,7 @@ final class Config_Repository {
 		$policy['disallowed_blocks']          = $this->block_name_list( $policy['disallowed_blocks'] );
 		$policy['post_type_contract']         = $this->post_type_contract( $policy['post_type_contract'] ?? array() );
 		$policy['allowed_post_types']         = array_values( array_unique( array_values( $policy['post_type_contract'] ) ) );
+		$policy['content_access']             = $this->content_access_policy( $policy['content_access'] ?? array(), $policy['allowed_post_types'] );
 		$policy['block_extensions']            = $this->normalize_block_extensions( $policy['block_extensions'] ?? array() );
 		$policy['seo_contract']['required_fields'] = array_values(
 			array_unique(
@@ -133,6 +135,19 @@ final class Config_Repository {
 			: array( 'page' );
 	}
 
+	/** @return array{discover:bool,read:bool,clone:bool,adopt_drafts:bool} */
+	public function get_content_access( string $post_type ): array {
+		$post_type = sanitize_key( $post_type );
+		$policy = $this->get_design_policy();
+		$access = is_array( $policy['content_access'][ $post_type ] ?? null ) ? $policy['content_access'][ $post_type ] : array();
+		return array(
+			'discover'     => true === ( $access['discover'] ?? false ),
+			'read'         => true === ( $access['read'] ?? false ),
+			'clone'        => true === ( $access['clone'] ?? false ),
+			'adopt_drafts' => true === ( $access['adopt_drafts'] ?? false ),
+		);
+	}
+
 	public function get_block_extensions(): array {
 		$policy = $this->get_design_policy();
 		return isset( $policy['block_extensions'] ) && is_array( $policy['block_extensions'] )
@@ -145,6 +160,15 @@ final class Config_Repository {
 				'core_html_javascript'      => false,
 				'passive_text_editor_html'  => false,
 				'captioned_media_image_materializer' => false,
+				'query_loop_materializer' => array(
+					'enabled'                 => false,
+					'allowed_post_types'      => array(),
+					'allowed_taxonomies'      => array(),
+					'allowed_orderby'         => array( 'date' ),
+					'allowed_template_blocks' => array( 'core/post-title' ),
+					'max_per_page'            => 12,
+					'max_offset'              => 100,
+				),
 				'text_editor_contract'      => array(
 					'source'                       => '',
 					'materialized_block'           => 'core/freeform',
@@ -328,6 +352,7 @@ final class Config_Repository {
 		$captioned_image             = array_key_exists( 'captioned_media_image_materializer', $value )
 			? (bool) $value['captioned_media_image_materializer']
 			: $legacy_captioned_image;
+		$query_loop                   = $this->normalize_query_loop_materializer( $value['query_loop_materializer'] ?? array() );
 
 		return array(
 			'allowed_core_blocks'       => $core,
@@ -337,7 +362,34 @@ final class Config_Repository {
 			'core_html_javascript'      => $core_html_javascript,
 			'passive_text_editor_html'  => $passive_text_editor_html,
 			'captioned_media_image_materializer' => $captioned_image,
+			'query_loop_materializer'   => $query_loop,
 			'text_editor_contract'      => $text_editor_contract,
+		);
+	}
+
+	private function normalize_query_loop_materializer( mixed $value ): array {
+		$value = is_array( $value ) ? $value : array();
+		$allowed_orderby = array_values(
+			array_intersect(
+				array( 'date', 'modified', 'title', 'menu_order' ),
+				$this->slug_list( $value['allowed_orderby'] ?? array( 'date' ) )
+			)
+		);
+		$allowed_template_blocks = array_values(
+			array_intersect(
+				array( 'core/post-title', 'core/post-excerpt', 'core/post-date', 'core/post-featured-image' ),
+				$this->block_name_list( $value['allowed_template_blocks'] ?? array( 'core/post-title' ) )
+			)
+		);
+
+		return array(
+			'enabled'                 => true === ( $value['enabled'] ?? false ),
+			'allowed_post_types'      => $this->slug_list( $value['allowed_post_types'] ?? array() ),
+			'allowed_taxonomies'      => $this->slug_list( $value['allowed_taxonomies'] ?? array() ),
+			'allowed_orderby'         => ! empty( $allowed_orderby ) ? $allowed_orderby : array( 'date' ),
+			'allowed_template_blocks' => ! empty( $allowed_template_blocks ) ? $allowed_template_blocks : array( 'core/post-title' ),
+			'max_per_page'            => min( 24, max( 1, absint( $value['max_per_page'] ?? 12 ) ) ),
+			'max_offset'              => min( 500, max( 0, absint( $value['max_offset'] ?? 100 ) ) ),
 		);
 	}
 
@@ -382,6 +434,34 @@ final class Config_Repository {
 			return array();
 		}
 		return array_values( array_unique( array_filter( array_map( 'sanitize_key', $value ) ) ) );
+	}
+
+	/** @param string[] $allowed_post_types */
+	private function content_access_policy( mixed $value, array $allowed_post_types ): array {
+		if ( ! is_array( $value ) ) {
+			return array();
+		}
+		$result = array();
+		foreach ( $value as $post_type => $rules ) {
+			$post_type = sanitize_key( (string) $post_type );
+			if ( ! in_array( $post_type, $allowed_post_types, true ) || ! is_array( $rules ) ) {
+				continue;
+			}
+			$result[ $post_type ] = array(
+				'discover'     => true === ( $rules['discover'] ?? false ),
+				'read'         => true === ( $rules['read'] ?? false ),
+				'clone'        => true === ( $rules['clone'] ?? false ),
+				'adopt_drafts' => true === ( $rules['adopt_drafts'] ?? false ),
+			);
+			if ( $result[ $post_type ]['clone'] ) {
+				$result[ $post_type ]['read'] = true;
+				$result[ $post_type ]['discover'] = true;
+			}
+			if ( $result[ $post_type ]['read'] || $result[ $post_type ]['adopt_drafts'] ) {
+				$result[ $post_type ]['discover'] = true;
+			}
+		}
+		return $result;
 	}
 
 	private function post_type_contract( mixed $value ): array {

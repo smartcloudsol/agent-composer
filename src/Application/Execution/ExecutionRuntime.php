@@ -14,6 +14,7 @@ use SmartCloud\AgentComposer\Execution\Markup_Contract_Validator;
 use SmartCloud\AgentComposer\Execution\Page_Validator;
 use SmartCloud\AgentComposer\Execution\Pattern_Assembler;
 use SmartCloud\AgentComposer\Execution\Pattern_Repository;
+use SmartCloud\AgentComposer\Execution\Query_Loop_Materializer;
 use SmartCloud\AgentComposer\Execution\Target_Resolver;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\ActiveConfigurationSource;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\AuditTable;
@@ -45,7 +46,8 @@ final class ExecutionRuntime {
 		$this->drafts       = new Draft_Service( $assembler, $validator, $targets, $trees, $config );
 		$audit_table        = new AuditTable();
 		$audit              = new Audit_Logger( $audit_table );
-		$this->abilities    = new Abilities( $config, $this->drafts, $audit, $this->patterns, $this->providers );
+		$query_loops        = new Query_Loop_Materializer( $config );
+		$this->abilities    = new Abilities( $config, $this->drafts, $audit, $this->patterns, $this->providers, $query_loops );
 		$this->aliases      = new ExecutionAbilityAliases( $this->abilities );
 		$this->previews     = new PreviewDraftService( $this->abilities );
 		$this->mcp          = new ComposerMcpServer( $this->providers );

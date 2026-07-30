@@ -15,19 +15,22 @@ final class Abilities {
 	private Audit_Logger $audit;
 	private Pattern_Repository $patterns;
 	private Ability_Provider_Registry $providers;
+	private Query_Loop_Materializer $query_loops;
 
 	public function __construct(
 		Config_Repository $config,
 		Draft_Service $drafts,
 		Audit_Logger $audit,
 		Pattern_Repository $patterns,
-		Ability_Provider_Registry $providers
+		Ability_Provider_Registry $providers,
+		Query_Loop_Materializer $query_loops
 	) {
 		$this->config    = $config;
 		$this->drafts    = $drafts;
 		$this->audit     = $audit;
 		$this->patterns  = $patterns;
 		$this->providers = $providers;
+		$this->query_loops = $query_loops;
 	}
 
 	public static function names(): array {
@@ -39,7 +42,10 @@ final class Abilities {
 			self::PREFIX . 'read-reference-page',
 			self::PREFIX . 'search-media',
 			self::PREFIX . 'materialize-media-image',
+			self::PREFIX . 'materialize-query-loop',
 			self::PREFIX . 'list-content-drafts',
+			self::PREFIX . 'inspect-content-item',
+			self::PREFIX . 'clone-content-item',
 			self::PREFIX . 'insert-or-update-blocks',
 			self::PREFIX . 'inspect-draft-for-adoption',
 			self::PREFIX . 'adopt-content-draft',
@@ -144,12 +150,36 @@ final class Abilities {
 			true
 		);
 		$this->register_ability(
+			'materialize-query-loop',
+			'Materialize constrained Query Loop',
+			'Returns a canonical core/query block tree using only the post types, taxonomies, sort keys, limits, and template blocks explicitly allowed by the active Site Contract and selected blueprint. It does not save content.',
+			$this->query_loop_schema(),
+			array( $this, 'materialize_query_loop' ),
+			true
+		);
+		$this->register_ability(
 			'list-content-drafts',
 			'List content drafts',
 			'Lists editable content items by status, post type, blueprint, and Composer assignment state without returning post content.',
 			$this->draft_list_schema(),
 			array( $this, 'list_content_drafts' ),
 			true
+		);
+		$this->register_ability(
+			'inspect-content-item',
+			'Inspect existing content item',
+			'Returns content and validation details only when the active Site Contract grants read access for the post type and the current WordPress user can edit the item.',
+			$this->content_inspection_schema(),
+			array( $this, 'inspect_content_item' ),
+			true
+		);
+		$this->register_ability(
+			'clone-content-item',
+			'Clone existing content to a Composer draft',
+			'Copies an explicitly readable and cloneable item to a new Composer-owned draft. The source is unchanged and optimistic-concurrency tokens are required.',
+			$this->content_clone_schema(),
+			array( $this, 'clone_content_item' ),
+			false
 		);
 		$this->register_ability(
 			'insert-or-update-blocks',
@@ -250,6 +280,9 @@ final class Abilities {
 				$policy     = $this->config->get_design_policy();
 				$extensions = $this->config->get_block_extensions();
 				$core       = (array) ( $extensions['allowed_core_blocks'] ?? array() );
+				$query_loop = is_array( $extensions['query_loop_materializer'] ?? null )
+					? $extensions['query_loop_materializer']
+					: array();
 				return array(
 					'composer'                 => array(
 						'name'    => 'SmartCloud Agent Composer',
@@ -269,6 +302,15 @@ final class Abilities {
 						'captioned_media_image_materializer'   => in_array( 'core/image', $core, true )
 							&& ! in_array( 'core/image', $policy['disallowed_blocks'], true )
 							&& ! empty( $extensions['captioned_media_image_materializer'] ),
+						'query_loop_materializer'              => array(
+							'enabled'                 => ! empty( $query_loop['enabled'] ),
+							'allowed_post_types'      => array_values( (array) ( $query_loop['allowed_post_types'] ?? array() ) ),
+							'allowed_taxonomies'      => array_values( (array) ( $query_loop['allowed_taxonomies'] ?? array() ) ),
+							'allowed_orderby'         => array_values( (array) ( $query_loop['allowed_orderby'] ?? array() ) ),
+							'allowed_template_blocks' => array_values( (array) ( $query_loop['allowed_template_blocks'] ?? array() ) ),
+							'max_per_page'            => (int) ( $query_loop['max_per_page'] ?? 0 ),
+							'max_offset'              => (int) ( $query_loop['max_offset'] ?? 0 ),
+						),
 						'text_editor_contract'                 => isset( $extensions['text_editor_contract'] ) && is_array( $extensions['text_editor_contract'] )
 							? $extensions['text_editor_contract']
 							: array(),
@@ -553,8 +595,20 @@ final class Abilities {
 		);
 	}
 
+	public function materialize_query_loop( array $input ): array|\WP_Error {
+		return $this->execute( 'materialize-query-loop', $input, fn() => $this->query_loops->materialize( $input ) );
+	}
+
 	public function list_content_drafts( array $input ): array|\WP_Error {
 		return $this->execute( 'list-content-drafts', $input, fn() => $this->drafts->list_content_drafts( $input ) );
+	}
+
+	public function inspect_content_item( array $input ): array|\WP_Error {
+		return $this->execute( 'inspect-content-item', $input, fn() => $this->drafts->inspect_content_item( $input ) );
+	}
+
+	public function clone_content_item( array $input ): array|\WP_Error {
+		return $this->execute( 'clone-content-item', $input, fn() => $this->drafts->clone_content_item( $input ) );
 	}
 
 	public function inspect_draft_for_adoption( array $input ): array|\WP_Error {
@@ -730,6 +784,46 @@ final class Abilities {
 		);
 	}
 
+	public function query_loop_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'page_type'          => $this->string_property( 'Blueprint page type that explicitly enables the constrained Query Loop blocks.', 1, 64 ),
+				'post_type'          => $this->string_property( 'Site Contract-approved public post type.', 1, 64 ),
+				'per_page'           => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 24, 'default' => 6 ),
+				'offset'             => array( 'type' => 'integer', 'minimum' => 0, 'maximum' => 500, 'default' => 0 ),
+				'orderby'            => array( 'type' => 'string', 'enum' => array( 'date', 'modified', 'title', 'menu_order' ), 'default' => 'date' ),
+				'order'              => array( 'type' => 'string', 'enum' => array( 'ASC', 'DESC' ), 'default' => 'DESC' ),
+				'columns'            => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 4, 'default' => 3 ),
+				'show_featured_image' => array( 'type' => 'boolean', 'default' => false ),
+				'show_date'          => array( 'type' => 'boolean', 'default' => false ),
+				'show_excerpt'       => array( 'type' => 'boolean', 'default' => false ),
+				'pagination'         => array( 'type' => 'boolean', 'default' => true ),
+				'taxonomy_filters'   => array(
+					'type'     => 'array',
+					'maxItems' => 5,
+					'default'  => array(),
+					'items'    => array(
+						'type'                 => 'object',
+						'properties'           => array(
+							'taxonomy' => $this->string_property( 'Site Contract-approved public taxonomy.', 1, 64 ),
+							'term_ids' => array(
+								'type'     => 'array',
+								'minItems' => 1,
+								'maxItems' => 20,
+								'items'    => array( 'type' => 'integer', 'minimum' => 1 ),
+							),
+						),
+						'required'             => array( 'taxonomy', 'term_ids' ),
+						'additionalProperties' => false,
+					),
+				),
+			),
+			'required'             => array( 'page_type', 'post_type' ),
+			'additionalProperties' => false,
+		);
+	}
+
 	private function media_image_size_slug( array $input, string $page_type ): string {
 		if ( 'post' !== $page_type ) {
 			return 'full';
@@ -840,6 +934,30 @@ final class Abilities {
 			),
 			'additionalProperties' => false,
 		);
+	}
+
+	public function content_inspection_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'post_id'   => array( 'type' => 'integer', 'minimum' => 1 ),
+				'page_type' => $this->string_property( 'Blueprint page type used to validate the existing item.', 1, 64 ),
+			),
+			'required'             => array( 'post_id', 'page_type' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	public function content_clone_schema(): array {
+		$schema = $this->content_inspection_schema();
+		$schema['properties']['expected_modified_gmt'] = array( 'type' => 'string', 'format' => 'date-time' );
+		$schema['properties']['expected_content_hash'] = array( 'type' => 'string', 'pattern' => '^[a-f0-9]{64}$' );
+		$schema['properties']['idempotency_key'] = $this->string_property( 'Stable key for safe retry of this clone operation.', 1, 128 );
+		$schema['properties']['title'] = $this->string_property( 'Optional title for the new draft.', 1, 200 );
+		$schema['properties']['slug'] = $this->string_property( 'Optional slug for the new draft.', 0, 200 );
+		$schema['properties']['confirm_clone'] = array( 'type' => 'boolean', 'enum' => array( true ) );
+		$schema['required'] = array( 'post_id', 'page_type', 'expected_modified_gmt', 'expected_content_hash', 'idempotency_key', 'confirm_clone' );
+		return $schema;
 	}
 
 	public function adoption_inspection_schema(): array {

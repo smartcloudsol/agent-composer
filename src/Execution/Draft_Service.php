@@ -15,6 +15,7 @@ final class Draft_Service {
 	public const ASSIGNED_AGENT_META = '_wpsuite_agent_assigned_user_id';
 	public const ASSIGNMENT_SOURCE_META = '_wpsuite_agent_assignment_source';
 	public const ADOPTED_GMT_META = '_wpsuite_agent_adopted_gmt';
+	public const CLONED_FROM_META = '_wpsuite_agent_cloned_from_post_id';
 	public const YOAST_METADESC_META = '_yoast_wpseo_metadesc';
 
 	private Pattern_Assembler $assembler;
@@ -387,8 +388,11 @@ final class Draft_Service {
 			}
 
 			$this->assert_adoption_meta_contract( $meta, $page_type, $target );
-			if ( '1' !== (string) ( $meta[ self::OWNED_META ] ?? '' ) ) {
-				throw new Execution_Exception( 'not_agent_owned', 'Only a draft previously created by SmartCloud Agent Composer can be adopted.' );
+			if (
+				'1' !== (string) ( $meta[ self::OWNED_META ] ?? '' )
+				&& ! $this->config->get_content_access( (string) $row['post_type'] )['adopt_drafts']
+			) {
+				throw new Execution_Exception( 'adoption_not_allowed', 'The active Site Contract does not allow Composer to adopt drafts of this post type.' );
 			}
 			$assigned_agent_id = absint( $meta[ self::ASSIGNED_AGENT_META ] ?? 0 );
 			if ( 0 !== $assigned_agent_id && $current_user_id !== $assigned_agent_id ) {
@@ -604,6 +608,116 @@ final class Draft_Service {
 		);
 	}
 
+	public function inspect_content_item( array $input ): array {
+		$this->assert_no_forbidden_input( $input );
+		$post_id = absint( $input['post_id'] ?? 0 );
+		$page_type = sanitize_key( (string) ( $input['page_type'] ?? '' ) );
+		$target = $this->targets->resolve( $page_type );
+		$post = get_post( $post_id );
+		if ( ! $post instanceof \WP_Post || $post->post_type !== (string) $target['post_type'] ) {
+			throw new Execution_Exception( 'content_item_not_found', 'The requested content item does not match the selected blueprint.' );
+		}
+		$access = $this->config->get_content_access( $post->post_type );
+		$composer_owned = '1' === (string) get_post_meta( $post_id, self::OWNED_META, true );
+		if ( ! $composer_owned && ! $access['read'] ) {
+			throw new Execution_Exception( 'content_read_not_allowed', 'The active Site Contract does not allow Composer to read this post type.' );
+		}
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			throw new Execution_Exception( 'content_read_forbidden', 'The current user cannot read this content through Composer.' );
+		}
+		$content = (string) $post->post_content;
+		return array(
+			'post_id'       => $post_id,
+			'post_type'     => $post->post_type,
+			'page_type'     => $page_type,
+			'status'        => $post->post_status,
+			'title'         => get_the_title( $post ),
+			'slug'          => $post->post_name,
+			'modified_gmt'  => $this->modified_gmt_token( $post->post_modified_gmt ),
+			'content_hash'  => hash( 'sha256', $content ),
+			'content'       => $content,
+			'excerpt'       => (string) $post->post_excerpt,
+			'meta_description' => (string) get_post_meta( $post_id, self::YOAST_METADESC_META, true ),
+			'composer_owned' => $composer_owned,
+			'cloneable'     => ! $composer_owned && $access['clone'],
+			'validation'    => $this->validator->validate( $page_type, $content ),
+		);
+	}
+
+	public function clone_content_item( array $input ): array {
+		$this->assert_no_forbidden_input( $input );
+		if ( true !== ( $input['confirm_clone'] ?? false ) ) {
+			throw new Execution_Exception( 'clone_confirmation_required', 'Cloning existing content requires explicit confirmation.' );
+		}
+		$source = $this->inspect_content_item( $input );
+		if ( empty( $source['cloneable'] ) ) {
+			throw new Execution_Exception( 'content_clone_not_allowed', 'The active Site Contract does not allow Composer to clone this content item.' );
+		}
+		$expected_modified = $this->normalize_expected_modified_gmt( (string) ( $input['expected_modified_gmt'] ?? '' ) );
+		$expected_hash = strtolower( trim( (string) ( $input['expected_content_hash'] ?? '' ) ) );
+		if ( ! hash_equals( $expected_modified, (string) $source['modified_gmt'] ) || ! hash_equals( $expected_hash, (string) $source['content_hash'] ) ) {
+			throw new Execution_Exception( 'edit_conflict', 'The source item changed after it was inspected. Inspect it again before cloning.' );
+		}
+
+		$page_type = sanitize_key( (string) $source['page_type'] );
+		$target = $this->targets->resolve( $page_type );
+		$this->targets->assert_current_user_can_create( $target );
+		$user_id = get_current_user_id();
+		$key = $this->sanitize_idempotency_key( $input['idempotency_key'] ?? '' );
+		$title = isset( $input['title'] ) ? $this->sanitize_title( $input['title'] ) : $this->sanitize_title( 'Copy of ' . (string) $source['title'] );
+		$slug = isset( $input['slug'] ) ? $this->sanitize_slug( $input['slug'] ) : '';
+		$lock_name = $this->acquire_idempotency_lock( $user_id, $key );
+		try {
+			$existing = $this->find_idempotent_draft( $user_id, $key, $page_type, $target );
+			if ( $existing ) {
+				return $this->describe( $existing, true );
+			}
+			$post_id = wp_insert_post(
+				wp_slash(
+					array(
+						'post_type'    => $target['post_type'],
+						'post_status'  => 'draft',
+						'post_author'  => $user_id,
+						'post_title'   => $title,
+						'post_name'    => $slug,
+						'post_content' => (string) $source['content'],
+						'post_excerpt' => (string) $source['excerpt'],
+						'meta_input'   => array(
+							self::OWNED_META              => '1',
+							self::PAGE_TYPE_META          => $page_type,
+							self::IDEMPOTENCY_META        => $key,
+							self::REVISION_META           => wp_generate_uuid4(),
+							self::POST_TYPE_META          => $target['post_type'],
+							self::TEMPLATE_META           => $this->targets->template_identity( $target ),
+							self::ASSIGNED_AGENT_META     => $user_id,
+							self::ASSIGNMENT_SOURCE_META  => 'cloned',
+							self::CLONED_FROM_META        => (int) $source['post_id'],
+							Target_Resolver::TEMPLATE_META => $this->targets->template_meta_value( $target ),
+							self::YOAST_METADESC_META     => (string) $source['meta_description'],
+						),
+					)
+				),
+				true
+			);
+			if ( $post_id instanceof \WP_Error ) {
+				throw new Execution_Exception( 'content_clone_failed', $post_id->get_error_message() );
+			}
+			$post = get_post( (int) $post_id );
+			if ( ! $post instanceof \WP_Post ) {
+				throw new Execution_Exception( 'draft_read_after_clone_failed', 'The clone was created but could not be read back.' );
+			}
+			$post = $this->initialize_created_modified_gmt( $post );
+			$this->assert_post_contract( $post, $page_type, $target );
+			$result = $this->describe( $post );
+			$result['cloned_from_post_id'] = (int) $source['post_id'];
+			$result['source_preserved'] = hash_equals( (string) $source['content_hash'], hash( 'sha256', (string) $source['content'] ) );
+			$result['validation'] = $source['validation'];
+			return $result;
+		} finally {
+			$this->release_idempotency_lock( $lock_name );
+		}
+	}
+
 	public function get_preview( int $post_id ): array {
 		$post = $this->get_owned_draft( $post_id );
 		$page_type = (string) get_post_meta( $post->ID, self::PAGE_TYPE_META, true );
@@ -687,6 +801,7 @@ final class Draft_Service {
 		$assigned_agent_id = absint( get_post_meta( $post->ID, self::ASSIGNED_AGENT_META, true ) );
 		$current_user_id   = get_current_user_id();
 		$composer_owned      = '1' === (string) get_post_meta( $post->ID, self::OWNED_META, true );
+		$content_access      = $this->config->get_content_access( $post->post_type );
 		$page_type         = sanitize_key( (string) get_post_meta( $post->ID, self::PAGE_TYPE_META, true ) );
 		$template_identity = sanitize_text_field( (string) get_post_meta( $post->ID, self::TEMPLATE_META, true ) );
 		$assignment_state  = 'not-composer-owned';
@@ -712,9 +827,11 @@ final class Draft_Service {
 			'assignment_state'         => $assignment_state,
 			'assigned_agent_user_id'   => $assigned_agent_id,
 			'assigned_to_current_agent' => $assigned_agent_id === $current_user_id,
-			'adoptable_by_current_agent' => $composer_owned
-				&& 'draft' === $post->post_status
+			'adoptable_by_current_agent' => 'draft' === $post->post_status
+				&& ( $composer_owned || $content_access['adopt_drafts'] )
 				&& ( 0 === $assigned_agent_id || $assigned_agent_id === $current_user_id ),
+			'readable_by_composer'       => $composer_owned || $content_access['read'],
+			'cloneable_by_composer'      => ! $composer_owned && $content_access['clone'],
 			'editable_by_current_user' => $this->can_list_post( $post ),
 			'revision'                 => sanitize_text_field( (string) get_post_meta( $post->ID, self::REVISION_META, true ) ),
 			'template_identity'        => $template_identity,
@@ -727,10 +844,12 @@ final class Draft_Service {
 		if ( ! in_array( $post->post_type, $this->targets->registered_allowed_post_types(), true ) ) {
 			return false;
 		}
-		if ( current_user_can( 'edit_post', $post->ID ) ) {
-			return true;
+		$composer_owned = '1' === (string) get_post_meta( $post->ID, self::OWNED_META, true );
+		if ( ! $composer_owned ) {
+			return $this->config->get_content_access( $post->post_type )['discover']
+				&& current_user_can( 'edit_post', $post->ID );
 		}
-		if ( 'draft' !== $post->post_status || '1' !== (string) get_post_meta( $post->ID, self::OWNED_META, true ) ) {
+		if ( 'draft' !== $post->post_status ) {
 			return false;
 		}
 		$assigned_agent_id = absint( get_post_meta( $post->ID, self::ASSIGNED_AGENT_META, true ) );
@@ -909,8 +1028,11 @@ final class Draft_Service {
 			self::TEMPLATE_META       => get_post_meta( $post_id, self::TEMPLATE_META, true ),
 			self::ASSIGNED_AGENT_META => get_post_meta( $post_id, self::ASSIGNED_AGENT_META, true ),
 		);
-		if ( '1' !== (string) $meta[ self::OWNED_META ] ) {
-			throw new Execution_Exception( 'not_agent_owned', 'Only a draft previously created by SmartCloud Agent Composer can be adopted.' );
+		if (
+			'1' !== (string) $meta[ self::OWNED_META ]
+			&& ! $this->config->get_content_access( $post->post_type )['adopt_drafts']
+		) {
+			throw new Execution_Exception( 'adoption_not_allowed', 'The active Site Contract does not allow Composer to adopt drafts of this post type.' );
 		}
 		$this->assert_adoption_meta_contract( $meta, $page_type, $target );
 		$assigned_agent_id = absint( $meta[ self::ASSIGNED_AGENT_META ] ?? 0 );

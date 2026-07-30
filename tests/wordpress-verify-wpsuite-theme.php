@@ -3,6 +3,10 @@
 use SmartCloud\AgentComposer\Application\Configuration\SiteDiscoveryService;
 use SmartCloud\AgentComposer\Execution\Ability_Provider_Registry;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\AuditTable;
+use SmartCloud\AgentComposer\Execution\Block_Catalog;
+use SmartCloud\AgentComposer\Execution\Block_Tree_Service;
+use SmartCloud\AgentComposer\Execution\Config_Repository;
+use SmartCloud\AgentComposer\Infrastructure\Persistence\ActiveConfigurationSource;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\WordPressConfigurationRepository;
 use SmartCloud\AgentComposer\Integration\Providers\ProviderRegistry;
 
@@ -64,6 +68,44 @@ if ( ! in_array( 'core/paragraph', $registered_block_names, true ) ) {
 	throw new RuntimeException( 'Discovery did not expose the current WordPress registered-block catalog.' );
 }
 
+// WP-CLI eval-file does not establish a current user. Exercise the public
+// ability as the isolated fixture administrator, matching an authenticated
+// Composer caller rather than bypassing the ability permission callback.
+wp_set_current_user( 1 );
+$query_ability = wp_get_ability( 'smartcloud-agent-composer/materialize-query-loop' );
+if ( ! is_object( $query_ability ) ) {
+	throw new RuntimeException( 'The constrained Query Loop materializer ability is not registered.' );
+}
+$query_result = $query_ability->execute(
+	array(
+		'page_type'          => 'page',
+		'post_type'          => 'post',
+		'per_page'           => 6,
+		'offset'             => 0,
+		'orderby'            => 'date',
+		'order'              => 'DESC',
+		'columns'            => 3,
+		'show_featured_image' => true,
+		'show_date'          => true,
+		'show_excerpt'       => true,
+		'pagination'         => true,
+		'taxonomy_filters'   => array(),
+	)
+);
+if ( is_wp_error( $query_result ) || 'core/query' !== ( $query_result['block']['blockName'] ?? '' ) ) {
+	$detail = is_wp_error( $query_result )
+		? $query_result->get_error_code() . ': ' . $query_result->get_error_message()
+		: 'The returned payload does not contain a core/query root block.';
+	throw new RuntimeException( 'The constrained Query Loop materializer failed against the active WP Suite Site Contract: ' . $detail );
+}
+$execution_config = new Config_Repository( new ActiveConfigurationSource( $repository ) );
+$execution_providers = new Ability_Provider_Registry();
+$query_validation = ( new Block_Tree_Service( new Block_Catalog( $execution_config, $execution_providers ), $execution_config, $execution_providers ) )
+	->validate( (array) $query_result['blocks'], 'page' );
+if ( empty( $query_validation['valid'] ) ) {
+	throw new RuntimeException( 'The materialized Query Loop did not pass the live WordPress block registry and blueprint validation: ' . wp_json_encode( $query_validation ) );
+}
+
 $pattern_names = $result['theme']['manifest']['patterns'] ?? array();
 if ( 39 !== count( $pattern_names ) ) {
 	throw new RuntimeException( 'Expected 39 declared WP Suite patterns, found ' . count( $pattern_names ) . '.' );
@@ -83,6 +125,7 @@ echo wp_json_encode(
 		'pattern_count'     => count( $pattern_names ),
 		'registered_blocks' => count( $registered_block_names ),
 		'manifest_status'   => $result['theme']['manifest_status'],
+		'query_loop_valid'  => true,
 	),
 	JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
 ) . PHP_EOL;
