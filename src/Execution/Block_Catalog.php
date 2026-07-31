@@ -41,6 +41,9 @@ final class Block_Catalog {
 
 	public function is_allowed( string $name, ?array $blueprint = null ): bool {
 		$name       = strtolower( trim( $name ) );
+		if ( 'core/html' === $name ) {
+			return false;
+		}
 		$policy     = $this->config->get_design_policy();
 		$core       = str_starts_with( $name, 'core/' );
 		$extensions = $this->config->get_block_extensions();
@@ -60,12 +63,6 @@ final class Block_Catalog {
 			$core
 			&& in_array( $name, array( 'core/html', 'core/freeform' ), true )
 			&& ! in_array( $name, $extensions['allowed_core_blocks'], true )
-		) {
-			return false;
-		}
-		if (
-			'core/html' === $name
-			&& empty( $extensions['core_html_javascript'] )
 		) {
 			return false;
 		}

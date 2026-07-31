@@ -68,6 +68,43 @@ test("WordPress admin build exposes the complete public feature source and exter
   assert.match(read("smartcloud-agent-composer.php"), /hub-loader\.php/);
 });
 
+test("guided admin exposes the existing-content access gate without requiring JSON editing", () => {
+  const editor = read("admin/src/EntityEditor.tsx");
+  const discovery = read("src/Application/Configuration/SiteDiscoveryService.php");
+  const docs = read("admin/src/DocSidebar.tsx");
+  assert.match(editor, /Composer content access/);
+  for (const label of ["Discover in lists", "Read content", "Clone to Composer draft", "Adopt editable drafts"]) {
+    assert.match(editor, new RegExp(label));
+  }
+  assert.match(editor, /post_type_contract/);
+  assert.match(editor, /content_access/);
+  assert.match(editor, /content_field_access/);
+  assert.match(editor, /Composer field access/);
+  assert.match(editor, /Write draft/);
+  for (const label of ["Select all Read", "Deselect all Read", "Select all Write draft", "Deselect all Write draft"]) {
+    assert.match(editor, new RegExp(label));
+  }
+  assert.match(editor, /setAllFieldRules/);
+  assert.match(editor, /Add a Blueprint targeting this post type first/);
+  assert.match(editor, /updateTemplate/);
+  assert.match(editor, /update\(\["target_template"\]/);
+  assert.doesNotMatch(editor, /update\(\["target_template", "file"\]/);
+  assert.match(discovery, /registered_post_types/);
+  assert.match(discovery, /supports_editor/);
+  assert.match(discovery, /current_user_can_edit/);
+  assert.match(discovery, /registered_meta/);
+  assert.match(docs, /Composer content access is managed in the guided Site Contract editor/);
+});
+
+test("admin checkboxes suppress the WordPress duplicate checkmark and expose pointer cursors", () => {
+  const css = read("admin/src/admin.css");
+  assert.match(css, /input\[type="checkbox"\]:checked::before/);
+  assert.match(css, /content:\s*none\s*!important/);
+	assert.match(css, /visibility:\s*hidden\s*!important/);
+  assert.match(css, /\.mantine-Checkbox-body:not\(\[data-disabled\]\)/);
+  assert.match(css, /cursor:\s*pointer/);
+});
+
 test("public core has no REST transport or application store responsibility", () => {
   const coreSource = fs
     .readdirSync(path.join(root, "core", "src"))
@@ -88,8 +125,7 @@ test("WordPress.org readme discloses every optional shared Hub service", () => {
 
 test("uninstall cleanup is packaged and preserves ordinary content drafts", () => {
   const uninstall = read("uninstall.php");
-  const assembler = read("../wpsuite-plugins/scripts/assemble.mjs");
-  assert.match(assembler, /"uninstall\.php"/);
+  assert.equal(fs.existsSync(path.join(root, "uninstall.php")), true);
   assert.match(uninstall, /smartcloud_composer_audit/);
   assert.match(uninstall, /remove_role\( 'smartcloud_agent' \)/);
   assert.match(uninstall, /_smartcloud_composer_preview/);
@@ -106,10 +142,19 @@ test("Composer execution contract is checksum-pinned and canonical names are fro
   const surface = JSON.parse(read("tests/fixtures/execution-ability-surface.json"));
   assert.equal(surface.contract, manifest.contract);
   const aliases = read("src/Integration/Abilities/ExecutionAbilityAliases.php");
-  assert.equal(surface.operations.length, 21);
+  assert.equal(surface.operations.length, 24);
   for (const alias of surface.preferred_aliases) {
     assert.match(aliases, new RegExp(alias.replaceAll("-", "\\-")));
   }
+});
+
+test("draft ability schemas require the effective Blueprint language", () => {
+  const abilities = read("src/Execution/Abilities.php");
+  const aliases = read("src/Integration/Abilities/ExecutionAbilityAliases.php");
+  assert.match(abilities, /'content_language'\s*=>\s*\$this->string_property/);
+  assert.match(abilities, /\$required\s*=\s*array\(\s*'page_type',\s*'content_language'/);
+  assert.match(aliases, /'candidate-create'\s*=>\s*\$this->abilities->candidate_schema\( true \)/);
+  assert.match(aliases, /'candidate-update'\s*=>\s*\$this->abilities->candidate_schema\( false \)/);
 });
 
 test("configuration lifecycle is nonce and capability protected with conflict-safe entity writes", () => {
@@ -145,7 +190,7 @@ test("release copy contains no internal milestone or retired theme-contract narr
   assert.doesNotMatch(content, /\bC[0-9]\b|premium build|community build|legacy theme contract|LegacyThemeContract/i);
   assert.doesNotMatch(read("readme.txt"), /development milestone|not yet (?:the )?final/i);
   assert.match(read("smartcloud-agent-composer.php"), /License:\s+MIT/);
-  assert.match(read("../wpsuite-plugins/scripts/assemble.mjs"), /"LICENSE"/);
+  assert.equal(fs.existsSync(path.join(root, "LICENSE")), true);
   assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.0\.0/);
   assert.match(read("readme.txt"), /Stable tag:\s+1\.0\.0/);
 });

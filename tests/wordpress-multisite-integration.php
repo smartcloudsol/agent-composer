@@ -75,6 +75,7 @@ $exercise_site = static function ( int $site_id, string $config_set, string $oth
 				'schema_version' => '1.0',
 				'page_type'      => 'page',
 				'target'         => array( 'post_type' => 'page' ),
+				'composition_mode' => 'structured-record',
 				'excerpt_policy' => 'optional',
 			)
 		);

@@ -58,7 +58,7 @@ final class ConfigurationController {
 	public function register_routes(): void {
 		$namespace = StatusController::NAMESPACE;
 		register_rest_route( $namespace, '/config-sets', array(
-			array( 'methods' => WP_REST_Server::READABLE, 'callback' => array( $this, 'list_sets' ), 'permission_callback' => $this->permission( Activation::CAP_VIEW_STATUS ) ),
+			array( 'methods' => WP_REST_Server::READABLE, 'callback' => array( $this, 'list_sets' ), 'permission_callback' => $this->permission( Activation::CAP_EDIT_CONFIG ) ),
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( $this, 'create_set' ),
@@ -70,9 +70,20 @@ final class ConfigurationController {
 			),
 		) );
 		register_rest_route( $namespace, '/config-sets/(?P<id>[a-z0-9_-]+)', array(
-			'methods' => WP_REST_Server::READABLE,
-			'callback' => array( $this, 'get_set' ),
-			'permission_callback' => $this->permission( Activation::CAP_VIEW_STATUS ),
+			array(
+				'methods' => WP_REST_Server::READABLE,
+				'callback' => array( $this, 'get_set' ),
+				'permission_callback' => $this->permission( Activation::CAP_EDIT_CONFIG ),
+			),
+			array(
+				'methods' => WP_REST_Server::DELETABLE,
+				'callback' => array( $this, 'delete_set' ),
+				'permission_callback' => $this->permission( Activation::CAP_EDIT_CONFIG, true ),
+				'args' => array(
+					'confirmation' => self::config_set_id_argument( true ),
+					'config_hash'  => array( 'type' => 'string', 'required' => true, 'pattern' => '^sha256:[a-f0-9]{64}$', 'sanitize_callback' => 'sanitize_text_field' ),
+				),
+			),
 		) );
 		register_rest_route( $namespace, '/config-sets/(?P<id>[a-z0-9_-]+)/clone', array(
 			'methods' => WP_REST_Server::CREATABLE,
@@ -81,6 +92,15 @@ final class ConfigurationController {
 			'args' => array(
 				'label'     => array( 'type' => 'string', 'maxLength' => 160, 'sanitize_callback' => 'sanitize_text_field' ),
 				'target_id' => self::config_set_id_argument(),
+			),
+		) );
+		register_rest_route( $namespace, '/config-sets/(?P<id>[a-z0-9_-]+)/deactivate', array(
+			'methods' => WP_REST_Server::CREATABLE,
+			'callback' => array( $this, 'deactivate_set' ),
+			'permission_callback' => $this->permission( Activation::CAP_ACTIVATE_CONFIG, true ),
+			'args' => array(
+				'confirmation' => self::config_set_id_argument( true ),
+				'config_hash'  => array( 'type' => 'string', 'required' => true, 'pattern' => '^sha256:[a-f0-9]{64}$', 'sanitize_callback' => 'sanitize_text_field' ),
 			),
 		) );
 		register_rest_route( $namespace, '/config-sets/(?P<id>[a-z0-9_-]+)/entities', array(
@@ -105,7 +125,7 @@ final class ConfigurationController {
 			array(
 				'methods'             => WP_REST_Server::READABLE,
 				'callback'            => array( $this, 'get_entity' ),
-				'permission_callback' => $this->permission( Activation::CAP_VIEW_STATUS ),
+				'permission_callback' => $this->permission( Activation::CAP_EDIT_CONFIG ),
 				'args'                => array(
 					'type' => array( 'type' => 'string', 'required' => true, 'enum' => EntityType::all(), 'sanitize_callback' => 'sanitize_key' ),
 				),
@@ -146,7 +166,7 @@ final class ConfigurationController {
 		register_rest_route( $namespace, '/config-sets/(?P<id>[a-z0-9_-]+)/diff', array(
 			'methods' => WP_REST_Server::READABLE,
 			'callback' => array( $this, 'diff_set' ),
-			'permission_callback' => $this->permission( Activation::CAP_VIEW_STATUS ),
+			'permission_callback' => $this->permission( Activation::CAP_EDIT_CONFIG ),
 			'args' => array( 'to' => self::config_set_id_argument() ),
 		) );
 		register_rest_route( $namespace, '/imports', array(
@@ -169,13 +189,13 @@ final class ConfigurationController {
 			),
 		) );
 		register_rest_route( $namespace, '/discovery', array(
-			array( 'methods' => WP_REST_Server::READABLE, 'callback' => array( $this, 'get_discovery' ), 'permission_callback' => $this->permission( Activation::CAP_VIEW_STATUS ) ),
+			array( 'methods' => WP_REST_Server::READABLE, 'callback' => array( $this, 'get_discovery' ), 'permission_callback' => $this->permission( Activation::CAP_EDIT_CONFIG ) ),
 			array( 'methods' => WP_REST_Server::CREATABLE, 'callback' => array( $this, 'run_discovery' ), 'permission_callback' => $this->permission( Activation::CAP_VALIDATE_CONFIG, true ) ),
 		) );
 		register_rest_route( $namespace, '/presets', array(
 			'methods'             => WP_REST_Server::READABLE,
 			'callback'            => array( $this, 'list_presets' ),
-			'permission_callback' => $this->permission( Activation::CAP_VIEW_STATUS ),
+			'permission_callback' => $this->permission( Activation::CAP_EDIT_CONFIG ),
 		) );
 		register_rest_route( $namespace, '/presets/(?P<preset>[a-z0-9_-]+)/instantiate', array(
 			'methods'             => WP_REST_Server::CREATABLE,
@@ -195,12 +215,20 @@ final class ConfigurationController {
 		return $this->respond( fn(): array => $this->repository->describe_config_set( (string) $request['id'] ) );
 	}
 
+	public function delete_set( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		return $this->respond( fn(): array => $this->manager->delete( (string) $request['id'], (string) $request->get_param( 'confirmation' ), (string) $request->get_param( 'config_hash' ) ) );
+	}
+
 	public function create_set( WP_REST_Request $request ): WP_REST_Response|WP_Error {
 		return $this->respond( fn(): array => $this->manager->create( (string) $request->get_param( 'label' ), (string) $request->get_param( 'id' ) ), 201 );
 	}
 
 	public function clone_set( WP_REST_Request $request ): WP_REST_Response|WP_Error {
 		return $this->respond( fn(): array => $this->manager->clone( (string) $request['id'], (string) $request->get_param( 'label' ), (string) $request->get_param( 'target_id' ) ), 201 );
+	}
+
+	public function deactivate_set( WP_REST_Request $request ): WP_REST_Response|WP_Error {
+		return $this->respond( fn(): array => $this->activator->deactivate( (string) $request['id'], (string) $request->get_param( 'confirmation' ), (string) $request->get_param( 'config_hash' ) ) );
 	}
 
 	public function create_entity( WP_REST_Request $request ): WP_REST_Response|WP_Error {
@@ -343,9 +371,10 @@ final class ConfigurationController {
 		}
 	}
 
-	private static function config_set_id_argument(): array {
+	private static function config_set_id_argument( bool $required = false ): array {
 		return array(
 			'type'              => 'string',
+			'required'          => $required,
 			'maxLength'         => 128,
 			'pattern'           => '^[a-z0-9][a-z0-9_-]{0,127}$',
 			'sanitize_callback' => 'sanitize_key',

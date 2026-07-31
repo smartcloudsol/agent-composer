@@ -9,6 +9,8 @@ use SmartCloud\AgentComposer\Infrastructure\Persistence\AuditTable;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\WordPressConfigurationRepository;
 
 final class ConfigSetManager {
+	private const LOCK_OPTION = 'smartcloud_composer_activation_lock';
+
 	public function __construct(
 		private readonly WordPressConfigurationRepository $repository,
 		private readonly AuditTable $audit
@@ -74,6 +76,104 @@ final class ConfigSetManager {
 		}
 		$this->audit->record( 'config-set-cloned', 'success', array( 'source' => $source, 'target' => $target, 'entity_count' => count( $created ) ) );
 		return $this->repository->describe_config_set( $target );
+	}
+
+	/** @return array{deleted:true,config_set:string,entity_count:int,config_hash:string} */
+	public function delete( string $config_set, string $confirmation, string $expected_hash ): array {
+		$config_set = sanitize_key( $config_set );
+		if ( '' === $config_set || ! hash_equals( $config_set, $confirmation ) ) {
+			throw new InvalidArgumentException( 'Type the complete Config Set ID to confirm permanent deletion.' );
+		}
+		if ( $config_set === (string) get_option( 'smartcloud_composer_active_config_set', '' ) ) {
+			throw new InvalidArgumentException( 'Deactivate the active Config Set before deleting it.' );
+		}
+		if ( ! preg_match( '/^sha256:[a-f0-9]{64}$/', $expected_hash ) ) {
+			throw new InvalidArgumentException( 'A valid Config Set hash is required for deletion.' );
+		}
+		$lock = $this->acquire_lifecycle_lock();
+		try {
+			return $this->delete_locked( $config_set, $expected_hash );
+		} finally {
+			$this->release_lifecycle_lock( $lock );
+		}
+	}
+
+	/** @return array{deleted:true,config_set:string,entity_count:int,config_hash:string} */
+	private function delete_locked( string $config_set, string $expected_hash ): array {
+		if ( $config_set === (string) get_option( 'smartcloud_composer_active_config_set', '' ) ) {
+			throw new InvalidArgumentException( 'The Config Set became active while deletion was being confirmed. Deactivate it and review the deletion again.' );
+		}
+
+		global $wpdb;
+		$deleted_ids = array();
+		$config_post_id = 0;
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Complete Config Set deletion must be atomic.
+			throw new RuntimeException( 'Composer could not start the Config Set deletion transaction.' );
+		}
+		try {
+			$entities = $this->repository->entities( $config_set );
+			if ( empty( $entities ) ) {
+				throw new InvalidArgumentException( 'The requested Config Set does not exist.' );
+			}
+			foreach ( $entities as $entity ) {
+				$locked = $this->repository->lock_working_entity( $entity->ID );
+				$deleted_ids[] = $locked->ID;
+				if ( EntityType::CONFIG_SET === (string) get_post_meta( $locked->ID, '_smartcloud_composer_entity_type', true ) ) {
+					$config_post_id = $locked->ID;
+				}
+			}
+			$current_hash = $this->repository->configuration_hash( $config_set );
+			if ( ! hash_equals( $expected_hash, $current_hash ) ) {
+				throw new InvalidArgumentException( 'The Config Set changed after the deletion dialog opened. Review it again.' );
+			}
+			foreach ( array_reverse( $entities ) as $entity ) {
+				if ( ! wp_delete_post( $entity->ID, true ) instanceof \WP_Post ) {
+					throw new RuntimeException( 'Composer could not delete every Config Set entity.' );
+				}
+			}
+			if ( false === $wpdb->query( 'COMMIT' ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Completes the atomic Config Set deletion.
+				throw new RuntimeException( 'Composer could not commit the Config Set deletion.' );
+			}
+		} catch ( \Throwable $error ) {
+			$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Prevents partial Config Set deletion.
+			foreach ( $deleted_ids as $post_id ) {
+				clean_post_cache( $post_id );
+			}
+			throw $error;
+		}
+
+		foreach ( $deleted_ids as $post_id ) {
+			clean_post_cache( $post_id );
+		}
+		if ( $config_set === (string) get_option( 'smartcloud_composer_previous_config_set', '' ) ) {
+			delete_option( 'smartcloud_composer_previous_config_set' );
+		}
+		$result = array( 'deleted' => true, 'config_set' => $config_set, 'entity_count' => count( $deleted_ids ), 'config_hash' => $expected_hash );
+		$this->audit->record( 'config-set-deleted', 'success', $result, $config_post_id );
+		return $result;
+	}
+
+	private function acquire_lifecycle_lock(): string {
+		$token   = wp_generate_uuid4();
+		$payload = array( 'token' => $token, 'expires' => time() + 30 );
+		if ( add_option( self::LOCK_OPTION, $payload, '', false ) ) {
+			return $token;
+		}
+		$current = get_option( self::LOCK_OPTION, array() );
+		if ( is_array( $current ) && (int) ( $current['expires'] ?? 0 ) < time() ) {
+			delete_option( self::LOCK_OPTION );
+			if ( add_option( self::LOCK_OPTION, $payload, '', false ) ) {
+				return $token;
+			}
+		}
+		throw new InvalidArgumentException( 'Another configuration lifecycle operation is already in progress.' );
+	}
+
+	private function release_lifecycle_lock( string $token ): void {
+		$current = get_option( self::LOCK_OPTION, array() );
+		if ( is_array( $current ) && hash_equals( $token, (string) ( $current['token'] ?? '' ) ) ) {
+			delete_option( self::LOCK_OPTION );
+		}
 	}
 
 	public function create_entity( string $config_set, string $type, string $key, array $payload ): array {

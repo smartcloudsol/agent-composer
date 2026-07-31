@@ -1,6 +1,6 @@
 {
   "name": "@smart-cloud/agent-composer-core",
-  "version": "0.8.0-dev.0",
+  "version": "0.8.0-dev.1",
   "description": "Shared TypeScript contracts and constants for SmartCloud Agent Composer",
   "author": "SmartCloud",
   "license": "MIT",
@@ -31,13 +31,13 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^25.9.1",
-    "@typescript-eslint/eslint-plugin": "^8.60.0",
-    "@typescript-eslint/parser": "^8.60.0",
-    "eslint": "^10.4.1",
-    "globals": "^17.6.0",
+    "@types/node": "^26.1.2",
+    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@typescript-eslint/parser": "^8.65.0",
+    "eslint": "^10.8.0",
+    "globals": "^17.8.0",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.60.0"
+    "typescript-eslint": "^8.65.0"
   }
 }

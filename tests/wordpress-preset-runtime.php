@@ -55,6 +55,7 @@ if ( 'universal' === $stage ) {
 	$result = $ability->execute(
 		array(
 			'page_type'       => 'page',
+			'content_language' => str_replace( '_', '-', (string) get_bloginfo( 'language' ) ),
 			'meta_description' => 'A portable Gutenberg page validated with the Universal Composer preset before any WordPress draft content is created or changed.',
 			'sections'        => array(
 				array( 'pattern' => 'smartcloud-composer/universal-hero', 'fields' => array( 'title' => 'Universal Gutenberg', 'introduction' => 'A theme-neutral starting point for governed content.' ) ),
@@ -78,6 +79,7 @@ if ( 'recommended' === $stage ) {
 	$result = $ability->execute(
 		array(
 			'page_type'       => 'page',
+			'content_language' => str_replace( '_', '-', (string) get_bloginfo( 'language' ) ),
 			'meta_description' => 'A structured Gutenberg page validated with the SmartCloud Recommended preset before any WordPress draft content is created or changed.',
 			'sections'        => array(
 				array( 'pattern' => 'smartcloud-composer/recommended-hero', 'fields' => array( 'eyebrow' => 'Governed Gutenberg', 'title' => 'SmartCloud Recommended', 'introduction' => 'A richer portable starting point.', 'url' => 'https://example.test/start/', 'label' => 'Start' ) ),

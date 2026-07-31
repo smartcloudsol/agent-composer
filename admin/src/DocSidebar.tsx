@@ -82,6 +82,8 @@ function LifecycleDocs() {
       <List.Item>{__("Validate the complete set against current theme and provider capabilities.", TEXT_DOMAIN)}</List.Item>
       <List.Item>{__("Activate only after a fresh site-, user-, expiry-, and checksum-bound validation receipt is issued.", TEXT_DOMAIN)}</List.Item>
       <List.Item>{__("Restore archived as active is the rollback operation: the selected archived set is revalidated, becomes active, and the current active set is archived.", TEXT_DOMAIN)}</List.Item>
+      <List.Item>{__("Deactivate Composer clears the active configuration pointer without deleting entities. An inactive Config Set can then be permanently deleted only after its complete stable ID is typed and its current configuration hash still matches.", TEXT_DOMAIN)}</List.Item>
+      <List.Item>{__("Config Set deletion removes every nested configuration entity but retains the append-only audit history. Active Config Sets can never be deleted directly.", TEXT_DOMAIN)}</List.Item>
     </List>
     <Title order={3} mt="md">{__("Compare to active", TEXT_DOMAIN)}</Title>
     <Text>{__("The comparison is shown in the direction Active → Selected. Added means the selected set introduces an entity, removed means the selected set omits an active entity, and changed means the same entity has different content. The comparison itself never changes configuration.", TEXT_DOMAIN)}</Text>
@@ -103,7 +105,9 @@ function EntityDocs() {
     <Text>{__("The Blueprint list has a stable viewport and persistent page controls. Blueprint additions, edits, and confirmed deletions remain reversible with Discard until Apply modifications. The required Config Set manifest and Site Contract can be edited but not deleted from this view. Export first when you need a portable recovery copy.", TEXT_DOMAIN)}</Text>
     <Text>{__("The guided editor exposes the fields used most often and preserves every unknown extension field. Advanced JSON source is available for uncommon nested data, but it must be applied back to the form before saving.", TEXT_DOMAIN)}</Text>
     <Title order={3} mt="md">{__("Site Contract", TEXT_DOMAIN)}</Title>
-    <Text>{__("Owns global brand, language, content, SEO, media, accessibility, security, layout, and block-extension policy inherited by all blueprints.", TEXT_DOMAIN)}</Text>
+    <Text>{__("Owns site-wide brand, language, content, SEO, media, accessibility, security, layout, and block-extension policy, plus defaults inherited by Blueprints without explicit page-type values.", TEXT_DOMAIN)}</Text>
+      <Text>{__("Composer content access is managed in the guided Site Contract editor per registered post type. Discover exposes list metadata, Read permits content analysis, Clone creates a separate agent-owned draft, and Adopt permits an explicit takeover only while the original item is a draft. WordPress capabilities and a matching Blueprint remain mandatory for every operation.", TEXT_DOMAIN)}</Text>
+      <Text>{__("Composer field access is a second, field-level gate. Discovery lists only public, single-value, REST-registered fields. Read and Write draft must be enabled explicitly for each key; field writes remain limited to Composer-owned assigned drafts and require fresh concurrency tokens plus confirmation.", TEXT_DOMAIN)}</Text>
     <Title order={3} mt="md">{__("Blueprint", TEXT_DOMAIN)}</Title>
     <Text>{__("Owns one page type: WordPress target, template assignment, visual variant, allowed patterns and blocks, required pattern order, word boundary, reference sources, and content or migration rules.", TEXT_DOMAIN)}</Text>
     <Text>{__("A Detected Theme Starter is only a safe beginning. Clone or edit its inactive Config Set, add page-type Blueprints, extend their approved pattern and block contracts, and refine the Site Contract to reach the level of integration the active theme and installed providers can actually support.", TEXT_DOMAIN)}</Text>
@@ -151,6 +155,8 @@ function FieldDocs({ topic }: { topic: DocTopic }) {
       items: [
         __("Keep the page type key stable, lowercase, and machine-readable, for example landing-page, product, article, or case-study.", TEXT_DOMAIN),
         __("Target post type must already be registered on this site. Use page for ordinary pages or a real CPT slug when the active installation provides one.", TEXT_DOMAIN),
+        __("Document mode assembles a governed Gutenberg body. Structured-record mode keeps the body empty and accepts only the title, excerpt, and Site Contract-approved registered fields.", TEXT_DOMAIN),
+        __("Public visibility is independent of composition mode: a public structured record can be rendered by a shared template, while a document remains draft-only until a human publishes it.", TEXT_DOMAIN),
         __("Visual variant is a semantic presentation hint, not a CSS class. Use a stable name the theme mapping can understand.", TEXT_DOMAIN),
         __("Purpose should describe the page's editorial job and intended reader outcome rather than visual styling.", TEXT_DOMAIN)
       ],
@@ -169,6 +175,7 @@ function FieldDocs({ topic }: { topic: DocTopic }) {
       title: __("Allowed and required patterns", TEXT_DOMAIN),
       intro: __("Allowed patterns form the palette Composer may assemble. Required sequence is the ordered minimum skeleton every candidate must contain.", TEXT_DOMAIN),
       items: [
+        __("Patterns and a required sequence apply to document Blueprints. Structured-record Blueprints must leave pattern and block composition empty.", TEXT_DOMAIN),
         __("Use exact registered slugs in namespace/pattern-name form.", TEXT_DOMAIN),
         __("Every required pattern must also be allowed.", TEXT_DOMAIN),
         __("Keep optional sections only in Allowed patterns; put structural essentials such as hero and closing action in Required sequence.", TEXT_DOMAIN),
@@ -187,12 +194,13 @@ function FieldDocs({ topic }: { topic: DocTopic }) {
     },
     "blueprint-safety": {
       title: __("Blueprint constraints", TEXT_DOMAIN),
-      intro: __("Blueprint constraints may narrow the Site Contract for one page type but should not silently weaken the site's global safety policy.", TEXT_DOMAIN),
+      intro: __("Blueprint constraints explicitly override the Site Contract defaults for one page type. Composer reports and validates the resulting Blueprint values without silently tightening or loosening them.", TEXT_DOMAIN),
       items: [
         __("Exactly one H1 prevents missing or duplicated page titles.", TEXT_DOMAIN),
         __("Theme presets only rejects arbitrary inline presentation values and keeps colors, spacing, and typography aligned with the theme.", TEXT_DOMAIN),
-        __("Enable Custom HTML, shortcodes, inline CSS, or external embeds only when the target site deliberately supports and audits them.", TEXT_DOMAIN),
-        __("Maximum words is a validation ceiling, while excerpt policy independently controls the 80 to 300 character WordPress excerpt.", TEXT_DOMAIN)
+        __("Enable shortcodes, inline CSS, or external embeds only when the target site deliberately supports and audits them. Composer never accepts Custom HTML blocks or active script content.", TEXT_DOMAIN),
+        __("Maximum words is a validation ceiling, while excerpt policy independently controls the 80 to 300 character WordPress excerpt.", TEXT_DOMAIN),
+        __("Advanced Blueprint SEO and block-extension objects also override inherited values; explicit lists replace inherited lists instead of merging by index.", TEXT_DOMAIN)
       ]
     },
     "blueprint-layout": {
@@ -243,10 +251,13 @@ function FieldDocs({ topic }: { topic: DocTopic }) {
     },
     "site-language": {
       title: __("Languages and global word limit", TEXT_DOMAIN),
-      intro: __("These optional BCP 47 values are advisory metadata returned in the design context. Content language tells an agent which language public copy should use; operator language can keep instructions and administrative interaction in a different language when the connected client supports it. Composer does not translate text or reject a draft solely because these values are empty.", TEXT_DOMAIN),
+      intro: __("The Site Contract content language is authoritative for generated public copy; operator language remains an administrative preference.", TEXT_DOMAIN),
       items: [
-        __("Use BCP 47 tags such as en-US, en-GB, de-DE, or hu-HU.", TEXT_DOMAIN),
-        __("The global word maximum is the outer ceiling; a Blueprint may define a lower limit for one page type.", TEXT_DOMAIN)
+        __("Use a BCP 47 tag such as en-US, de-DE, or hu-HU. Every strict execution request must echo the effective value exactly.", TEXT_DOMAIN),
+        __("Strict mode rejects known theme fallback copy and blocking substantial language mismatches before any draft write.", TEXT_DOMAIN),
+        __("Declare durable brand names, technical terms, citations, and reviewed foreign-language fragments as explicit exceptions.", TEXT_DOMAIN),
+        __("A Blueprint may inherit or narrow the Site Contract locale, but it cannot replace it with another primary language.", TEXT_DOMAIN),
+        __("The Site Contract word maximum is the inherited default; a Blueprint may define its own page-type ceiling.", TEXT_DOMAIN)
       ]
     },
     "site-pattern-scope": {
@@ -259,12 +270,12 @@ function FieldDocs({ topic }: { topic: DocTopic }) {
       ]
     },
     "site-safety": {
-      title: __("Global safety constraints", TEXT_DOMAIN),
-      intro: __("These are the default structural and markup restrictions for every Blueprint in the Config Set.", TEXT_DOMAIN),
+      title: __("Default safety constraints", TEXT_DOMAIN),
+      intro: __("These structural and markup defaults are inherited only when a Blueprint does not define an explicit value.", TEXT_DOMAIN),
       items: [
         __("Keep exactly one H1 and theme presets only enabled for the safest portable default.", TEXT_DOMAIN),
-        __("Custom HTML, shortcodes, inline CSS, and external embeds expand the attack and portability surface and should remain disabled unless required.", TEXT_DOMAIN),
-        __("Blueprint settings should normally preserve or tighten these boundaries.", TEXT_DOMAIN)
+        __("Shortcodes, inline CSS, and external embeds expand the attack and portability surface and should remain disabled unless required. Custom HTML and active script content remain unsupported invariants.", TEXT_DOMAIN),
+        __("Each Blueprint may explicitly replace these defaults for its own content type.", TEXT_DOMAIN)
       ]
     },
     "site-brand": {

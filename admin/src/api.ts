@@ -100,9 +100,26 @@ export interface ProviderDiscovery {
     source: string;
     theme: string;
   }>;
+  registered_post_types: Array<{
+    name: string;
+    label: string;
+    builtin: boolean;
+    public: boolean;
+    show_ui: boolean;
+    show_in_rest: boolean;
+    supports_editor: boolean;
+    current_user_can_edit: boolean;
+    registered_meta: Array<{
+      key: string;
+      type: "string" | "integer" | "number" | "boolean" | "array" | "object";
+      description: string;
+      rest_schema: Record<string, unknown>;
+    }>;
+  }>;
   provider_profiles: number;
   theme_fingerprint: string;
   provider_fingerprint: string;
+  content_model_fingerprint: string;
   site_capability_fingerprint: string;
 }
 
@@ -145,6 +162,12 @@ export const createConfigSet = (label: string): Promise<ConfigSet> =>
 
 export const cloneConfigSet = (id: string, label: string): Promise<ConfigSet> =>
   apiFetch<ConfigSet>({ path: `${root}/config-sets/${encodeURIComponent(id)}/clone`, method: "POST", data: { label } });
+
+export const deactivateConfigSet = (id: string, configHash: string, confirmation: string): Promise<{ active: ""; deactivated: string; config_hash: string }> =>
+  apiFetch({ path: `${root}/config-sets/${encodeURIComponent(id)}/deactivate`, method: "POST", data: { config_hash: configHash, confirmation } });
+
+export const deleteConfigSet = (id: string, configHash: string, confirmation: string): Promise<{ deleted: true; config_set: string; entity_count: number; config_hash: string }> =>
+  apiFetch({ path: `${root}/config-sets/${encodeURIComponent(id)}`, method: "DELETE", data: { config_hash: configHash, confirmation } });
 
 export const createEntity = (setId: string, type: string, key: string, payload: Record<string, unknown>): Promise<ConfigEntity> =>
   apiFetch<ConfigEntity>({ path: `${root}/config-sets/${encodeURIComponent(setId)}/entities`, method: "POST", data: { type, key, payload } });

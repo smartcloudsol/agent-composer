@@ -4,6 +4,7 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Code,
   Group,
   MultiSelect,
@@ -33,11 +34,13 @@ interface EntityEditorProps {
   immutable: boolean;
   save: (payload: Payload) => Promise<void>;
   blocks?: ProviderDiscovery["registered_blocks"];
+  postTypes?: ProviderDiscovery["registered_post_types"];
+  blueprints?: ConfigEntity[];
   onDirtyChange?: (dirty: boolean) => void;
   help?: (topic: DocTopic) => void;
 }
 
-export default function EntityEditor({ selected, immutable, save, blocks = [], onDirtyChange, help }: EntityEditorProps) {
+export default function EntityEditor({ selected, immutable, save, blocks = [], postTypes = [], blueprints = [], onDirtyChange, help }: EntityEditorProps) {
   const [payload, setPayload] = useState<Payload>(selected.payload);
   const [json, setJson] = useState(JSON.stringify(selected.payload, null, 2));
   const [jsonError, setJsonError] = useState("");
@@ -72,7 +75,7 @@ export default function EntityEditor({ selected, immutable, save, blocks = [], o
       <Code>{selected.content_hash}</Code>
     </Group>
     {selected.type === "blueprint" && <BlueprintFields payload={payload} update={update} immutable={immutable} blocks={blocks} help={help} />}
-    {selected.type === "site-contract" && <SiteContractFields payload={payload} update={update} immutable={immutable} help={help} />}
+    {selected.type === "site-contract" && <SiteContractFields payload={payload} update={update} immutable={immutable} help={help} postTypes={postTypes} blueprints={blueprints} />}
     {selected.type === "config-set" && <ConfigSetFields payload={payload} update={update} immutable={immutable} help={help} />}
     {["component", "style-mapping", "provider-policy"].includes(selected.type) &&
       <GenericFields payload={payload} update={update} immutable={immutable} type={selected.type} />}
@@ -105,10 +108,28 @@ interface FieldsProps {
 }
 
 function BlueprintFields({ payload, update, immutable, blocks, help }: FieldsProps & { blocks: ProviderDiscovery["registered_blocks"] }) {
+	const compositionMode = stringAt(payload, ["composition_mode"]) || "document";
+  const templateFile = stringAt(payload, ["target_template", "file"]);
+  const templateSlug = stringAt(payload, ["target_template", "slug"]);
+  const savedTemplateMode = stringAt(payload, ["target_template", "mode"]);
+  const templateMode = templateFile || savedTemplateMode === "hierarchy" ? "hierarchy" : "assigned";
+  const templateValue = templateMode === "hierarchy" ? templateFile : templateSlug;
+  const updateTemplate = (mode: "hierarchy" | "assigned", value: string) => {
+    const label = stringAt(payload, ["target_template", "label"]);
+    update(["target_template"], mode === "hierarchy"
+      ? { label, mode, file: value }
+      : { label, mode: value === "default" ? "default" : mode, slug: value });
+  };
+  const switchTemplateMode = (mode: "hierarchy" | "assigned") => {
+    if (mode === templateMode) return;
+    const converted = mode === "hierarchy"
+      ? `templates/${(templateSlug || "single").replace(/^templates\//, "").replace(/\.html$/, "")}.html`
+      : (templateFile || "default").replace(/^templates\//, "").replace(/\.html$/, "");
+    updateTemplate(mode, converted);
+  };
   const constraintFields = [
     ["exactly_one_h1", __("Require exactly one H1", TEXT_DOMAIN)],
     ["inline_css", __("Allow inline CSS", TEXT_DOMAIN)],
-    ["custom_html", __("Allow Custom HTML", TEXT_DOMAIN)],
     ["shortcodes", __("Allow shortcodes", TEXT_DOMAIN)],
     ["external_embeds", __("Allow external embeds", TEXT_DOMAIN)],
     ["theme_presets_only", __("Require theme presets", TEXT_DOMAIN)]
@@ -116,7 +137,7 @@ function BlueprintFields({ payload, update, immutable, blocks, help }: FieldsPro
 
   const selectedBlocks = stringsAt(payload, ["allowed_blocks"]);
   const blockOptions = (() => {
-    const known = blocks.map((block) => ({ value: block.name, label: `${block.title || block.name} (${block.name})` }));
+	const known = blocks.filter((block) => block.name !== "core/html").map((block) => ({ value: block.name, label: `${block.title || block.name} (${block.name})` }));
     const names = new Set(known.map((item) => item.value));
     return [...known, ...selectedBlocks.filter((name) => !names.has(name)).map((name) => ({ value: name, label: `${name} (${__("saved but not currently registered", TEXT_DOMAIN)})` }))];
   })();
@@ -127,6 +148,9 @@ function BlueprintFields({ payload, update, immutable, blocks, help }: FieldsPro
       <TextInput label={__("Display label", TEXT_DOMAIN)} description={fieldDescription(__("Human-readable name shown in Composer.", TEXT_DOMAIN), "blueprint-identity", help)} placeholder={__("Service landing page", TEXT_DOMAIN)} value={stringAt(payload, ["label"])} onChange={(event) => update(["label"], event.currentTarget.value)} readOnly={immutable} />
       <TextInput label={__("Page type key", TEXT_DOMAIN)} description={fieldDescription(__("Stable key used by draft abilities.", TEXT_DOMAIN), "blueprint-identity", help)} placeholder="service" value={stringAt(payload, ["page_type"])} onChange={(event) => update(["page_type"], event.currentTarget.value)} readOnly={immutable} />
       <TextInput label={__("Target post type", TEXT_DOMAIN)} description={fieldDescription(__("Registered WordPress post type that receives the draft.", TEXT_DOMAIN), "blueprint-identity", help)} placeholder="page" value={stringAt(payload, ["target_post_type"])} onChange={(event) => update(["target_post_type"], event.currentTarget.value)} readOnly={immutable} />
+	  <Select label={__("Composition mode", TEXT_DOMAIN)} description={fieldDescription(__("Documents assemble a Gutenberg body; structured records keep the body empty and use approved fields.", TEXT_DOMAIN), "blueprint-identity", help)} value={compositionMode}
+		data={[{ value: "document", label: __("Document", TEXT_DOMAIN) }, { value: "structured-record", label: __("Structured record", TEXT_DOMAIN) }]}
+		onChange={(value) => { if (!value) return; update(["composition_mode"], value); if (value === "structured-record") { update(["allowed_patterns"], []); update(["required_sequence"], []); update(["allowed_blocks"], []); } }} readOnly={immutable} />
       <TextInput label={__("Visual variant", TEXT_DOMAIN)} description={fieldDescription(__("Stable semantic presentation family, not a CSS class.", TEXT_DOMAIN), "blueprint-identity", help)} placeholder="service-detail" value={stringAt(payload, ["visual_variant"])} onChange={(event) => update(["visual_variant"], event.currentTarget.value)} readOnly={immutable} />
       <Select label={__("Excerpt policy", TEXT_DOMAIN)} description={fieldDescription(__("Required, optional, or empty for this page type.", TEXT_DOMAIN), "blueprint-safety", help)} value={stringAt(payload, ["excerpt_policy"]) || stringAt(payload, ["excerpt"]) || "optional"}
         data={[{ value: "required", label: __("Required", TEXT_DOMAIN) }, { value: "optional", label: __("Optional", TEXT_DOMAIN) }, { value: "disabled", label: __("Disabled", TEXT_DOMAIN) }]}
@@ -137,12 +161,12 @@ function BlueprintFields({ payload, update, immutable, blocks, help }: FieldsPro
     <HelpHeading title={__("Target template", TEXT_DOMAIN)} topic="blueprint-template" help={help} />
     <SimpleGrid cols={{ base: 1, sm: 3 }}>
       <TextInput label={__("Template label", TEXT_DOMAIN)} description={fieldDescription(__("Human-readable template name.", TEXT_DOMAIN), "blueprint-template", help)} placeholder={__("Page without title", TEXT_DOMAIN)} value={stringAt(payload, ["target_template", "label"])} onChange={(event) => update(["target_template", "label"], event.currentTarget.value)} readOnly={immutable} />
-      <Select label={__("Assignment mode", TEXT_DOMAIN)} description={fieldDescription(__("Use hierarchy or pin an assigned template.", TEXT_DOMAIN), "blueprint-template", help)} value={stringAt(payload, ["target_template", "mode"]) || null} clearable data={["hierarchy", "assigned"]} onChange={(value) => update(["target_template", "mode"], value || "")} readOnly={immutable} />
-      <TextInput label={__("Template file or slug", TEXT_DOMAIN)} description={fieldDescription(__("Registered template slug used when assigned.", TEXT_DOMAIN), "blueprint-template", help)} placeholder="page-no-title" value={stringAt(payload, ["target_template", "file"]) || stringAt(payload, ["target_template", "slug"])} onChange={(event) => update(["target_template", "file"], event.currentTarget.value)} readOnly={immutable} />
+      <Select label={__("Assignment mode", TEXT_DOMAIN)} description={fieldDescription(__("Use hierarchy or pin an assigned template.", TEXT_DOMAIN), "blueprint-template", help)} value={templateMode} data={["hierarchy", "assigned"]} onChange={(value) => { if (value === "hierarchy" || value === "assigned") switchTemplateMode(value); }} readOnly={immutable} />
+      <TextInput label={templateMode === "hierarchy" ? __("Template file", TEXT_DOMAIN) : __("Template slug", TEXT_DOMAIN)} description={fieldDescription(templateMode === "hierarchy" ? __("Theme hierarchy file such as templates/single-example.html.", TEXT_DOMAIN) : __("Registered template slug used when assigned.", TEXT_DOMAIN), "blueprint-template", help)} placeholder={templateMode === "hierarchy" ? "templates/single.html" : "page-no-title"} value={templateValue} onChange={(event) => updateTemplate(templateMode, event.currentTarget.value)} readOnly={immutable} />
     </SimpleGrid>
-    <TagsInput label={__("Allowed patterns", TEXT_DOMAIN)} description={fieldDescription(__("Pattern slugs Composer may use for this page type.", TEXT_DOMAIN), "blueprint-patterns", help)} placeholder="theme-slug/pattern-name" value={stringsAt(payload, ["allowed_patterns"])} onChange={(value) => update(["allowed_patterns"], value)} readOnly={immutable} clearable />
-    <TagsInput label={__("Required pattern sequence", TEXT_DOMAIN)} description={fieldDescription(__("Ordered minimum skeleton; every item must also be allowed.", TEXT_DOMAIN), "blueprint-patterns", help)} placeholder="theme-slug/hero" value={stringsAt(payload, ["required_sequence"])} onChange={(value) => update(["required_sequence"], value)} readOnly={immutable} clearable />
-    <MultiSelect label={__("Allowed blocks", TEXT_DOMAIN)} description={fieldDescription(__("Final Gutenberg block allowlist for assembled candidates.", TEXT_DOMAIN), "blueprint-blocks", help)} placeholder={__("Search registered blocks", TEXT_DOMAIN)} value={selectedBlocks} onChange={(value) => update(["allowed_blocks"], value)} data={blockOptions} searchable clearable readOnly={immutable} nothingFoundMessage={__("No registered block matches this search", TEXT_DOMAIN)} />
+    <TagsInput label={__("Allowed patterns", TEXT_DOMAIN)} description={fieldDescription(compositionMode === "structured-record" ? __("Structured records must leave this empty.", TEXT_DOMAIN) : __("Pattern slugs Composer may use for this page type.", TEXT_DOMAIN), "blueprint-patterns", help)} placeholder="theme-slug/pattern-name" value={stringsAt(payload, ["allowed_patterns"])} onChange={(value) => update(["allowed_patterns"], value)} readOnly={immutable || compositionMode === "structured-record"} clearable />
+    <TagsInput label={__("Required pattern sequence", TEXT_DOMAIN)} description={fieldDescription(compositionMode === "structured-record" ? __("Structured records do not have a Gutenberg sequence.", TEXT_DOMAIN) : __("Ordered minimum skeleton; every item must also be allowed.", TEXT_DOMAIN), "blueprint-patterns", help)} placeholder="theme-slug/hero" value={stringsAt(payload, ["required_sequence"])} onChange={(value) => update(["required_sequence"], value)} readOnly={immutable || compositionMode === "structured-record"} clearable />
+    <MultiSelect label={__("Allowed blocks", TEXT_DOMAIN)} description={fieldDescription(compositionMode === "structured-record" ? __("Structured records cannot receive body blocks.", TEXT_DOMAIN) : __("Final Gutenberg block allowlist for assembled candidates.", TEXT_DOMAIN), "blueprint-blocks", help)} placeholder={__("Search registered blocks", TEXT_DOMAIN)} value={selectedBlocks} onChange={(value) => update(["allowed_blocks"], value)} data={blockOptions} searchable clearable readOnly={immutable || compositionMode === "structured-record"} nothingFoundMessage={__("No registered block matches this search", TEXT_DOMAIN)} />
     <HelpHeading title={__("Safety and structure constraints", TEXT_DOMAIN)} topic="blueprint-safety" help={help} />
     <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
       {constraintFields.map(([key, label]) => <Switch key={key} label={label} checked={booleanAt(payload, ["constraints", key])} onChange={(event) => { if (!immutable) update(["constraints", key], event.currentTarget.checked); }} readOnly={immutable} />)}
@@ -154,27 +178,29 @@ function BlueprintFields({ payload, update, immutable, blocks, help }: FieldsPro
   </Stack>;
 }
 
-function SiteContractFields({ payload, update, immutable, help }: FieldsProps) {
+function SiteContractFields({ payload, update, immutable, help, postTypes, blueprints }: FieldsProps & { postTypes: ProviderDiscovery["registered_post_types"]; blueprints: ConfigEntity[] }) {
   const constraints = [
     ["exactly_one_h1", __("Require exactly one H1", TEXT_DOMAIN)],
     ["inline_css", __("Allow inline CSS", TEXT_DOMAIN)],
-    ["custom_html", __("Allow Custom HTML", TEXT_DOMAIN)],
     ["shortcodes", __("Allow shortcodes", TEXT_DOMAIN)],
     ["external_embeds", __("Allow external embeds", TEXT_DOMAIN)],
     ["theme_presets_only", __("Require theme presets", TEXT_DOMAIN)]
   ] as const;
   return <Stack gap="md">
-    <EditorIntro title={__("Site Contract", TEXT_DOMAIN)} text={__("Sets the global safety, brand, accessibility, media, layout, and content policy inherited by every blueprint in this Config Set.", TEXT_DOMAIN)} />
+    <EditorIntro title={__("Site Contract", TEXT_DOMAIN)} text={__("Sets site-wide policy and the defaults inherited by Blueprints that do not define explicit page-type values.", TEXT_DOMAIN)} />
     <SimpleGrid cols={{ base: 1, sm: 2 }}>
       <TextInput label={__("Contract label", TEXT_DOMAIN)} description={fieldDescription(__("Human-readable name of the site-wide contract.", TEXT_DOMAIN), "site-identity", help)} placeholder={__("Public site content contract", TEXT_DOMAIN)} value={stringAt(payload, ["label"])} onChange={(event) => update(["label"], event.currentTarget.value)} readOnly={immutable} />
       <TextInput label={__("Policy name", TEXT_DOMAIN)} description={fieldDescription(__("Stable machine-readable design policy name.", TEXT_DOMAIN), "site-identity", help)} placeholder="site-design-policy" value={stringAt(payload, ["design_policy", "policy_name"])} onChange={(event) => update(["design_policy", "policy_name"], event.currentTarget.value)} readOnly={immutable} />
       <TextInput label={__("Policy version", TEXT_DOMAIN)} description={fieldDescription(__("Increment when policy meaning changes.", TEXT_DOMAIN), "site-identity", help)} placeholder="1.0.0" value={stringAt(payload, ["design_policy", "policy_version"])} onChange={(event) => update(["design_policy", "policy_version"], event.currentTarget.value)} readOnly={immutable} />
-      <TextInput label={__("Content language (optional)", TEXT_DOMAIN)} description={fieldDescription(__("Advisory BCP 47 language exposed to agents for public generated copy; this does not translate content automatically.", TEXT_DOMAIN), "site-language", help)} placeholder="en-US" value={stringAt(payload, ["design_policy", "content_language"])} onChange={(event) => update(["design_policy", "content_language"], event.currentTarget.value)} readOnly={immutable} />
+	  <TextInput label={__("Content language", TEXT_DOMAIN)} description={fieldDescription(__("Authoritative BCP 47 language for public copy. Strict enforcement requires every execution request to echo it.", TEXT_DOMAIN), "site-language", help)} placeholder="en-US" value={stringAt(payload, ["design_policy", "content_language"])} onChange={(event) => update(["design_policy", "content_language"], event.currentTarget.value)} readOnly={immutable} />
+	  <Select label={__("Language enforcement", TEXT_DOMAIN)} description={fieldDescription(__("Strict blocks known fallback copy and substantial language mismatches before writing.", TEXT_DOMAIN), "site-language", help)} value={stringAt(payload, ["design_policy", "content_language_enforcement"]) || "advisory"} data={[{ value: "advisory", label: __("Advisory", TEXT_DOMAIN) }, { value: "strict", label: __("Strict", TEXT_DOMAIN) }]} onChange={(value) => { if (value) update(["design_policy", "content_language_enforcement"], value); }} readOnly={immutable} />
       <TextInput label={__("Operator language (optional)", TEXT_DOMAIN)} description={fieldDescription(__("Advisory BCP 47 language for operator-facing instructions when the connected client supports it.", TEXT_DOMAIN), "site-language", help)} placeholder="hu-HU" value={stringAt(payload, ["design_policy", "operator_language"])} onChange={(event) => update(["design_policy", "operator_language"], event.currentTarget.value)} readOnly={immutable} />
-      <NumberInput label={__("Global maximum words", TEXT_DOMAIN)} description={fieldDescription(__("Outer word ceiling inherited by every Blueprint.", TEXT_DOMAIN), "site-language", help)} placeholder="3000" min={1} max={100000} value={numberAt(payload, ["design_policy", "constraints", "maximum_words"])} onChange={(value) => update(["design_policy", "constraints", "maximum_words"], Number(value) || 0)} readOnly={immutable} />
+	  <NumberInput label={__("Default maximum words", TEXT_DOMAIN)} description={fieldDescription(__("Inherited when a Blueprint does not define its own word ceiling.", TEXT_DOMAIN), "site-language", help)} placeholder="3000" min={1} max={100000} value={numberAt(payload, ["design_policy", "constraints", "maximum_words"])} onChange={(value) => update(["design_policy", "constraints", "maximum_words"], Number(value) || 0)} readOnly={immutable} />
     </SimpleGrid>
+	<TagsInput label={__("Approved language exceptions", TEXT_DOMAIN)} description={fieldDescription(__("Brand names, technical terms, citations, or reviewed foreign-language fragments allowed by strict validation.", TEXT_DOMAIN), "site-language", help)} placeholder="SmartCloud" value={stringsAt(payload, ["design_policy", "content_language_exceptions"])} onChange={(value) => update(["design_policy", "content_language_exceptions"], value)} readOnly={immutable} clearable />
     <TagsInput label={__("Allowed pattern namespaces", TEXT_DOMAIN)} description={fieldDescription(__("Trusted namespaces from themes, Composer, or approved plugins.", TEXT_DOMAIN), "site-pattern-scope", help)} placeholder="theme-slug" value={stringsAt(payload, ["design_policy", "allowed_pattern_namespaces"])} onChange={(value) => update(["design_policy", "allowed_pattern_namespaces"], value)} readOnly={immutable} clearable />
     <TagsInput label={__("Disallowed blocks", TEXT_DOMAIN)} description={fieldDescription(__("Site-wide denylist; it overrides Blueprint allowlists.", TEXT_DOMAIN), "site-pattern-scope", help)} placeholder="core/shortcode" value={stringsAt(payload, ["design_policy", "disallowed_blocks"])} onChange={(value) => update(["design_policy", "disallowed_blocks"], value)} readOnly={immutable} clearable />
+    <ContentAccessFields payload={payload} update={update} immutable={immutable} postTypes={postTypes} blueprints={blueprints} />
     <HelpHeading title={__("Global safety constraints", TEXT_DOMAIN)} topic="site-safety" help={help} />
     <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
       {constraints.map(([key, label]) => <Switch key={key} label={label} checked={booleanAt(payload, ["design_policy", "constraints", key])} onChange={(event) => { if (!immutable) update(["design_policy", "constraints", key], event.currentTarget.checked); }} readOnly={immutable} />)}
@@ -182,6 +208,133 @@ function SiteContractFields({ payload, update, immutable, help }: FieldsProps) {
     <LongList label={__("Brand tone", TEXT_DOMAIN)} description={__("One durable writing characteristic per line.", TEXT_DOMAIN)} placeholder={__("Clear and direct\nEvidence-led\nTechnically credible", TEXT_DOMAIN)} topic="site-brand" help={help} value={stringsAt(payload, ["design_policy", "brand", "tone"])} change={(value) => update(["design_policy", "brand", "tone"], value)} readOnly={immutable} />
     <LongList label={__("Avoid", TEXT_DOMAIN)} description={__("One prohibited claim or writing habit per line.", TEXT_DOMAIN)} placeholder={__("Unsupported guarantees\nInvented statistics\nArtificial urgency", TEXT_DOMAIN)} topic="site-brand" help={help} value={stringsAt(payload, ["design_policy", "brand", "avoid"])} change={(value) => update(["design_policy", "brand", "avoid"], value)} readOnly={immutable} />
     <LongList label={__("Global layout rules", TEXT_DOMAIN)} description={__("Inherited presentation invariants, one per line.", TEXT_DOMAIN)} placeholder={__("Use one Gutenberg content root.\nUse only active-theme preset design values.\nKeep heading levels sequential below the single H1.", TEXT_DOMAIN)} topic="site-layout" help={help} value={stringsAt(payload, ["design_policy", "layout", "rules"])} change={(value) => update(["design_policy", "layout", "rules"], value)} readOnly={immutable} />
+  </Stack>;
+}
+
+function ContentAccessFields({ payload, update, immutable, postTypes, blueprints }: FieldsProps & { postTypes: ProviderDiscovery["registered_post_types"]; blueprints: ConfigEntity[] }) {
+  const policy = objectAt(payload, ["design_policy"]);
+  const access = objectAt(policy, ["content_access"]);
+  const fieldAccess = objectAt(policy, ["content_field_access"]);
+  const contract = objectAt(policy, ["post_type_contract"]);
+  const configured = new Set([...Object.values(contract), ...Object.keys(access), ...Object.keys(fieldAccess)].filter((value): value is string => typeof value === "string"));
+  const known = new Map(postTypes.map((item) => [item.name, item]));
+  for (const name of configured) {
+    if (!known.has(name)) known.set(name, { name, label: name, builtin: false, public: false, show_ui: false, show_in_rest: false, supports_editor: false, current_user_can_edit: false, registered_meta: [] });
+  }
+
+  const setRule = (postType: string, rule: "discover" | "read" | "clone" | "adopt_drafts", checked: boolean, pageTypes: string[]) => {
+    const nextPolicy = { ...policy };
+    const nextAccess = { ...access };
+    const current = objectAt(access, [postType]);
+    const nextRules = {
+      discover: current.discover === true,
+      read: current.read === true,
+      clone: current.clone === true,
+      adopt_drafts: current.adopt_drafts === true,
+      [rule]: checked
+    };
+    if (rule === "clone" && checked) { nextRules.read = true; nextRules.discover = true; }
+    if (rule === "read" && checked) nextRules.discover = true;
+    if (rule === "read" && !checked) nextRules.clone = false;
+    if (rule === "discover" && !checked) { nextRules.read = false; nextRules.clone = false; nextRules.adopt_drafts = false; }
+    if (rule === "adopt_drafts" && checked) nextRules.discover = true;
+    nextAccess[postType] = nextRules;
+    nextPolicy.content_access = nextAccess;
+    const nextContract = { ...contract };
+    for (const pageType of pageTypes) nextContract[pageType] = postType;
+    nextPolicy.post_type_contract = nextContract;
+    update(["design_policy"], nextPolicy);
+  };
+
+  const setFieldRule = (postType: string, metaKey: string, rule: "read" | "write", checked: boolean) => {
+    const nextPolicy = { ...policy };
+    const nextFieldAccess = { ...fieldAccess };
+    const postTypeFields = { ...objectAt(fieldAccess, [postType]) };
+    const current = objectAt(postTypeFields, [metaKey]);
+    const nextRules = {
+      read: current.read === true,
+      write: current.write === true,
+      [rule]: checked
+    };
+    if (rule === "write" && checked) nextRules.read = true;
+    if (rule === "read" && !checked) nextRules.write = false;
+    if (!nextRules.read && !nextRules.write) delete postTypeFields[metaKey];
+    else postTypeFields[metaKey] = nextRules;
+    if (Object.keys(postTypeFields).length) nextFieldAccess[postType] = postTypeFields;
+    else delete nextFieldAccess[postType];
+    nextPolicy.content_field_access = nextFieldAccess;
+    update(["design_policy"], nextPolicy);
+  };
+
+  const setAllFieldRules = (postType: string, metaKeys: string[], rule: "read" | "write", checked: boolean) => {
+    const nextPolicy = { ...policy };
+    const nextFieldAccess = { ...fieldAccess };
+    const postTypeFields = { ...objectAt(fieldAccess, [postType]) };
+    for (const metaKey of metaKeys) {
+      const current = objectAt(postTypeFields, [metaKey]);
+      const nextRules = {
+        read: current.read === true,
+        write: current.write === true,
+        [rule]: checked
+      };
+      if (rule === "write" && checked) nextRules.read = true;
+      if (rule === "read" && !checked) nextRules.write = false;
+      if (!nextRules.read && !nextRules.write) delete postTypeFields[metaKey];
+      else postTypeFields[metaKey] = nextRules;
+    }
+    if (Object.keys(postTypeFields).length) nextFieldAccess[postType] = postTypeFields;
+    else delete nextFieldAccess[postType];
+    nextPolicy.content_field_access = nextFieldAccess;
+    update(["design_policy"], nextPolicy);
+  };
+
+  return <Stack gap="sm">
+    <div><Title order={4}>{__("Composer content access", TEXT_DOMAIN)}</Title>
+      <Text size="sm" c="dimmed" mt={4}>{__("Explicitly grant the active Composer configuration access to existing WordPress content. WordPress user capabilities are still enforced for every item. Published content can be inspected or cloned; direct write access is limited to adopting editable drafts.", TEXT_DOMAIN)}</Text></div>
+    {[...known.values()].map((postType) => {
+      const matching = blueprints.filter((entity) => entity.type === "blueprint" && stringAt(entity.payload, ["target_post_type"]) === postType.name);
+      const pageTypes = matching.map((entity) => stringAt(entity.payload, ["page_type"]) || entity.key).filter(Boolean);
+      const safe = postType.public && postType.show_ui && postType.show_in_rest && postType.supports_editor && postType.current_user_can_edit;
+      const enabled = !immutable && safe && pageTypes.length > 0;
+      const rules = objectAt(access, [postType.name]);
+      return <Card key={postType.name} withBorder radius="sm" p="sm"><Stack gap="xs">
+        <Group justify="space-between" align="flex-start" wrap="wrap"><div><Text fw={700}>{postType.label}</Text><Code>{postType.name}</Code></div><Text size="xs" c={enabled || immutable ? "dimmed" : "orange.8"}>{pageTypes.length ? `${__("Blueprints", TEXT_DOMAIN)}: ${pageTypes.join(", ")}` : __("Add a Blueprint targeting this post type first.", TEXT_DOMAIN)}</Text></Group>
+        {!safe && <Alert color="yellow">{__("Composer requires a public, wp-admin-visible, REST/Gutenberg-enabled post type and the current user's edit capability.", TEXT_DOMAIN)}</Alert>}
+        <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+          <Checkbox label={__("Discover in lists", TEXT_DOMAIN)} description={__("Show metadata without body content.", TEXT_DOMAIN)} checked={rules.discover === true} disabled={!enabled} onChange={(event) => setRule(postType.name, "discover", event.currentTarget.checked, pageTypes)} />
+          <Checkbox label={__("Read content", TEXT_DOMAIN)} description={__("Inspect body content for analysis.", TEXT_DOMAIN)} checked={rules.read === true} disabled={!enabled} onChange={(event) => setRule(postType.name, "read", event.currentTarget.checked, pageTypes)} />
+          <Checkbox label={__("Clone to Composer draft", TEXT_DOMAIN)} description={__("Copy into a new agent-owned draft.", TEXT_DOMAIN)} checked={rules.clone === true} disabled={!enabled} onChange={(event) => setRule(postType.name, "clone", event.currentTarget.checked, pageTypes)} />
+          <Checkbox label={__("Adopt editable drafts", TEXT_DOMAIN)} description={__("Allow explicit takeover of a draft only.", TEXT_DOMAIN)} checked={rules.adopt_drafts === true} disabled={!enabled} onChange={(event) => setRule(postType.name, "adopt_drafts", event.currentTarget.checked, pageTypes)} />
+        </SimpleGrid>
+        {postType.registered_meta.length > 0 && <Accordion variant="contained" radius="sm">
+          <Accordion.Item value="registered-fields">
+            <Accordion.Control>{`${__("Composer field access", TEXT_DOMAIN)} (${postType.registered_meta.length})`}</Accordion.Control>
+            <Accordion.Panel><Stack gap="xs">
+              <Alert color="blue">{__("Only explicitly selected, public, single-value, REST-registered fields become visible to Composer. Writes remain limited to Composer-owned assigned drafts and require optimistic concurrency plus explicit confirmation.", TEXT_DOMAIN)}</Alert>
+              <Group gap="xs" wrap="wrap">
+                <Button size="compact-xs" variant="light" disabled={!enabled} onClick={() => setAllFieldRules(postType.name, postType.registered_meta.map((field) => field.key), "read", true)}>{__("Select all Read", TEXT_DOMAIN)}</Button>
+                <Button size="compact-xs" variant="subtle" disabled={!enabled} onClick={() => setAllFieldRules(postType.name, postType.registered_meta.map((field) => field.key), "read", false)}>{__("Deselect all Read", TEXT_DOMAIN)}</Button>
+                <Button size="compact-xs" variant="light" disabled={!enabled} onClick={() => setAllFieldRules(postType.name, postType.registered_meta.map((field) => field.key), "write", true)}>{__("Select all Write draft", TEXT_DOMAIN)}</Button>
+                <Button size="compact-xs" variant="subtle" disabled={!enabled} onClick={() => setAllFieldRules(postType.name, postType.registered_meta.map((field) => field.key), "write", false)}>{__("Deselect all Write draft", TEXT_DOMAIN)}</Button>
+              </Group>
+              {postType.registered_meta.map((field) => {
+                const rules = objectAt(fieldAccess, [postType.name, field.key]);
+                return <Card key={field.key} withBorder radius="sm" p="xs">
+                  <Group justify="space-between" align="flex-start" wrap="wrap">
+                    <div><Code>{field.key}</Code><Text size="xs" c="dimmed">{field.description || field.type}</Text></div>
+                    <Group gap="md">
+                      <Checkbox label={__("Read", TEXT_DOMAIN)} checked={rules.read === true} disabled={!enabled} onChange={(event) => setFieldRule(postType.name, field.key, "read", event.currentTarget.checked)} />
+                      <Checkbox label={__("Write draft", TEXT_DOMAIN)} checked={rules.write === true} disabled={!enabled} onChange={(event) => setFieldRule(postType.name, field.key, "write", event.currentTarget.checked)} />
+                    </Group>
+                  </Group>
+                </Card>;
+              })}
+            </Stack></Accordion.Panel>
+          </Accordion.Item>
+        </Accordion>}
+        {safe && postType.registered_meta.length === 0 && <Text size="xs" c="dimmed">{__("No safe single-value REST-registered custom fields were discovered for this post type.", TEXT_DOMAIN)}</Text>}
+      </Stack></Card>;
+    })}
   </Stack>;
 }
 
@@ -276,6 +429,11 @@ function numberAt(payload: Payload, path: string[]): number | "" {
 
 function booleanAt(payload: Payload, path: string[]): boolean {
   return at(payload, path) === true;
+}
+
+function objectAt(payload: Payload, path: string[]): Payload {
+  const value = at(payload, path);
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Payload : {};
 }
 
 function stringsAt(payload: Payload, path: string[]): string[] {

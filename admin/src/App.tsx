@@ -87,6 +87,7 @@ export function App() {
     const next = preferred || result.active || result.items[0]?.config_set || "";
     setSelectedId(next);
     if (next) setSelectedSet(await getConfigSet(next));
+    else setSelectedSet(null);
   };
 
   useEffect(() => {
@@ -219,7 +220,7 @@ function OverviewPanel({ status, sets }: SectionProps) {
       <StatusCard label={__("Plugin version", TEXT_DOMAIN)} value={status.version} icon={<IconChecks size={18} />} />
       <StatusCard label={__("Active config", TEXT_DOMAIN)} value={status.active_config_set || __("Not activated", TEXT_DOMAIN)} icon={<IconDatabase size={18} />} />
       <StatusCard label={__("Config sets", TEXT_DOMAIN)} value={String(sets.length)} icon={<IconFileDescription size={18} />} />
-      <StatusCard label={__("Content access", TEXT_DOMAIN)} value={__("Agent-owned drafts only", TEXT_DOMAIN)} icon={<IconShieldCheck size={18} />} />
+      <StatusCard label={__("Content access", TEXT_DOMAIN)} value={__("Governed per post type", TEXT_DOMAIN)} icon={<IconShieldCheck size={18} />} />
       <StatusCard label={__("MCP endpoint", TEXT_DOMAIN)} value={status.mcp_endpoint} icon={<IconPlugConnected size={18} />} />
       <StatusCard label={__("Multisite configuration", TEXT_DOMAIN)} value={__("Per site", TEXT_DOMAIN)} icon={<IconDatabase size={18} />} />
     </SimpleGrid>
@@ -262,6 +263,8 @@ function PatternInventory({ entities, discovery }: { entities: ConfigEntity[]; d
 function DiscoveryPanel({ selectedSet, run, setNotice }: SectionProps) {
   const [discovery, setDiscovery] = useState<ProviderDiscovery | null>(null);
   useEffect(() => { loadDiscovery().then(setDiscovery).catch(() => undefined); }, []);
+  const contentTypeEligible = (item: ProviderDiscovery["registered_post_types"][number]) =>
+    item.public && item.show_ui && item.show_in_rest && item.supports_editor && item.current_user_can_edit;
   return <Stack gap="md">
     <SectionHeading title={__("Theme & providers", TEXT_DOMAIN)} description={__("Inspect the local theme manifest, provider Ability profiles, and runtime readiness.", TEXT_DOMAIN)} icon={<IconPlugConnected size={21} />} />
     <Group><Button variant="default" leftSection={<IconRefresh size={16} />} onClick={() => run(async () => { setDiscovery(await runDiscovery()); setNotice(__("Immutable discovery snapshot created.", TEXT_DOMAIN)); })}>{__("Rescan site", TEXT_DOMAIN)}</Button></Group>
@@ -271,12 +274,28 @@ function DiscoveryPanel({ selectedSet, run, setNotice }: SectionProps) {
         <StatusCard label={__("Theme manifest", TEXT_DOMAIN)} value={discovery.theme.manifest_status} icon={<IconFileDescription size={18} />} />
         <StatusCard label={__("Registered patterns", TEXT_DOMAIN)} value={String((discovery.registered_patterns || []).length)} icon={<IconFileDescription size={18} />} />
         <StatusCard label={__("Registered templates", TEXT_DOMAIN)} value={String((discovery.registered_templates || []).length)} icon={<IconFileDescription size={18} />} />
+        <StatusCard label={__("Eligible content types", TEXT_DOMAIN)} value={String((discovery.registered_post_types || []).filter(contentTypeEligible).length)} icon={<IconDatabase size={18} />} />
         <StatusCard label={__("Registered blocks", TEXT_DOMAIN)} value={String(discovery.registered_blocks.length)} icon={<IconDatabase size={18} />} />
         <StatusCard label={__("Provider profiles", TEXT_DOMAIN)} value={String(discovery.provider_profiles)} icon={<IconPlugConnected size={18} />} />
         <StatusCard label={__("Capability fingerprint", TEXT_DOMAIN)} value={discovery.site_capability_fingerprint} icon={<IconDatabase size={18} />} /></SimpleGrid>
       {discovery.providers.length === 0 ? <Alert color="yellow">{__("No provider execution manifests are currently available.", TEXT_DOMAIN)}</Alert> :
         discovery.providers.map((provider) => <Card key={provider.id} withBorder radius="md" p="md"><Group justify="space-between"><div><Text fw={700}>{provider.label}</Text><Text size="sm" c="dimmed">{`${provider.contract_version} · ${provider.ability_names.length} abilities`}</Text></div>
           <Badge color={provider.runtime?.runtime_ready ? "teal" : "yellow"}>{provider.runtime?.runtime_ready ? __("Ready", TEXT_DOMAIN) : __("Review", TEXT_DOMAIN)}</Badge></Group></Card>)}
+      <Card withBorder radius="md" p="md"><Stack gap="sm">
+        <Title order={3}>{__("Registered content types", TEXT_DOMAIN)}</Title>
+        <Text size="sm" c="dimmed">{__("These are the public wp-admin content types discovered after the last site scan. Eligible types can receive a matching Blueprint and explicit content or field access in the Site Contract.", TEXT_DOMAIN)}</Text>
+        <Table.ScrollContainer minWidth={760}><Table striped highlightOnHover><Table.Thead><Table.Tr>
+          <Table.Th>{__("Content type", TEXT_DOMAIN)}</Table.Th><Table.Th>{__("Slug", TEXT_DOMAIN)}</Table.Th><Table.Th>{__("Owner", TEXT_DOMAIN)}</Table.Th><Table.Th>{__("Gutenberg / REST", TEXT_DOMAIN)}</Table.Th><Table.Th>{__("Registered fields", TEXT_DOMAIN)}</Table.Th><Table.Th>{__("Composer", TEXT_DOMAIN)}</Table.Th>
+        </Table.Tr></Table.Thead><Table.Tbody>
+          {discovery.registered_post_types.map((item) => <Table.Tr key={item.name}>
+            <Table.Td><Text fw={600}>{item.label}</Text></Table.Td><Table.Td><Code>{item.name}</Code></Table.Td>
+            <Table.Td>{item.builtin ? __("WordPress", TEXT_DOMAIN) : __("Plugin / site", TEXT_DOMAIN)}</Table.Td>
+            <Table.Td><Badge color={item.show_in_rest && item.supports_editor ? "teal" : "yellow"} variant="light">{item.show_in_rest && item.supports_editor ? __("Ready", TEXT_DOMAIN) : __("Incomplete", TEXT_DOMAIN)}</Badge></Table.Td>
+            <Table.Td>{String(item.registered_meta.length)}</Table.Td>
+            <Table.Td><Badge color={contentTypeEligible(item) ? "teal" : "gray"} variant="light">{contentTypeEligible(item) ? __("Eligible", TEXT_DOMAIN) : __("Unavailable", TEXT_DOMAIN)}</Badge></Table.Td>
+          </Table.Tr>)}
+        </Table.Tbody></Table></Table.ScrollContainer>
+      </Stack></Card>
       <PatternInventory entities={selectedSet?.entities || []} discovery={discovery} />
     </>}
   </Stack>;

@@ -40,9 +40,13 @@ final class Config_Repository {
 
 		$defaults = array(
 			'schema_version'            => 1,
+			'content_language'          => '',
+			'content_language_enforcement' => 'advisory',
+			'content_language_exceptions' => array(),
 			'allowed_pattern_namespaces' => array( 'wpsuite' ),
 			'post_type_contract'         => array( 'page' => 'page' ),
 			'content_access'             => array(),
+			'content_field_access'       => array(),
 			'disallowed_blocks'         => array(
 				'core/html',
 				'core/shortcode',
@@ -81,11 +85,20 @@ final class Config_Repository {
 		);
 
 		$policy = array_replace_recursive( $defaults, $policy );
+		$policy['content_language'] = $this->normalize_language_tag( $policy['content_language'] ?? '', true );
+		$policy['content_language_enforcement'] = in_array( (string) ( $policy['content_language_enforcement'] ?? '' ), array( 'advisory', 'strict' ), true )
+			? (string) $policy['content_language_enforcement']
+			: 'advisory';
+		$policy['content_language_exceptions'] = $this->bounded_string_list( $policy['content_language_exceptions'] ?? array(), 100, 200 );
+		if ( 'strict' === $policy['content_language_enforcement'] && '' === $policy['content_language'] ) {
+			throw new Execution_Exception( 'strict_content_language_missing', 'Strict content-language enforcement requires a BCP 47 content_language.' );
+		}
 		$policy['allowed_pattern_namespaces'] = $this->slug_list( $policy['allowed_pattern_namespaces'] );
 		$policy['disallowed_blocks']          = $this->block_name_list( $policy['disallowed_blocks'] );
 		$policy['post_type_contract']         = $this->post_type_contract( $policy['post_type_contract'] ?? array() );
 		$policy['allowed_post_types']         = array_values( array_unique( array_values( $policy['post_type_contract'] ) ) );
 		$policy['content_access']             = $this->content_access_policy( $policy['content_access'] ?? array(), $policy['allowed_post_types'] );
+		$policy['content_field_access']       = $this->content_field_access_policy( $policy['content_field_access'] ?? array(), $policy['allowed_post_types'] );
 		$policy['block_extensions']            = $this->normalize_block_extensions( $policy['block_extensions'] ?? array() );
 		$policy['seo_contract']['required_fields'] = array_values(
 			array_unique(
@@ -114,6 +127,15 @@ final class Config_Repository {
 		if ( ! is_array( $filtered ) ) {
 			throw new Execution_Exception( 'invalid_filtered_design_policy', 'The filtered design policy must remain an object.' );
 		}
+		$filtered['disallowed_blocks'] = array_values(
+			array_unique( array_merge( (array) ( $filtered['disallowed_blocks'] ?? array() ), array( 'core/html' ) ) )
+		);
+		$filtered['constraints']['custom_html'] = false;
+		$filtered['block_extensions']['allowed_core_blocks'] = array_values(
+			array_diff( (array) ( $filtered['block_extensions']['allowed_core_blocks'] ?? array() ), array( 'core/html' ) )
+		);
+		$filtered['block_extensions']['core_html_javascript'] = false;
+		$filtered['block_extensions']['custom_html_contract'] = array();
 		$this->design_policy = $filtered;
 		return $this->design_policy;
 	}
@@ -146,6 +168,15 @@ final class Config_Repository {
 			'clone'        => true === ( $access['clone'] ?? false ),
 			'adopt_drafts' => true === ( $access['adopt_drafts'] ?? false ),
 		);
+	}
+
+	/** @return array<string,array{read:bool,write:bool}> */
+	public function get_content_field_access( string $post_type ): array {
+		$post_type = sanitize_key( $post_type );
+		$policy    = $this->get_design_policy();
+		return is_array( $policy['content_field_access'][ $post_type ] ?? null )
+			? $policy['content_field_access'][ $post_type ]
+			: array();
 	}
 
 	public function get_block_extensions(): array {
@@ -228,6 +259,26 @@ final class Config_Repository {
 		$policy                         = $this->get_design_policy();
 		$blueprint['schema_version']    = isset( $blueprint['schema_version'] ) ? (int) $blueprint['schema_version'] : 1;
 		$blueprint['page_type']         = $page_type;
+		$composition_mode               = (string) ( $blueprint['composition_mode'] ?? 'document' );
+		if ( ! in_array( $composition_mode, array( 'document', 'structured-record' ), true ) ) {
+			throw new Execution_Exception( 'invalid_composition_mode', 'Blueprint composition_mode must be document or structured-record.' );
+		}
+		$blueprint['composition_mode'] = $composition_mode;
+		$site_language = (string) ( $policy['content_language'] ?? '' );
+		$blueprint_language = $this->normalize_language_tag( $blueprint['content_language'] ?? '', true );
+		if ( '' !== $blueprint_language && '' !== $site_language && strtok( strtolower( $blueprint_language ), '-' ) !== strtok( strtolower( $site_language ), '-' ) ) {
+			throw new Execution_Exception( 'blueprint_content_language_conflict', 'A Blueprint may narrow but cannot override the Site Contract content language.' );
+		}
+		$blueprint['content_language'] = '' !== $blueprint_language ? $blueprint_language : $site_language;
+		$blueprint['content_language_enforcement'] = (string) $policy['content_language_enforcement'];
+		$blueprint['content_language_exceptions'] = array_values(
+			array_unique(
+				array_merge(
+					(array) $policy['content_language_exceptions'],
+					$this->bounded_string_list( $blueprint['content_language_exceptions'] ?? array(), 100, 200 )
+				)
+			)
+		);
 		$contract_post_type             = (string) ( $policy['post_type_contract'][ $page_type ] ?? '' );
 		$blueprint['target_post_type']  = $this->normalize_post_type( $blueprint['target_post_type'] ?? ( '' !== $contract_post_type ? $contract_post_type : 'page' ) );
 		$target_template                = isset( $blueprint['target_template'] )
@@ -237,6 +288,9 @@ final class Config_Repository {
 		$blueprint['allowed_patterns']   = $this->pattern_name_list( $blueprint['allowed_patterns'] ?? array() );
 		$blueprint['required_sequence']  = $this->pattern_name_list( $blueprint['required_sequence'] ?? array() );
 		$blueprint['allowed_blocks']     = $this->block_name_list( $blueprint['allowed_blocks'] ?? array() );
+		if ( in_array( 'core/html', $blueprint['allowed_blocks'], true ) ) {
+			throw new Execution_Exception( 'blueprint_custom_html_block_forbidden', 'Custom HTML blocks cannot be enabled by a Blueprint.' );
+		}
 		$blueprint['excerpt_policy']     = Excerpt_Policy::normalize( $blueprint['excerpt_policy'] ?? $blueprint['excerpt'] ?? Excerpt_Policy::OPTIONAL );
 		$blueprint['reference_page_ids'] = array_values(
 			array_unique(
@@ -244,17 +298,23 @@ final class Config_Repository {
 			)
 		);
 
-		if ( empty( $blueprint['allowed_patterns'] ) ) {
+		if ( 'document' === $composition_mode && empty( $blueprint['allowed_patterns'] ) ) {
 			throw new Execution_Exception( 'blueprint_has_no_patterns', 'The blueprint must allow at least one pattern.' );
 		}
-		if ( empty( $blueprint['required_sequence'] ) ) {
+		if ( 'document' === $composition_mode && empty( $blueprint['required_sequence'] ) ) {
 			throw new Execution_Exception( 'blueprint_has_no_sequence', 'The blueprint must define a required pattern sequence.' );
+		}
+		if ( 'structured-record' === $composition_mode && ( ! empty( $blueprint['allowed_patterns'] ) || ! empty( $blueprint['required_sequence'] ) ) ) {
+			throw new Execution_Exception( 'structured_record_patterns_forbidden', 'Structured-record Blueprints cannot declare a Gutenberg pattern composition.' );
 		}
 		if ( array_diff( $blueprint['required_sequence'], $blueprint['allowed_patterns'] ) ) {
 			throw new Execution_Exception( 'blueprint_sequence_not_allowed', 'Every required pattern must also be allowed.' );
 		}
-		if ( empty( $blueprint['allowed_blocks'] ) ) {
+		if ( 'document' === $composition_mode && empty( $blueprint['allowed_blocks'] ) ) {
 			throw new Execution_Exception( 'blueprint_has_no_blocks', 'The blueprint must allow at least one block type.' );
+		}
+		if ( 'structured-record' === $composition_mode && ! empty( $blueprint['allowed_blocks'] ) ) {
+			throw new Execution_Exception( 'structured_record_blocks_forbidden', 'Structured-record Blueprints cannot declare body blocks.' );
 		}
 		$markup_contract    = $this->markup_contract_from_policy( $policy );
 		if ( '' === $contract_post_type ) {
@@ -263,7 +323,7 @@ final class Config_Repository {
 		if ( $blueprint['target_post_type'] !== $contract_post_type ) {
 			throw new Execution_Exception( 'blueprint_post_type_contract_mismatch', 'The blueprint target post type does not match the design policy contract.' );
 		}
-		if ( null !== $markup_contract ) {
+		if ( null !== $markup_contract && 'document' === $composition_mode ) {
 			$this->assert_descriptive_string_list(
 				$blueprint['layout_contract'] ?? null,
 				'invalid_blueprint_layout_contract',
@@ -280,29 +340,54 @@ final class Config_Repository {
 				throw new Execution_Exception( 'blueprint_pattern_namespace_not_allowed', 'The blueprint contains a pattern namespace that is not allowed by the design policy.' );
 			}
 		}
-		$blueprint_constraints = array_replace_recursive(
+		$blueprint_constraints = $this->overlay_explicit(
 			$policy['constraints'],
 			isset( $blueprint['constraints'] ) && is_array( $blueprint['constraints'] )
 				? $blueprint['constraints']
 				: array()
 		);
-		foreach ( array( 'inline_css', 'custom_html', 'shortcodes', 'external_embeds' ) as $allow_flag ) {
-			$blueprint_constraints[ $allow_flag ] = ! empty( $policy['constraints'][ $allow_flag ] )
-				&& ! empty( $blueprint_constraints[ $allow_flag ] );
+		$blueprint_constraints['maximum_words'] = max( 1, (int) $blueprint_constraints['maximum_words'] );
+		if ( ! empty( $blueprint_constraints['custom_html'] ) ) {
+			throw new Execution_Exception( 'blueprint_custom_html_forbidden', 'Custom HTML cannot be enabled by a Blueprint.' );
 		}
-		foreach ( array( 'exactly_one_h1', 'theme_presets_only' ) as $required_flag ) {
-			$blueprint_constraints[ $required_flag ] = ! empty( $policy['constraints'][ $required_flag ] )
-				|| ! empty( $blueprint_constraints[ $required_flag ] );
+		$blueprint_constraints['custom_html'] = false;
+		if ( 'structured-record' === $composition_mode ) {
+			$blueprint_constraints['exactly_one_h1'] = false;
 		}
-		$blueprint_constraints['maximum_words'] = min(
-			(int) $policy['constraints']['maximum_words'],
-			max( 1, (int) $blueprint_constraints['maximum_words'] )
-		);
 		$blueprint['constraints']  = $blueprint_constraints;
-		$blueprint['seo_contract'] = $policy['seo_contract'];
-		$blueprint['block_extensions'] = $policy['block_extensions'];
+		$blueprint['seo_contract'] = $this->overlay_explicit(
+			$policy['seo_contract'],
+			isset( $blueprint['seo_contract'] ) && is_array( $blueprint['seo_contract'] )
+				? $blueprint['seo_contract']
+				: array()
+		);
+		$blueprint['block_extensions'] = $this->normalize_block_extensions(
+			$this->overlay_explicit(
+				$policy['block_extensions'],
+				isset( $blueprint['block_extensions'] ) && is_array( $blueprint['block_extensions'] )
+					? $blueprint['block_extensions']
+					: array()
+			)
+		);
 
 		return $blueprint;
+	}
+
+	private function overlay_explicit( array $defaults, array $overrides ): array {
+		foreach ( $overrides as $key => $value ) {
+			if (
+				is_array( $value )
+				&& ! array_is_list( $value )
+				&& isset( $defaults[ $key ] )
+				&& is_array( $defaults[ $key ] )
+				&& ! array_is_list( $defaults[ $key ] )
+			) {
+				$defaults[ $key ] = $this->overlay_explicit( $defaults[ $key ], $value );
+				continue;
+			}
+			$defaults[ $key ] = $value;
+		}
+		return $defaults;
 	}
 
 	private function pattern_name_list( mixed $value ): array {
@@ -336,16 +421,12 @@ final class Config_Repository {
 		$contract   = isset( $value['custom_html_contract'] ) && is_array( $value['custom_html_contract'] )
 			? $value['custom_html_contract']
 			: array();
-		$legacy_core_html_javascript = 'core-html-only' === (string) ( $contract['javascript'] ?? '' );
 		$legacy_passive_text_editor  = 'passive-only' === (string) ( $contract['text_editor_html'] ?? '' );
 		$legacy_captioned_image      = 'core-image-figcaption' === (string) ( $contract['image_caption'] ?? '' );
 		$text_editor_contract        = $this->normalize_text_editor_contract(
 			$value['text_editor_contract'] ?? array(),
 			$legacy_passive_text_editor
 		);
-		$core_html_javascript        = array_key_exists( 'core_html_javascript', $value )
-			? (bool) $value['core_html_javascript']
-			: $legacy_core_html_javascript;
 		$passive_text_editor_html    = array_key_exists( 'passive_text_editor_html', $value )
 			? (bool) $value['passive_text_editor_html']
 			: ( $legacy_passive_text_editor || ! empty( $text_editor_contract['passive_html_only'] ) );
@@ -355,11 +436,11 @@ final class Config_Repository {
 		$query_loop                   = $this->normalize_query_loop_materializer( $value['query_loop_materializer'] ?? array() );
 
 		return array(
-			'allowed_core_blocks'       => $core,
+			'allowed_core_blocks'       => array_values( array_diff( $core, array( 'core/html' ) ) ),
 			'allowed_plugin_namespaces' => $namespaces,
 			'require_registered_blocks' => true,
-			'custom_html_contract'      => $this->safe_theme_data( $contract ),
-			'core_html_javascript'      => $core_html_javascript,
+			'custom_html_contract'      => array(),
+			'core_html_javascript'      => false,
 			'passive_text_editor_html'  => $passive_text_editor_html,
 			'captioned_media_image_materializer' => $captioned_image,
 			'query_loop_materializer'   => $query_loop,
@@ -429,6 +510,39 @@ final class Config_Repository {
 		return array_values( array_unique( $result ) );
 	}
 
+	private function bounded_string_list( mixed $value, int $maximum_items, int $maximum_length ): array {
+		if ( ! is_array( $value ) || count( $value ) > $maximum_items ) {
+			return array();
+		}
+		$result = array();
+		foreach ( $value as $item ) {
+			if ( ! is_string( $item ) ) {
+				continue;
+			}
+			$item = trim( wp_strip_all_tags( $item ) );
+			if ( '' !== $item && strlen( $item ) <= $maximum_length ) {
+				$result[] = $item;
+			}
+		}
+		return array_values( array_unique( $result ) );
+	}
+
+	private function normalize_language_tag( mixed $value, bool $allow_empty ): string {
+		$value = trim( (string) $value );
+		if ( '' === $value && $allow_empty ) {
+			return '';
+		}
+		if ( ! preg_match( '/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/', $value ) ) {
+			throw new Execution_Exception( 'invalid_content_language', 'content_language must be a valid bounded BCP 47 language tag.' );
+		}
+		$parts = explode( '-', $value );
+		$parts[0] = strtolower( $parts[0] );
+		for ( $index = 1; $index < count( $parts ); ++$index ) {
+			$parts[ $index ] = 2 === strlen( $parts[ $index ] ) ? strtoupper( $parts[ $index ] ) : $parts[ $index ];
+		}
+		return implode( '-', $parts );
+	}
+
 	private function slug_list( mixed $value ): array {
 		if ( ! is_array( $value ) ) {
 			return array();
@@ -464,6 +578,39 @@ final class Config_Repository {
 		return $result;
 	}
 
+	/** @param string[] $allowed_post_types */
+	private function content_field_access_policy( mixed $value, array $allowed_post_types ): array {
+		if ( ! is_array( $value ) ) {
+			return array();
+		}
+
+		$result = array();
+		foreach ( $value as $post_type => $fields ) {
+			$post_type = sanitize_key( (string) $post_type );
+			if ( ! in_array( $post_type, $allowed_post_types, true ) || ! is_array( $fields ) ) {
+				continue;
+			}
+			foreach ( $fields as $meta_key => $rules ) {
+				$meta_key = trim( (string) $meta_key );
+				if (
+					'' === $meta_key
+					|| '_' === $meta_key[0]
+					|| strlen( $meta_key ) > 255
+					|| ! preg_match( '/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/', $meta_key )
+					|| ! is_array( $rules )
+				) {
+					continue;
+				}
+				$write = true === ( $rules['write'] ?? false );
+				$read  = $write || true === ( $rules['read'] ?? false );
+				if ( $read ) {
+					$result[ $post_type ][ $meta_key ] = array( 'read' => true, 'write' => $write );
+				}
+			}
+		}
+		return $result;
+	}
+
 	private function post_type_contract( mixed $value ): array {
 		if ( ! is_array( $value ) ) {
 			return array( 'page' => 'page' );
@@ -491,7 +638,7 @@ final class Config_Repository {
 	}
 
 	private function is_valid_post_type_name( string $post_type ): bool {
-		return 1 === preg_match( '/^[a-z0-9_]{1,20}$/', $post_type );
+		return 1 === preg_match( '/^[a-z0-9_-]{1,20}$/', $post_type );
 	}
 
 	private function normalize_target_template( mixed $value ): array {

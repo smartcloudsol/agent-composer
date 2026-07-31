@@ -150,8 +150,11 @@ final class PresetService {
 				'schema_version'             => 1,
 				'policy_name'                => $label,
 				'policy_version'             => '1.0.0',
+				'content_language'           => $this->site_content_language(),
+				'content_language_enforcement' => 'advisory',
 				'allowed_pattern_namespaces' => array( $namespace ),
 				'post_type_contract'         => array( 'page' => 'page' ),
+				'content_field_access'        => array(),
 				'disallowed_blocks'          => array( 'core/html', 'core/shortcode', 'core/freeform', 'core/legacy-widget', 'core/widget-group', 'core/embed' ),
 				'constraints'                => array(
 					'exactly_one_h1'    => true,
@@ -168,6 +171,7 @@ final class PresetService {
 			'schema_version'    => 1,
 			'entity_type'       => 'blueprint',
 			'page_type'         => 'page',
+			'composition_mode'  => 'document',
 			'label'             => $label . ' page',
 			'purpose'           => 'Create a clear, accessible WordPress page that follows the active theme and the selected Composer starter contract.',
 			'target_post_type'  => 'page',
@@ -219,6 +223,15 @@ final class PresetService {
 			}
 		}
 		return array( 'label' => 'Default', 'slug' => 'default' );
+	}
+
+	private function site_content_language(): string {
+		$language = str_replace( '_', '-', trim( (string) get_bloginfo( 'language' ) ) );
+		if ( preg_match( '/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/', $language ) ) {
+			return $language;
+		}
+		$locale = str_replace( '_', '-', trim( (string) get_locale() ) );
+		return preg_match( '/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/', $locale ) ? $locale : 'und';
 	}
 
 }

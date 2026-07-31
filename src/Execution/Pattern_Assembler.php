@@ -6,10 +6,12 @@ namespace SmartCloud\AgentComposer\Execution;
 final class Pattern_Assembler {
 	private Config_Repository $config;
 	private Pattern_Repository $patterns;
+	private Semantic_Slot_Materializer $slots;
 
-	public function __construct( Config_Repository $config, Pattern_Repository $patterns ) {
+	public function __construct( Config_Repository $config, Pattern_Repository $patterns, Semantic_Slot_Materializer $slots ) {
 		$this->config   = $config;
 		$this->patterns = $patterns;
+		$this->slots    = $slots;
 	}
 
 	/**
@@ -19,6 +21,17 @@ final class Pattern_Assembler {
 	 */
 	public function assemble( string $page_type, array $sections ): array {
 		$blueprint = $this->config->get_blueprint( $page_type );
+		if ( 'structured-record' === $blueprint['composition_mode'] ) {
+			if ( ! empty( $sections ) ) {
+				throw new Execution_Exception( 'structured_record_sections_forbidden', 'Structured-record Blueprints require zero Gutenberg sections.' );
+			}
+			return array(
+				'content'          => '',
+				'sequence'         => array(),
+				'composition_mode' => 'structured-record',
+				'content_language' => $blueprint['content_language'],
+			);
+		}
 		if ( empty( $sections ) || count( $sections ) > 50 ) {
 			throw new Execution_Exception( 'invalid_sections', 'Between 1 and 50 sections are required.' );
 		}
@@ -46,16 +59,24 @@ final class Pattern_Assembler {
 				'',
 				(string) $registered['content']
 			);
-			$rendered = $this->replace_placeholders( is_string( $source ) ? $source : (string) $registered['content'], $fields );
+			$slot_contract = $this->slots->slots_for_pattern( $pattern );
+			$rendered = $this->replace_placeholders(
+				is_string( $source ) ? $source : (string) $registered['content'],
+				$fields,
+				array_keys( $slot_contract )
+			);
 			$this->assert_no_unresolved_placeholders( $rendered );
+			$rendered = $this->slots->materialize( $pattern, $rendered, $fields );
 			$sequence[] = $pattern;
 			$content   .= $this->add_pattern_metadata( $rendered, $pattern );
 		}
 
 		$this->assert_required_sequence( $blueprint['required_sequence'], $sequence );
 		return array(
-			'content'  => trim( $content ),
-			'sequence' => $sequence,
+			'content'          => trim( $content ),
+			'sequence'         => $sequence,
+			'composition_mode' => 'document',
+			'content_language' => $blueprint['content_language'],
 		);
 	}
 
@@ -113,7 +134,7 @@ final class Pattern_Assembler {
 		return $serialized;
 	}
 
-	private function replace_placeholders( string $content, array $fields ): string {
+	private function replace_placeholders( string $content, array $fields, array $semantic_keys ): string {
 		if ( count( $fields ) > 100 ) {
 			throw new Execution_Exception( 'too_many_fields', 'A section cannot contain more than 100 fields.' );
 		}
@@ -122,8 +143,14 @@ final class Pattern_Assembler {
 		foreach ( $fields as $key => $value ) {
 			$original_key = (string) $key;
 			$key          = sanitize_key( $original_key );
-			if ( '' === $key || $original_key !== $key || ! is_scalar( $value ) ) {
-				throw new Execution_Exception( 'invalid_pattern_field', 'Pattern fields must use slug keys and scalar values.' );
+			if ( '' === $key || $original_key !== $key ) {
+				throw new Execution_Exception( 'invalid_pattern_field', 'Pattern fields must use slug keys.' );
+			}
+			if ( ! is_scalar( $value ) ) {
+				if ( ! in_array( $key, $semantic_keys, true ) || ! is_array( $value ) ) {
+					throw new Execution_Exception( 'invalid_pattern_field', 'Structured pattern fields must match a declared semantic slot.' );
+				}
+				continue;
 			}
 			$value = (string) $value;
 			if ( strlen( $value ) > 20000 ) {

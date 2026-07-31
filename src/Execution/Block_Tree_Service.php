@@ -457,6 +457,7 @@ final class Block_Tree_Service {
 			$errors[] = $this->issue( 'php_content_forbidden', 'PHP code is forbidden in every block.', array( 'block' => $name ) );
 		}
 		if ( 'core/html' === $name ) {
+			$errors[] = $this->issue( 'custom_html_forbidden', 'Custom HTML blocks are not accepted by Agent Composer.', array( 'block' => $name ) );
 			return;
 		}
 		if ( 'core/freeform' === $name ) {
@@ -466,7 +467,7 @@ final class Block_Tree_Service {
 			return;
 		}
 		if ( preg_match( '/<script\b|<[^>]+\son[a-z]+\s*=|(?:href|src)\s*=\s*["\']?\s*javascript\s*:/i', $html ) ) {
-			$errors[] = $this->issue( 'active_content_outside_custom_html', 'Active content is allowed only inside a core/html block.', array( 'block' => $name ) );
+			$errors[] = $this->issue( 'active_content_forbidden', 'JavaScript and event handlers are forbidden in Agent Composer content.', array( 'block' => $name ) );
 		}
 	}
 

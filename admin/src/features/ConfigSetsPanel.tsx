@@ -25,6 +25,8 @@ import {
   IconDatabase,
   IconFileDescription,
   IconHistory,
+  IconPower,
+  IconTrash,
   IconSettings
 } from "@tabler/icons-react";
 import { __ } from "@wordpress/i18n";
@@ -33,6 +35,8 @@ import {
   activateConfigSet,
   cloneConfigSet,
   createConfigSet,
+  deactivateConfigSet,
+  deleteConfigSet,
   diffConfigSet,
   exportConfigSet,
   instantiatePreset,
@@ -52,6 +56,9 @@ export function ConfigSetsPanel({ sets, selectedId, selectedSet, chooseSet, run,
   const [validation, setValidation] = useState<ValidationReport | null>(null);
   const [diff, setDiff] = useState<ConfigDiff | null>(null);
   const [rollbackOpened, setRollbackOpened] = useState(false);
+  const [maintenanceAction, setMaintenanceAction] = useState<"deactivate" | "delete" | null>(null);
+  const [maintenanceConfirmation, setMaintenanceConfirmation] = useState("");
+  const [maintenanceAcknowledged, setMaintenanceAcknowledged] = useState(false);
   const [page, setPage] = useState(1);
   const [presets, setPresets] = useState<ComposerPreset[]>([]);
   const [presetLabel, setPresetLabel] = useState("");
@@ -153,6 +160,9 @@ export function ConfigSetsPanel({ sets, selectedId, selectedSet, chooseSet, run,
         <Button variant="default" disabled={selectedSet.lifecycle !== "archived"} onClick={() => setRollbackOpened(true)}>{__("Restore archived as active", TEXT_DOMAIN)}</Button>
         <Button variant="default" disabled={!status.active_config_set || status.active_config_set === selectedId} onClick={() => run(async () => setDiff(await diffConfigSet(status.active_config_set, selectedId)))}>{__("Compare to active", TEXT_DOMAIN)}</Button>
         <Button variant="default" onClick={() => run(async () => { downloadJson(`${selectedId}.json`, await exportConfigSet(selectedId)); setNotice(__("Checksum-protected package exported.", TEXT_DOMAIN)); })}>{__("Export", TEXT_DOMAIN)}</Button>
+        {selectedSet.lifecycle === "active"
+          ? <Button variant="outline" color="red" leftSection={<IconPower size={16} />} onClick={() => { setMaintenanceConfirmation(""); setMaintenanceAcknowledged(false); setMaintenanceAction("deactivate"); }}>{__("Deactivate Composer", TEXT_DOMAIN)}</Button>
+          : <Button variant="outline" color="red" leftSection={<IconTrash size={16} />} onClick={() => { setMaintenanceConfirmation(""); setMaintenanceAcknowledged(false); setMaintenanceAction("delete"); }}>{__("Delete Config Set", TEXT_DOMAIN)}</Button>}
       </Group>
     </>}
 
@@ -165,6 +175,35 @@ export function ConfigSetsPanel({ sets, selectedId, selectedSet, chooseSet, run,
         <Alert color="yellow">{__("Composer will validate the archived target against the current theme and providers before changing anything. If validation fails, the active configuration stays unchanged.", TEXT_DOMAIN)}</Alert>
         <Group justify="flex-end"><Button variant="default" onClick={() => setRollbackOpened(false)}>{__("Cancel", TEXT_DOMAIN)}</Button>
           <Button color="teal" onClick={() => run(async () => { await rollbackConfigSet(selectedId); setRollbackOpened(false); await refreshSets(selectedId); setNotice(__("Archived set revalidated and restored as the active configuration.", TEXT_DOMAIN)); })}>{__("Validate and restore", TEXT_DOMAIN)}</Button></Group>
+      </Stack>
+    </Modal>
+    <Modal opened={maintenanceAction !== null} onClose={() => setMaintenanceAction(null)} title={maintenanceAction === "deactivate" ? __("Deactivate Composer configuration?", TEXT_DOMAIN) : __("Permanently delete Config Set?", TEXT_DOMAIN)} centered>
+      <Stack gap="md">
+        <Alert color="red" icon={<IconAlertTriangle size={18} />}>
+          {maintenanceAction === "deactivate"
+            ? __("Composer draft execution will have no active configuration until another validated Config Set is activated. No Config Set entity is deleted by this step.", TEXT_DOMAIN)
+            : __("Every entity in this inactive Config Set will be permanently deleted. The append-only audit history is retained.", TEXT_DOMAIN)}
+        </Alert>
+        <Text>{__("Type the complete stable ID to confirm:", TEXT_DOMAIN)} <Code>{selectedId}</Code></Text>
+        <TextInput value={maintenanceConfirmation} onChange={(event) => setMaintenanceConfirmation(event.currentTarget.value)} autoComplete="off" />
+        <Checkbox checked={maintenanceAcknowledged} onChange={(event) => setMaintenanceAcknowledged(event.currentTarget.checked)} label={maintenanceAction === "deactivate" ? __("I understand that Composer will remain inactive until another Config Set is activated.", TEXT_DOMAIN) : __("I understand that this Config Set and all of its entities will be permanently deleted.", TEXT_DOMAIN)} />
+        <Group justify="flex-end"><Button variant="default" onClick={() => setMaintenanceAction(null)}>{__("Cancel", TEXT_DOMAIN)}</Button>
+          <Button color="red" disabled={!selectedSet || maintenanceConfirmation !== selectedId || !maintenanceAcknowledged} onClick={() => run(async () => {
+            if (!selectedSet || !maintenanceAction) return;
+            if (maintenanceAction === "deactivate") {
+              await deactivateConfigSet(selectedId, selectedSet.config_hash, maintenanceConfirmation);
+              setNotice(__("Composer configuration deactivated. No Config Set entity was deleted.", TEXT_DOMAIN));
+            } else {
+              await deleteConfigSet(selectedId, selectedSet.config_hash, maintenanceConfirmation);
+              setNotice(__("Inactive Config Set and all of its entities were permanently deleted.", TEXT_DOMAIN));
+            }
+            setMaintenanceAction(null);
+            setMaintenanceConfirmation("");
+            setMaintenanceAcknowledged(false);
+            setValidation(null);
+            setDiff(null);
+            await refreshSets("");
+          })}>{maintenanceAction === "deactivate" ? __("Deactivate", TEXT_DOMAIN) : __("Delete permanently", TEXT_DOMAIN)}</Button></Group>
       </Stack>
     </Modal>
   </Stack>;

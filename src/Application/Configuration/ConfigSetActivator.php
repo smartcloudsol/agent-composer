@@ -54,6 +54,41 @@ final class ConfigSetActivator {
 		}
 	}
 
+	/** @return array{active:string,deactivated:string,config_hash:string} */
+	public function deactivate( string $config_set, string $confirmation, string $expected_hash ): array {
+		$config_set = sanitize_key( $config_set );
+		if ( '' === $config_set || ! hash_equals( $config_set, $confirmation ) ) {
+			throw new InvalidArgumentException( 'Type the complete active Config Set ID to confirm deactivation.' );
+		}
+		if ( $config_set !== (string) get_option( 'smartcloud_composer_active_config_set', '' ) ) {
+			throw new InvalidArgumentException( 'Only the currently active Config Set can be deactivated.' );
+		}
+		if ( ! preg_match( '/^sha256:[a-f0-9]{64}$/', $expected_hash ) ) {
+			throw new InvalidArgumentException( 'A valid Config Set hash is required for deactivation.' );
+		}
+
+		$lock = $this->acquire_lock();
+		try {
+			if ( $config_set !== (string) get_option( 'smartcloud_composer_active_config_set', '' ) ) {
+				throw new InvalidArgumentException( 'The active Config Set changed while deactivation was being confirmed. Review it again.' );
+			}
+			$current_hash = $this->repository->configuration_hash( $config_set );
+			if ( ! hash_equals( $expected_hash, $current_hash ) ) {
+				throw new InvalidArgumentException( 'The active Config Set changed after the deactivation dialog opened. Review it again.' );
+			}
+			$this->repository->set_active( $config_set, false );
+			$this->repository->set_lifecycle( $config_set, 'archived' );
+			delete_option( 'smartcloud_composer_active_config_set' );
+			delete_option( 'smartcloud_composer_previous_config_set' );
+			delete_option( 'smartcloud_composer_activation_receipt' );
+			delete_option( 'smartcloud_composer_active_snapshot' );
+			$this->audit->record( 'config-set-deactivated', 'success', array( 'config_set' => $config_set, 'config_hash' => $current_hash ) );
+			return array( 'active' => '', 'deactivated' => $config_set, 'config_hash' => $current_hash );
+		} finally {
+			$this->release_lock( $lock );
+		}
+	}
+
 	private function acquire_lock(): string {
 		$token   = wp_generate_uuid4();
 		$payload = array( 'token' => $token, 'expires' => time() + 30 );

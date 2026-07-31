@@ -23,36 +23,42 @@ final class Draft_Service {
 	private Target_Resolver $targets;
 	private Block_Tree_Service $trees;
 	private Config_Repository $config;
+	private Content_Language_Validator $language;
 
 	public function __construct(
 		Pattern_Assembler $assembler,
 		Page_Validator $validator,
 		Target_Resolver $targets,
 		Block_Tree_Service $trees,
-		Config_Repository $config
+		Config_Repository $config,
+		Content_Language_Validator $language
 	) {
 		$this->assembler = $assembler;
 		$this->validator = $validator;
 		$this->targets   = $targets;
 		$this->trees     = $trees;
 		$this->config    = $config;
+		$this->language  = $language;
 	}
 
 	public function validate_request( array $input ): array {
 		$page_type = sanitize_key( (string) ( $input['page_type'] ?? '' ) );
+		$this->language->assert_request_language( $page_type, $input );
 		$target    = $this->targets->resolve( $page_type );
 		$editorial = $this->sanitize_editorial_fields( $input, $page_type );
 		$assembled = $this->assembler->assemble( $page_type, $input['sections'] ?? array() );
 		$result           = $this->validator->validate( $page_type, $assembled['content'] );
+		$result           = $this->add_editorial_language_issues( $result, $page_type, $input, $editorial );
 		$result['target'] = $this->targets->public_contract( $target );
 		$result['seo']    = $this->describe_editorial_fields( $editorial['excerpt'], $editorial['meta_description'], $editorial['excerpt_policy'] );
 		return $result;
 	}
 
-	public function create( array $input ): array {
+	public function create( array $input, array $structured_fields = array() ): array {
 		$this->assert_no_forbidden_input( $input );
 		$user_id   = get_current_user_id();
 		$page_type = sanitize_key( (string) ( $input['page_type'] ?? '' ) );
+		$this->language->assert_request_language( $page_type, $input );
 		$title     = $this->sanitize_title( $input['title'] ?? '' );
 		$slug      = $this->sanitize_slug( $input['slug'] ?? '' );
 		$key       = $this->sanitize_idempotency_key( $input['idempotency_key'] ?? '' );
@@ -62,6 +68,7 @@ final class Draft_Service {
 
 		$assembled  = $this->assembler->assemble( $page_type, $input['sections'] ?? array() );
 		$validation = $this->validator->validate( $page_type, $assembled['content'] );
+		$validation = $this->add_editorial_language_issues( $validation, $page_type, $input, $editorial );
 		if ( ! $validation['valid'] ) {
 			throw new Execution_Exception( 'validation_failed', 'The assembled content failed validation and was not saved.' );
 		}
@@ -73,6 +80,21 @@ final class Draft_Service {
 				return $this->describe( $existing, true );
 			}
 
+			$meta_input = array_merge(
+				array(
+					self::OWNED_META              => '1',
+					self::PAGE_TYPE_META          => $page_type,
+					self::IDEMPOTENCY_META        => $key,
+					self::REVISION_META           => wp_generate_uuid4(),
+					self::POST_TYPE_META          => $target['post_type'],
+					self::TEMPLATE_META           => $this->targets->template_identity( $target ),
+					self::ASSIGNED_AGENT_META     => $user_id,
+					self::ASSIGNMENT_SOURCE_META  => 'created',
+					Target_Resolver::TEMPLATE_META => $this->targets->template_meta_value( $target ),
+					self::YOAST_METADESC_META     => $editorial['meta_description'],
+				),
+				$structured_fields
+			);
 			$post_id = wp_insert_post(
 				wp_slash(
 					array(
@@ -83,18 +105,7 @@ final class Draft_Service {
 						'post_name'    => $slug,
 						'post_content' => $assembled['content'],
 						'post_excerpt' => $editorial['excerpt'],
-						'meta_input'   => array(
-							self::OWNED_META              => '1',
-							self::PAGE_TYPE_META          => $page_type,
-							self::IDEMPOTENCY_META        => $key,
-							self::REVISION_META           => wp_generate_uuid4(),
-							self::POST_TYPE_META          => $target['post_type'],
-							self::TEMPLATE_META           => $this->targets->template_identity( $target ),
-							self::ASSIGNED_AGENT_META     => $user_id,
-							self::ASSIGNMENT_SOURCE_META  => 'created',
-							Target_Resolver::TEMPLATE_META => $this->targets->template_meta_value( $target ),
-							self::YOAST_METADESC_META     => $editorial['meta_description'],
-						),
+						'meta_input'   => $meta_input,
 					)
 				),
 				true
@@ -113,13 +124,14 @@ final class Draft_Service {
 
 			$result               = $this->describe( $post );
 			$result['validation'] = $validation;
+			$result['updated_fields'] = array_values( array_keys( $structured_fields ) );
 			return $result;
 		} finally {
 			$this->release_idempotency_lock( $lock_name );
 		}
 	}
 
-	public function update( array $input ): array {
+	public function update( array $input, array $structured_fields = array() ): array {
 		$this->assert_no_forbidden_input( $input );
 		$post_id  = absint( $input['post_id'] ?? 0 );
 		$expected = $this->normalize_expected_modified_gmt( (string) ( $input['expected_modified_gmt'] ?? '' ) );
@@ -129,6 +141,7 @@ final class Draft_Service {
 		if ( isset( $input['page_type'] ) && $page_type !== sanitize_key( (string) $input['page_type'] ) ) {
 			throw new Execution_Exception( 'page_type_immutable', 'The page type cannot be changed after draft creation.' );
 		}
+		$this->language->assert_request_language( $page_type, $input );
 		$editorial = $this->sanitize_editorial_fields( $input, $page_type );
 		$target = $this->targets->resolve( $page_type );
 		$this->assert_post_contract( $post, $page_type, $target );
@@ -136,6 +149,7 @@ final class Draft_Service {
 
 		$assembled  = $this->assembler->assemble( $page_type, $input['sections'] ?? array() );
 		$validation = $this->validator->validate( $page_type, $assembled['content'] );
+		$validation = $this->add_editorial_language_issues( $validation, $page_type, $input, $editorial );
 		if ( ! $validation['valid'] ) {
 			throw new Execution_Exception( 'validation_failed', 'The assembled content failed validation and was not saved.' );
 		}
@@ -151,6 +165,7 @@ final class Draft_Service {
 				self::YOAST_METADESC_META => $editorial['meta_description'],
 			),
 		);
+		$update['meta_input'] = array_merge( $update['meta_input'], $structured_fields );
 		if ( array_key_exists( 'title', $input ) ) {
 			$update['post_title'] = $this->sanitize_title( $input['title'] );
 		}
@@ -182,6 +197,66 @@ final class Draft_Service {
 
 		$response               = $this->describe( $updated );
 		$response['validation'] = $validation;
+		$response['updated_fields'] = array_values( array_keys( $structured_fields ) );
+		return $response;
+	}
+
+	/**
+	 * Atomically update an already validated set of registered post-meta fields.
+	 *
+	 * Field discovery, allowlisting, type validation, and sanitization belong to
+	 * Content_Field_Materializer. This method owns only the draft, target, and
+	 * optimistic-concurrency boundary shared by every Composer write.
+	 *
+	 * @param array<string,mixed> $fields
+	 */
+	public function update_owned_meta_fields( array $input, array $fields ): array {
+		$this->assert_no_forbidden_input( $input );
+		if ( empty( $fields ) ) {
+			throw new Execution_Exception( 'content_fields_empty', 'At least one approved content field is required.' );
+		}
+
+		$post_id           = absint( $input['post_id'] ?? 0 );
+		$expected_modified = $this->normalize_expected_modified_gmt( (string) ( $input['expected_modified_gmt'] ?? '' ) );
+		$expected_revision = $this->sanitize_revision( $input['expected_revision'] ?? '' );
+		$post              = $this->get_owned_draft( $post_id );
+		$page_type         = sanitize_key( (string) get_post_meta( $post_id, self::PAGE_TYPE_META, true ) );
+		if ( $page_type !== sanitize_key( (string) ( $input['page_type'] ?? '' ) ) ) {
+			throw new Execution_Exception( 'page_type_immutable', 'The page type cannot be changed during a content-field update.' );
+		}
+		$target = $this->targets->resolve( $page_type );
+		$this->assert_post_contract( $post, $page_type, $target );
+		$this->targets->assert_current_user_can_edit( $post, true );
+
+		global $wpdb;
+		$this->begin_locked_update( $post_id, $expected_modified, $expected_revision, $page_type, $target );
+		try {
+			foreach ( $fields as $meta_key => $value ) {
+				update_post_meta( $post_id, (string) $meta_key, $value );
+			}
+			$result = wp_update_post(
+				array(
+					'ID'          => $post_id,
+					'post_status' => 'draft',
+				),
+				true
+			);
+			if ( is_wp_error( $result ) ) {
+				throw new Execution_Exception( 'content_field_update_failed', $result->get_error_message() );
+			}
+			if ( false === $wpdb->query( 'COMMIT' ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Commits the locked content-field update.
+				throw new Execution_Exception( 'commit_failed', 'The database could not safely commit the content-field update.' );
+			}
+		} catch ( \Throwable $error ) {
+			$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Rolls back the explicit concurrency transaction.
+			clean_post_cache( $post_id );
+			throw $error;
+		}
+
+		clean_post_cache( $post_id );
+		$updated = $this->get_owned_draft( $post_id );
+		$response = $this->describe( $updated );
+		$response['updated_fields'] = array_values( array_keys( $fields ) );
 		return $response;
 	}
 
@@ -193,6 +268,10 @@ final class Draft_Service {
 		$post              = $this->get_owned_draft( $post_id );
 		$page_type         = sanitize_key( (string) get_post_meta( $post_id, self::PAGE_TYPE_META, true ) );
 		$target            = $this->targets->resolve( $page_type );
+		$blueprint         = $this->config->get_blueprint( $page_type );
+		if ( 'structured-record' === $blueprint['composition_mode'] ) {
+			throw new Execution_Exception( 'structured_record_block_mutation_forbidden', 'Structured-record drafts cannot receive Gutenberg body blocks.' );
+		}
 		$this->assert_post_contract( $post, $page_type, $target );
 		$this->targets->assert_current_user_can_edit( $post, true );
 
@@ -221,7 +300,7 @@ final class Draft_Service {
 		global $wpdb;
 		$this->begin_locked_update( $post_id, $expected_modified, $expected_revision, $page_type, $target );
 		try {
-			$result = $this->update_post_preserving_validated_html( $update );
+			$result = wp_update_post( wp_slash( $update ), true );
 			if ( is_wp_error( $result ) ) {
 				throw new Execution_Exception( 'draft_block_update_failed', $result->get_error_message() );
 			}
@@ -248,7 +327,6 @@ final class Draft_Service {
 		$response                       = $this->describe( $updated );
 		$response['validation']         = $validation;
 		$response['block_tree']         = $tree['statistics'];
-		$response['custom_html_kept']   = in_array( 'core/html', $tree['statistics']['block_names'], true );
 		$response['classic_html_kept']  = in_array( 'core/freeform', $tree['statistics']['block_names'], true );
 		return $response;
 	}
@@ -1082,30 +1160,6 @@ final class Draft_Service {
 		$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Releases the non-cacheable advisory lock acquired above.
 	}
 
-	/**
-	 * Preserve already validated core/html and core/freeform content without
-	 * granting the agent role WordPress's broad unfiltered_html capability.
-	 * The KSES callback is removed only for this synchronous write and restored
-	 * at its original priority in a finally block.
-	 */
-	private function update_post_preserving_validated_html( array $update ): int|\WP_Error {
-		$removed = array();
-		foreach ( array( 'content_save_pre', 'content_filtered_save_pre' ) as $tag ) {
-			$priority = has_filter( $tag, 'wp_filter_post_kses' );
-			if ( false !== $priority && remove_filter( $tag, 'wp_filter_post_kses', (int) $priority ) ) {
-				$removed[] = array( $tag, (int) $priority );
-			}
-		}
-
-		try {
-			return wp_update_post( wp_slash( $update ), true );
-		} finally {
-			foreach ( $removed as $filter ) {
-				add_filter( $filter[0], 'wp_filter_post_kses', $filter[1] );
-			}
-		}
-	}
-
 	private function assert_no_forbidden_input( array $input ): void {
 		$forbidden = array(
 			'post_status',
@@ -1179,6 +1233,30 @@ final class Draft_Service {
 			);
 		}
 		return $value;
+	}
+
+	private function add_editorial_language_issues( array $validation, string $page_type, array $input, array $editorial ): array {
+		$text = implode(
+			"\n",
+			array_filter(
+				array(
+					isset( $input['title'] ) ? (string) $input['title'] : '',
+					(string) ( $editorial['excerpt'] ?? '' ),
+					(string) ( $editorial['meta_description'] ?? '' ),
+				)
+			)
+		);
+		$issues = $this->language->issues( $page_type, $text );
+		foreach ( $issues as $issue ) {
+			$validation['errors'][] = array(
+				'code'    => (string) ( $issue['code'] ?? 'content_language_mismatch' ),
+				'message' => (string) ( $issue['message'] ?? 'Generated editorial fields conflict with the strict content language policy.' ),
+				'context' => array( 'surface' => 'title-excerpt-seo' ),
+			);
+		}
+		$validation['errors'] = array_values( (array) ( $validation['errors'] ?? array() ) );
+		$validation['valid']  = empty( $validation['errors'] );
+		return $validation;
 	}
 
 	private function describe_editorial_fields( string $excerpt, string $meta_description, string $excerpt_policy ): array {

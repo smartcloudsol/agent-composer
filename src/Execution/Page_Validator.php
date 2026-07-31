@@ -7,11 +7,21 @@ final class Page_Validator {
 	private Config_Repository $config;
 	private Block_Catalog $catalog;
 	private Block_Tree_Service $trees;
+	private Semantic_Slot_Materializer $slots;
+	private Content_Language_Validator $language;
 
-	public function __construct( Config_Repository $config, Block_Catalog $catalog, Block_Tree_Service $trees ) {
+	public function __construct(
+		Config_Repository $config,
+		Block_Catalog $catalog,
+		Block_Tree_Service $trees,
+		Semantic_Slot_Materializer $slots,
+		Content_Language_Validator $language
+	) {
 		$this->config  = $config;
 		$this->catalog = $catalog;
 		$this->trees   = $trees;
+		$this->slots   = $slots;
+		$this->language = $language;
 	}
 
 	public function validate( string $page_type, string $content ): array {
@@ -19,6 +29,19 @@ final class Page_Validator {
 		$policy    = $this->config->get_design_policy();
 		$errors    = array();
 		$warnings  = array();
+		if ( 'structured-record' === $blueprint['composition_mode'] ) {
+			if ( '' !== trim( $content ) ) {
+				$errors[] = $this->issue( 'structured_record_body_forbidden', 'Structured-record content must keep the Gutenberg body empty.' );
+			}
+			return array(
+				'valid'      => empty( $errors ),
+				'errors'     => $errors,
+				'warnings'   => array(),
+				'statistics' => array( 'word_count' => 0, 'block_count' => 0, 'h1_count' => 0, 'patterns' => array(), 'block_names' => array() ),
+				'composition_mode' => 'structured-record',
+				'content_language' => $blueprint['content_language'],
+			);
+		}
 
 		if ( strlen( $content ) > 1000000 ) {
 			$errors[] = $this->issue( 'content_too_large', 'Page content exceeds the 1 MB limit.' );
@@ -63,6 +86,16 @@ final class Page_Validator {
 		if ( ! $this->contains_required_subsequence( $blueprint['required_sequence'], $sequence ) ) {
 			$errors[] = $this->issue( 'required_sequence_missing', 'The required pattern sequence is missing.' );
 		}
+		foreach ( $sequence as $pattern ) {
+			try {
+				$this->slots->assert_no_registered_fallbacks( $pattern, $content );
+			} catch ( Execution_Exception $error ) {
+				$errors[] = $this->issue( $error->get_execution_code(), $error->getMessage(), array( 'pattern' => $pattern ) );
+			}
+		}
+		foreach ( $this->language->issues( $page_type, $content ) as $issue ) {
+			$errors[] = $this->issue( (string) $issue['code'], (string) $issue['message'] );
+		}
 
 		return array(
 			'valid'       => empty( $errors ),
@@ -75,6 +108,8 @@ final class Page_Validator {
 				'patterns'     => $sequence,
 				'block_names'  => array_values( array_unique( $stats['block_names'] ) ),
 			),
+			'composition_mode' => 'document',
+			'content_language' => $blueprint['content_language'],
 		);
 	}
 
@@ -106,16 +141,14 @@ final class Page_Validator {
 				$stats['h1'] += count( $raw_h1_matches[0] ?? array() );
 			}
 			if ( 'core/html' === $name ) {
-				if ( empty( $blueprint['constraints']['custom_html'] ) ) {
-					$errors[] = $this->issue( 'custom_html_forbidden', 'Custom HTML is not enabled by the active theme and blueprint.' );
-				}
+				$errors[] = $this->issue( 'custom_html_forbidden', 'Custom HTML blocks are not accepted by Agent Composer.' );
 			} elseif ( 'core/freeform' === $name ) {
 				if ( preg_match( '/<(?:script|iframe|object|embed|form|link|meta|base)\b|<[^>]+\son[a-z]+\s*=|(?:href|src)\s*=\s*["\']?\s*javascript\s*:/i', $html ) ) {
 					$errors[] = $this->issue( 'active_freeform_content_forbidden', 'Classic/Text Editor blocks are limited to passive HTML such as comparison tables.' );
 				}
 			} else {
 				if ( preg_match( '/<script\b|<[^>]+\son[a-z]+\s*=|(?:href|src)\s*=\s*["\']?\s*javascript\s*:/i', $html ) ) {
-					$errors[] = $this->issue( 'active_content_outside_custom_html', 'JavaScript and event handlers are allowed only inside a core/html block.', array( 'block' => $name ) );
+					$errors[] = $this->issue( 'active_content_forbidden', 'JavaScript and event handlers are forbidden in Agent Composer content.', array( 'block' => $name ) );
 				}
 				if ( empty( $blueprint['constraints']['inline_css'] ) && preg_match( '/\sstyle\s*=/i', $html ) ) {
 					$errors[] = $this->issue( 'inline_css_forbidden', 'Raw inline CSS is forbidden outside Classic/Text Editor and Custom HTML blocks.', array( 'block' => $name ) );
@@ -128,10 +161,17 @@ final class Page_Validator {
 			) {
 				$errors[] = $this->issue( 'shortcode_forbidden', 'Shortcodes are forbidden.', array( 'block' => $name ) );
 			}
+			if ( 'core/embed' === $name && empty( $blueprint['constraints']['external_embeds'] ) ) {
+				$errors[] = $this->issue( 'external_embed_forbidden', 'External embeds are forbidden.', array( 'block' => $name ) );
+			}
 			if ( 'core/heading' === $name && 1 === (int) ( $attrs['level'] ?? 2 ) ) {
 				++$stats['h1'];
 			}
-			if ( isset( $attrs['style'] ) && ! $this->style_uses_only_presets( $attrs['style'] ) ) {
+			if (
+				! empty( $blueprint['constraints']['theme_presets_only'] )
+				&& isset( $attrs['style'] )
+				&& ! $this->style_uses_only_presets( $attrs['style'] )
+			) {
 				$errors[] = $this->issue( 'non_preset_style_forbidden', 'Block styles must use theme presets only.', array( 'block' => $name ) );
 			}
 

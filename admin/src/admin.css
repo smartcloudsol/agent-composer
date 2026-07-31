@@ -16,18 +16,36 @@
 }
 
 /* WordPress adds its own checked pseudo-element; Mantine already renders the icon. */
-#smartcloud-composer-admin input[type="checkbox"]::before {
+#smartcloud-composer-admin input[type="checkbox"]::before,
+#smartcloud-composer-admin input[type="checkbox"]:checked::before,
+#smartcloud-composer-admin input[type="checkbox"]::after,
+#smartcloud-composer-admin input[type="checkbox"]:checked::after {
   content: none !important;
   display: none !important;
+	visibility: hidden !important;
+	background: none !important;
 }
 
+#smartcloud-composer-admin .mantine-Checkbox-root:not([data-disabled]),
+#smartcloud-composer-admin .mantine-Checkbox-body:not([data-disabled]),
+#smartcloud-composer-admin .mantine-Checkbox-labelWrapper:not([data-disabled]),
+#smartcloud-composer-admin .mantine-Checkbox-inner:not([data-disabled]),
 #smartcloud-composer-admin .mantine-Checkbox-input:not(:disabled),
 #smartcloud-composer-admin .mantine-Checkbox-label,
+#smartcloud-composer-admin .mantine-Switch-root:not([data-disabled]),
+#smartcloud-composer-admin .mantine-Switch-body:not([data-disabled]),
+#smartcloud-composer-admin .mantine-Switch-labelWrapper:not([data-disabled]),
 #smartcloud-composer-admin .mantine-Switch-input:not(:disabled),
 #smartcloud-composer-admin .mantine-Switch-label {
   cursor: pointer;
 }
 
+#smartcloud-composer-admin .mantine-Checkbox-root[data-disabled],
+#smartcloud-composer-admin .mantine-Checkbox-body[data-disabled],
+#smartcloud-composer-admin .mantine-Checkbox-labelWrapper[data-disabled],
+#smartcloud-composer-admin .mantine-Switch-root[data-disabled],
+#smartcloud-composer-admin .mantine-Switch-body[data-disabled],
+#smartcloud-composer-admin .mantine-Switch-labelWrapper[data-disabled],
 #smartcloud-composer-admin .mantine-Checkbox-input:disabled + .mantine-Checkbox-icon,
 #smartcloud-composer-admin .mantine-Switch-input:disabled,
 #smartcloud-composer-admin .mantine-Checkbox-input:disabled {

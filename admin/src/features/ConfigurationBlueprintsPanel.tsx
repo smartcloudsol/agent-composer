@@ -174,6 +174,7 @@ export function ConfigurationBlueprintsPanel({ selectedSet, selectedId, run, ref
             : __("Changes remain local to this dialog. Stage change returns them to the pending changeset; nothing is written to WordPress until Apply modifications is selected below.", TEXT_DOMAIN)}</Alert>
           <GuidedEntityEditor key={`${editorEntity.id}:${editorEntity.content_hash}`} selected={editorEntity} immutable={immutable}
             blocks={discovery?.registered_blocks || []} onDirtyChange={setEditorDirty}
+            postTypes={discovery?.registered_post_types || []} blueprints={blueprints}
             help={showDocs}
             save={(payload) => stageEditorPayload(editorEntity, payload)} />
         </Stack>}
@@ -271,6 +272,7 @@ function createEntityPayload(type: string, key: string): Record<string, unknown>
       target_post_type: "page",
       visual_variant: "page",
       excerpt_policy: "optional",
+	  composition_mode: "document",
       allowed_patterns: [],
       required_sequence: [],
       allowed_blocks: ["core/group", "core/heading", "core/paragraph"],

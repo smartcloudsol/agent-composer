@@ -33,6 +33,9 @@ Composer is part of the WP Suite product family by Smart Cloud Solutions, Inc. I
 * **Safe starting presets** - Copy Universal Gutenberg, SmartCloud Recommended, or a generated Detected Theme Starter into a new inactive, editable Config Set without importing unrelated site-specific contracts.
 * **Explicit configuration authority** - Runtime execution uses only the explicitly activated Composer config set; theme capabilities are discovered and validated instead of silently importing configuration from theme files.
 * **Gutenberg AST validation** - Validate canonical block trees, registered blocks, approved patterns, saved markup, target post types, templates, and blueprint constraints.
+* **Document and structured-record modes** - Assemble governed Gutenberg documents or keep registry-style CPT bodies empty while writing only explicitly approved registered fields.
+* **Strict content language** - Require an exact BCP 47 language contract, remove or reject untranslated pattern fallbacks, and allow reviewed brand or technical exceptions.
+* **Semantic theme slots** - Materialize theme-declared text, heading, action, and media slots without exposing raw placeholders in patterns inserted manually by editors.
 * **Safe draft ownership** - Preserve WordPress authorship, track agent assignment separately, and require optimistic-concurrency tokens for updates and adoption.
 * **Provider delegation** - Discover provider-owned Abilities without copying or republishing the provider's business operations.
 * **Existing-media materialization** - Search existing image attachments and produce validated core Image block structures without uploading or deleting media.
@@ -128,6 +131,10 @@ Composer discovers the currently active theme's templates, registered patterns, 
 = How does the blueprint excerpt policy work? =
 
 `required` accepts an excerpt only when it contains 80 to 300 characters. `optional` accepts either an empty excerpt or one containing 80 to 300 characters. `disabled` requires the excerpt to remain empty. The policy is enforced during validation, draft creation, draft update, inspection, and preview. The Yoast meta description remains a separate required field containing 120 to 160 characters.
+
+= What is the difference between document and structured-record mode? =
+
+Document Blueprints require an approved pattern sequence and produce a validated Gutenberg body. Structured-record Blueprints accept zero sections, keep the body empty, and can write only registered REST-visible fields explicitly enabled in the Site Contract. Public visibility remains a separate WordPress post-type concern; a theme may render a public structured record through a shared template.
 
 = Can Composer work without an external service? =
 
@@ -228,4 +235,6 @@ The plugin package contains its PHP and JavaScript runtime. Optional Hub and pro
 == Changelog ==
 
 = 1.0.0 =
+* Added explicit Composer deactivation and complete inactive Config Set deletion with typed stable-ID and current-hash confirmation; active sets can never be deleted directly and audit history remains intact.
+* Built-in presets derive their advisory BCP 47 content language from the current WordPress site locale; no concrete language is hardcoded.
 * Initial release.

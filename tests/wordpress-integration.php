@@ -35,6 +35,7 @@ $suffix     = substr( str_replace( '-', '', wp_generate_uuid4() ), 0, 10 );
 $set_a      = 'c4-smoke-a-' . $suffix;
 $set_b      = 'c4-smoke-b-' . $suffix;
 $set_c      = 'c4-smoke-c-' . $suffix;
+$set_d      = 'c4-smoke-delete-' . $suffix;
 $created    = array();
 $repository = new WordPressConfigurationRepository();
 $audit      = new AuditTable();
@@ -71,6 +72,7 @@ try {
 			'schema_version' => '1.0',
 			'page_type'      => 'page',
 			'target'         => array( 'post_type' => 'page' ),
+			'composition_mode' => 'structured-record',
 			'excerpt_policy' => 'optional',
 		)
 	);
@@ -217,6 +219,9 @@ try {
 		)
 	);
 	$assert( is_array( $create_endpoint ) && true === ( $create_endpoint['args']['label']['required'] ?? false ), 'The config-set REST schema must require a label.' );
+	$set_route = $routes['/smartcloud-agent-composer/v1/config-sets/(?P<id>[a-z0-9_-]+)'] ?? array();
+	$delete_set_endpoint = current( array_filter( $set_route, static fn( array $endpoint ): bool => ! empty( $endpoint['methods']['DELETE'] ) ) );
+	$assert( is_array( $delete_set_endpoint ) && true === ( $delete_set_endpoint['args']['confirmation']['required'] ?? false ) && true === ( $delete_set_endpoint['args']['config_hash']['required'] ?? false ), 'Complete Config Set deletion must require an exact ID confirmation and optimistic hash.' );
 
 	$invalid_create = new WP_REST_Request( 'POST', '/smartcloud-agent-composer/v1/config-sets' );
 	$invalid_create->set_header( 'X-WP-Nonce', wp_create_nonce( 'wp_rest' ) );
@@ -228,6 +233,21 @@ try {
 	$invalid_entity->set_body_params( array( 'type' => 'unsupported-entity', 'key' => 'invalid', 'payload' => array() ) );
 	$invalid_entity_response = rest_do_request( $invalid_entity );
 	$assert( 400 === $invalid_entity_response->get_status(), 'REST schema validation must reject an unknown entity type before execution.' );
+
+	$manager->create( 'C4 disposable set', $set_d );
+	$created[] = $set_d;
+	$set_d_description = $repository->describe_config_set( $set_d );
+	$wrong_delete = new WP_REST_Request( 'DELETE', '/smartcloud-agent-composer/v1/config-sets/' . $set_d );
+	$wrong_delete->set_header( 'X-WP-Nonce', wp_create_nonce( 'wp_rest' ) );
+	$wrong_delete->set_body_params( array( 'confirmation' => $set_d . '-wrong', 'config_hash' => $set_d_description['config_hash'] ) );
+	$assert( 400 === rest_do_request( $wrong_delete )->get_status(), 'Config Set deletion must reject an incorrect stable-ID confirmation.' );
+	$assert( ! empty( $repository->entities( $set_d ) ), 'A rejected Config Set deletion must leave every entity intact.' );
+	$delete_set_request = new WP_REST_Request( 'DELETE', '/smartcloud-agent-composer/v1/config-sets/' . $set_d );
+	$delete_set_request->set_header( 'X-WP-Nonce', wp_create_nonce( 'wp_rest' ) );
+	$delete_set_request->set_body_params( array( 'confirmation' => $set_d, 'config_hash' => $set_d_description['config_hash'] ) );
+	$delete_set_response = rest_do_request( $delete_set_request );
+	$assert( 200 === $delete_set_response->get_status() && true === ( $delete_set_response->get_data()['deleted'] ?? false ), 'An exact confirmed inactive Config Set deletion must succeed.' );
+	$assert( empty( $repository->entities( $set_d ) ), 'Complete Config Set deletion must remove every nested entity.' );
 
 	$discovery_response = rest_do_request( new WP_REST_Request( 'GET', '/smartcloud-agent-composer/v1/discovery' ) );
 	$assert( 200 === $discovery_response->get_status(), 'Theme and provider discovery must be readable.' );
@@ -310,6 +330,28 @@ try {
 	}
 	$assert( $before_failed_restore === count( $repository->list_config_sets() ), 'A rejected backup must not create partial configuration.' );
 
+	$reset_validation = $validator->validate( $set_a );
+	$assert( true === $reset_validation['valid'], 'The restored Config Set must validate before the maintenance lifecycle test.' );
+	$activator->activate( $set_a, $reset_validation['receipt'] );
+	$active_for_reset = $repository->describe_config_set( $set_a );
+	try {
+		$manager->delete( $set_a, $set_a, $active_for_reset['config_hash'] );
+		throw new RuntimeException( 'An active Config Set must never be deleted directly.' );
+	} catch ( InvalidArgumentException $error ) {
+		$assert( str_contains( $error->getMessage(), 'Deactivate' ), 'Direct active deletion must explain the required deactivation step.' );
+	}
+	try {
+		$activator->deactivate( $set_a, $set_a . '-wrong', $active_for_reset['config_hash'] );
+		throw new RuntimeException( 'Config Set deactivation must require its complete stable ID.' );
+	} catch ( InvalidArgumentException ) {
+		// Expected.
+	}
+	$deactivated = $activator->deactivate( $set_a, $set_a, $active_for_reset['config_hash'] );
+	$assert( '' === ( $deactivated['active'] ?? 'unexpected' ) && '' === (string) get_option( 'smartcloud_composer_active_config_set', '' ), 'Explicit deactivation must leave Composer without an active Config Set.' );
+	$assert( 'archived' === $repository->describe_config_set( $set_a )['lifecycle'], 'The deactivated Config Set must remain inspectable as archived until deletion.' );
+	$deleted_after_deactivation = $manager->delete( $set_a, $set_a, $active_for_reset['config_hash'] );
+	$assert( true === $deleted_after_deactivation['deleted'] && empty( $repository->entities( $set_a ) ), 'A deactivated Config Set must be completely deletable with the reviewed hash.' );
+
 	$events = $audit->events( 20 );
 	$assert( ! empty( $events ), 'Lifecycle operations must append audit events.' );
 	foreach ( $events as $event ) {
@@ -324,6 +366,8 @@ try {
 		'config_lifecycle'        => true,
 		'optimistic_conflict'     => true,
 		'confirmed_delete'        => true,
+		'complete_set_delete'     => true,
+		'explicit_deactivation'   => true,
 		'activation_lock'         => true,
 		'rollback'                => true,
 		'package_roundtrip'       => true,

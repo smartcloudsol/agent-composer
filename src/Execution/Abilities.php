@@ -16,6 +16,8 @@ final class Abilities {
 	private Pattern_Repository $patterns;
 	private Ability_Provider_Registry $providers;
 	private Query_Loop_Materializer $query_loops;
+	private Content_Field_Materializer $content_fields;
+	private Semantic_Slot_Materializer $semantic_slots;
 
 	public function __construct(
 		Config_Repository $config,
@@ -23,7 +25,9 @@ final class Abilities {
 		Audit_Logger $audit,
 		Pattern_Repository $patterns,
 		Ability_Provider_Registry $providers,
-		Query_Loop_Materializer $query_loops
+		Query_Loop_Materializer $query_loops,
+		Content_Field_Materializer $content_fields,
+		Semantic_Slot_Materializer $semantic_slots
 	) {
 		$this->config    = $config;
 		$this->drafts    = $drafts;
@@ -31,6 +35,8 @@ final class Abilities {
 		$this->patterns  = $patterns;
 		$this->providers = $providers;
 		$this->query_loops = $query_loops;
+		$this->content_fields = $content_fields;
+		$this->semantic_slots = $semantic_slots;
 	}
 
 	public static function names(): array {
@@ -43,6 +49,9 @@ final class Abilities {
 			self::PREFIX . 'search-media',
 			self::PREFIX . 'materialize-media-image',
 			self::PREFIX . 'materialize-query-loop',
+			self::PREFIX . 'get-content-field-contract',
+			self::PREFIX . 'inspect-content-fields',
+			self::PREFIX . 'update-content-fields',
 			self::PREFIX . 'list-content-drafts',
 			self::PREFIX . 'inspect-content-item',
 			self::PREFIX . 'clone-content-item',
@@ -156,6 +165,30 @@ final class Abilities {
 			$this->query_loop_schema(),
 			array( $this, 'materialize_query_loop' ),
 			true
+		);
+		$this->register_ability(
+			'get-content-field-contract',
+			'Get content field contract',
+			'Returns only the registered CPT fields explicitly enabled by the active Site Contract for a selected Blueprint.',
+			$this->page_type_schema(),
+			array( $this, 'get_content_field_contract' ),
+			true
+		);
+		$this->register_ability(
+			'inspect-content-fields',
+			'Inspect approved content fields',
+			'Reads only explicitly allowed registered fields from an assigned draft or a content item covered by the existing-content read gate.',
+			$this->content_field_inspection_schema(),
+			array( $this, 'inspect_content_fields' ),
+			true
+		);
+		$this->register_ability(
+			'update-content-fields',
+			'Update approved content fields',
+			'Updates only explicitly writable registered fields on a Composer-owned assigned draft with optimistic concurrency and explicit confirmation.',
+			$this->content_field_update_schema(),
+			array( $this, 'update_content_fields' ),
+			false
 		);
 		$this->register_ability(
 			'list-content-drafts',
@@ -283,6 +316,9 @@ final class Abilities {
 				$query_loop = is_array( $extensions['query_loop_materializer'] ?? null )
 					? $extensions['query_loop_materializer']
 					: array();
+				$field_access = is_array( $policy['content_field_access'] ?? null )
+					? $policy['content_field_access']
+					: array();
 				return array(
 					'composer'                 => array(
 						'name'    => 'SmartCloud Agent Composer',
@@ -292,10 +328,6 @@ final class Abilities {
 					'abilities_api_available'  => function_exists( 'wp_get_ability' ),
 					'block_extensions'         => array(
 						'policy_and_blueprint_opt_in_required' => true,
-						'core_html_javascript'                 => ! empty( $policy['constraints']['custom_html'] )
-							&& in_array( 'core/html', $core, true )
-							&& ! in_array( 'core/html', $policy['disallowed_blocks'], true )
-							&& ! empty( $extensions['core_html_javascript'] ),
 						'passive_text_editor_html'             => in_array( 'core/freeform', $core, true )
 							&& ! in_array( 'core/freeform', $policy['disallowed_blocks'], true )
 							&& ! empty( $extensions['passive_text_editor_html'] ),
@@ -310,6 +342,13 @@ final class Abilities {
 							'allowed_template_blocks' => array_values( (array) ( $query_loop['allowed_template_blocks'] ?? array() ) ),
 							'max_per_page'            => (int) ( $query_loop['max_per_page'] ?? 0 ),
 							'max_offset'              => (int) ( $query_loop['max_offset'] ?? 0 ),
+						),
+						'content_field_materializer'           => array(
+							'enabled'                         => ! empty( $field_access ),
+							'allowlisted_post_type_count'     => count( $field_access ),
+							'registered_rest_fields_required' => true,
+							'composer_owned_draft_writes_only' => true,
+							'explicit_confirmation_required'  => true,
 						),
 						'text_editor_contract'                 => isset( $extensions['text_editor_contract'] ) && is_array( $extensions['text_editor_contract'] )
 							? $extensions['text_editor_contract']
@@ -369,12 +408,16 @@ final class Abilities {
 						'description'               => sanitize_text_field( (string) ( $pattern['description'] ?? '' ) ),
 						'categories'                => array_values( array_map( 'sanitize_key', (array) ( $pattern['categories'] ?? array() ) ) ),
 						'fields'                    => $fields,
+						'semantic_slots'            => $this->semantic_slots->slots_for_pattern( $name ),
 					);
 				}
 				return array(
 					'page_type'       => $blueprint['page_type'],
 					'target_post_type' => $blueprint['target_post_type'],
 					'target_template' => $blueprint['target_template'],
+					'composition_mode' => $blueprint['composition_mode'],
+					'content_language' => $blueprint['content_language'],
+					'content_language_enforcement' => $blueprint['content_language_enforcement'],
 					'patterns'        => $result,
 				);
 			}
@@ -599,6 +642,18 @@ final class Abilities {
 		return $this->execute( 'materialize-query-loop', $input, fn() => $this->query_loops->materialize( $input ) );
 	}
 
+	public function get_content_field_contract( array $input ): array|\WP_Error {
+		return $this->execute( 'get-content-field-contract', $input, fn() => $this->content_fields->contract( $input ) );
+	}
+
+	public function inspect_content_fields( array $input ): array|\WP_Error {
+		return $this->execute( 'inspect-content-fields', $input, fn() => $this->content_fields->inspect( $input ) );
+	}
+
+	public function update_content_fields( array $input ): array|\WP_Error {
+		return $this->execute( 'update-content-fields', $input, fn() => $this->content_fields->update( $input ) );
+	}
+
 	public function list_content_drafts( array $input ): array|\WP_Error {
 		return $this->execute( 'list-content-drafts', $input, fn() => $this->drafts->list_content_drafts( $input ) );
 	}
@@ -628,23 +683,38 @@ final class Abilities {
 	}
 
 	public function validate_page_draft( array $input ): array|\WP_Error {
-		return $this->execute( 'validate-page-draft', $input, fn() => $this->drafts->validate_request( $input ) );
+		return $this->execute( 'validate-page-draft', $input, fn() => $this->validate_candidate( $input ) );
 	}
 
 	public function validate_content_draft( array $input ): array|\WP_Error {
-		return $this->execute( 'validate-content-draft', $input, fn() => $this->drafts->validate_request( $input ) );
+		return $this->execute( 'validate-content-draft', $input, fn() => $this->validate_candidate( $input ) );
 	}
 
 	public function create_page_draft( array $input ): array|\WP_Error {
-		return $this->execute( 'create-page-draft', $input, fn() => $this->drafts->create( $input ) );
+		return $this->execute( 'create-page-draft', $input, fn() => $this->create_candidate( $input ) );
 	}
 
 	public function create_content_draft( array $input ): array|\WP_Error {
-		return $this->execute( 'create-content-draft', $input, fn() => $this->drafts->create( $input ) );
+		return $this->execute( 'create-content-draft', $input, fn() => $this->create_candidate( $input ) );
 	}
 
 	public function update_own_draft( array $input ): array|\WP_Error {
-		return $this->execute( 'update-own-draft', $input, fn() => $this->drafts->update( $input ) );
+		return $this->execute( 'update-own-draft', $input, function () use ( $input ): array {
+			$fields = $this->content_fields->prepare_values( (string) ( $input['page_type'] ?? '' ), $input['fields'] ?? null, absint( $input['post_id'] ?? 0 ) );
+			return $this->drafts->update( $input, $fields );
+		} );
+	}
+
+	private function validate_candidate( array $input ): array {
+		$fields = $this->content_fields->prepare_values( (string) ( $input['page_type'] ?? '' ), $input['fields'] ?? null );
+		$result = $this->drafts->validate_request( $input );
+		$result['fields'] = $fields;
+		return $result;
+	}
+
+	private function create_candidate( array $input ): array {
+		$fields = $this->content_fields->prepare_values( (string) ( $input['page_type'] ?? '' ), $input['fields'] ?? null );
+		return $this->drafts->create( $input, $fields );
 	}
 
 	public function get_draft( array $input ): array|\WP_Error {
@@ -676,8 +746,8 @@ final class Abilities {
 		wp_register_ability(
 			self::PREFIX . $slug,
 			array(
-				'label'               => __( $label, 'smartcloud-agent-composer' ), // phpcs:ignore WordPress.WP.I18n.NonSingularStringLiteralText
-				'description'         => __( $description, 'smartcloud-agent-composer' ), // phpcs:ignore WordPress.WP.I18n.NonSingularStringLiteralText
+					'label'               => $label,
+					'description'         => $description,
 				'category'            => self::CATEGORY,
 				'input_schema'        => $input_schema,
 				'output_schema'       => array( 'type' => 'object', 'additionalProperties' => true ),
@@ -948,6 +1018,39 @@ final class Abilities {
 		);
 	}
 
+	public function content_field_inspection_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'post_id'   => array( 'type' => 'integer', 'minimum' => 1 ),
+				'page_type' => $this->string_property( 'Blueprint page type whose target and field contract must match the content item.', 1, 64 ),
+			),
+			'required'             => array( 'post_id', 'page_type' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	public function content_field_update_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'post_id'               => array( 'type' => 'integer', 'minimum' => 1 ),
+				'page_type'             => $this->string_property( 'Immutable Blueprint page type assigned to the draft.', 1, 64 ),
+				'expected_modified_gmt' => array( 'type' => 'string', 'format' => 'date-time' ),
+				'expected_revision'     => array( 'type' => 'string', 'format' => 'uuid' ),
+				'fields'                => array(
+					'type'                 => 'object',
+					'minProperties'        => 1,
+					'maxProperties'        => 100,
+					'additionalProperties' => true,
+				),
+				'confirm_update'        => array( 'type' => 'boolean', 'enum' => array( true ) ),
+			),
+			'required'             => array( 'post_id', 'page_type', 'expected_modified_gmt', 'expected_revision', 'fields', 'confirm_update' ),
+			'additionalProperties' => false,
+		);
+	}
+
 	public function content_clone_schema(): array {
 		$schema = $this->content_inspection_schema();
 		$schema['properties']['expected_modified_gmt'] = array( 'type' => 'string', 'format' => 'date-time' );
@@ -996,11 +1099,13 @@ final class Abilities {
 	public function candidate_schema( bool $for_create ): array {
 		$properties = array(
 			'page_type'        => $this->string_property( 'Blueprint page type.', 1, 64 ),
+			'content_language' => $this->string_property( 'Exact effective BCP 47 content language returned by the selected Blueprint.', 2, 35 ),
 			'excerpt'          => $this->string_property( 'WordPress excerpt. Runtime policy is required, optional, or disabled according to the selected blueprint.', 0, 300 ),
 			'meta_description' => $this->string_property( 'Yoast SEO meta description: a natural search-result proposition.', 120, 160 ),
 			'sections'         => $this->sections_schema(),
+			'fields'           => array( 'type' => 'object', 'maxProperties' => 100, 'additionalProperties' => true ),
 		);
-		$required = array( 'page_type', 'meta_description', 'sections' );
+		$required = array( 'page_type', 'content_language', 'meta_description', 'sections' );
 		if ( $for_create ) {
 			$properties['title']           = $this->string_property( 'Content title.', 1, 200 );
 			$properties['slug']            = $this->string_property( 'Requested content slug.', 1, 200 );
@@ -1018,13 +1123,15 @@ final class Abilities {
 				'expected_modified_gmt' => array( 'type' => 'string', 'format' => 'date-time' ),
 				'expected_revision'     => array( 'type' => 'string', 'format' => 'uuid' ),
 				'page_type'            => $this->string_property( 'Must match the immutable draft page type.', 1, 64 ),
+				'content_language'     => $this->string_property( 'Exact effective BCP 47 content language returned by the immutable draft Blueprint.', 2, 35 ),
 				'title'                => $this->string_property( 'Optional replacement title.', 1, 200 ),
 				'slug'                 => $this->string_property( 'Optional replacement slug.', 1, 200 ),
 				'excerpt'              => $this->string_property( 'Replacement WordPress excerpt. Runtime policy is required, optional, or disabled according to the immutable draft blueprint.', 0, 300 ),
 				'meta_description'     => $this->string_property( 'Required replacement or preserved Yoast SEO meta description.', 120, 160 ),
 				'sections'             => $this->sections_schema(),
+				'fields'               => array( 'type' => 'object', 'maxProperties' => 100, 'additionalProperties' => true ),
 			),
-			'required'             => array( 'post_id', 'expected_modified_gmt', 'expected_revision', 'page_type', 'meta_description', 'sections' ),
+			'required'             => array( 'post_id', 'expected_modified_gmt', 'expected_revision', 'page_type', 'content_language', 'meta_description', 'sections' ),
 			'additionalProperties' => false,
 		);
 	}
@@ -1085,7 +1192,7 @@ final class Abilities {
 	private function sections_schema(): array {
 		return array(
 			'type'     => 'array',
-			'minItems' => 1,
+			'minItems' => 0,
 			'maxItems' => 50,
 			'items'    => array(
 				'type'                 => 'object',
@@ -1094,7 +1201,22 @@ final class Abilities {
 					'fields'  => array(
 						'type'                 => 'object',
 						'maxProperties'        => 100,
-						'additionalProperties' => array( 'type' => array( 'string', 'number', 'integer', 'boolean' ) ),
+						'additionalProperties' => array(
+							'oneOf' => array(
+								array( 'type' => array( 'string', 'number', 'integer', 'boolean' ) ),
+								array(
+									'type'                 => 'object',
+									'maxProperties'        => 3,
+									'additionalProperties' => false,
+									'properties'           => array(
+										'label' => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 500 ),
+										'url'   => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 2000 ),
+										'id'    => array( 'type' => 'integer', 'minimum' => 1 ),
+										'alt'   => array( 'type' => 'string', 'maxLength' => 1000 ),
+									),
+								),
+							),
+						),
 					),
 				),
 				'required'             => array( 'pattern', 'fields' ),

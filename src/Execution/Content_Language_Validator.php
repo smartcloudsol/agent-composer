@@ -1,0 +1,60 @@
+<?php
+/* SmartCloud Agent Composer execution contract. */
+
+namespace SmartCloud\AgentComposer\Execution;
+
+final class Content_Language_Validator {
+	public function __construct( private Config_Repository $config ) {}
+
+	public function assert_request_language( string $page_type, array $input ): void {
+		$blueprint  = $this->config->get_blueprint( $page_type );
+		$required   = (string) ( $blueprint['content_language'] ?? '' );
+		$enforcement = (string) ( $blueprint['content_language_enforcement'] ?? 'advisory' );
+		$submitted  = trim( (string) ( $input['content_language'] ?? '' ) );
+		if ( 'strict' === $enforcement && ( '' === $submitted || ! hash_equals( strtolower( $required ), strtolower( $submitted ) ) ) ) {
+			throw new Execution_Exception( 'content_language_mismatch', 'The request must explicitly use the Blueprint effective content language: ' . $required ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Ability error, not HTML.
+		}
+	}
+
+	public function issues( string $page_type, string $text ): array {
+		$blueprint = $this->config->get_blueprint( $page_type );
+		return $this->issues_for_policy( $blueprint, $text );
+	}
+
+	/** @param array<string,mixed> $blueprint */
+	public function issues_for_policy( array $blueprint, string $text ): array {
+		if ( 'strict' !== (string) ( $blueprint['content_language_enforcement'] ?? 'advisory' ) ) {
+			return array();
+		}
+		$language = strtolower( (string) ( $blueprint['content_language'] ?? '' ) );
+		if ( ! str_starts_with( $language, 'hu' ) ) {
+			return array();
+		}
+		$text = wp_strip_all_tags( $text );
+		foreach ( (array) ( $blueprint['content_language_exceptions'] ?? array() ) as $exception ) {
+			$text = str_ireplace( (string) $exception, ' ', $text );
+		}
+		preg_match_all( '/[\p{L}][\p{L}\p{M}\'-]*/u', strtolower( $text ), $matches );
+		$words = $matches[0] ?? array();
+		if ( count( $words ) < 8 ) {
+			return array();
+		}
+		$english = array_flip( array( 'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'has', 'have', 'in', 'is', 'it', 'of', 'on', 'or', 'that', 'the', 'this', 'to', 'use', 'with', 'your', 'you', 'what', 'how', 'more', 'clear', 'help', 'next', 'step' ) );
+		$hits = 0;
+		foreach ( $words as $word ) {
+			if ( isset( $english[ $word ] ) ) {
+				++$hits;
+			}
+		}
+		if ( $hits >= 3 && ( $hits / count( $words ) ) >= 0.12 ) {
+			return array(
+				array(
+					'code'    => 'content_language_substantial_mismatch',
+					'message' => 'Substantial English public copy conflicts with the strict hu-HU content language policy.',
+					'path'    => '',
+				),
+			);
+		}
+		return array();
+	}
+}
