@@ -15,8 +15,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 $theme = wp_get_theme();
-if ( 'twentytwentyfive-child' !== $theme->get_stylesheet() || '1.0.35' !== (string) $theme->get( 'Version' ) ) {
-	throw new RuntimeException( 'The stripped WP Suite child theme is not active at version 1.0.35.' );
+if ( 'twentytwentyfive-child' !== $theme->get_stylesheet() || '1.0.36' !== (string) $theme->get( 'Version' ) ) {
+	throw new RuntimeException( 'The stripped WP Suite child theme is not active at version 1.0.36.' );
 }
 
 $theme_root = $theme->get_stylesheet_directory();
@@ -45,8 +45,8 @@ $blueprints = array_values(
 		static fn ( array $entity ): bool => 'blueprint' === ( $entity['type'] ?? '' )
 	)
 );
-if ( 'wpsuite-site-contract-2' !== $active || 16 !== count( $blueprints ) ) {
-	throw new RuntimeException( 'The active database Config Set does not contain all 16 WP Suite blueprints.' );
+if ( 'wpsuite-site-contract-2' !== $active || 18 !== count( $blueprints ) ) {
+	throw new RuntimeException( 'The active database Config Set does not contain all 18 WP Suite blueprints.' );
 }
 
 $discovery = new SiteDiscoveryService(

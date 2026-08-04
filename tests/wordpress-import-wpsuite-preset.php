@@ -42,7 +42,7 @@ if ( empty( $existing ) ) {
 }
 
 $validation = $validator->validate( $config_set );
-if ( ! $validation['valid'] || 16 !== $validation['page_type_count'] ) {
+if ( ! $validation['valid'] || 18 !== $validation['page_type_count'] ) {
 	throw new RuntimeException( 'The canonical WP Suite Config Set did not pass complete validation: ' . wp_json_encode( $validation ) );
 }
 

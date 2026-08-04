@@ -35,8 +35,10 @@
 #smartcloud-composer-admin .mantine-Switch-root:not([data-disabled]),
 #smartcloud-composer-admin .mantine-Switch-body:not([data-disabled]),
 #smartcloud-composer-admin .mantine-Switch-labelWrapper:not([data-disabled]),
+#smartcloud-composer-admin .mantine-Switch-root:not([data-disabled]) .mantine-Switch-inner,
+#smartcloud-composer-admin .mantine-Switch-input:not(:disabled):not([readonly]) + .mantine-Switch-track,
 #smartcloud-composer-admin .mantine-Switch-input:not(:disabled),
-#smartcloud-composer-admin .mantine-Switch-label {
+#smartcloud-composer-admin .mantine-Switch-root:not([data-disabled]) .mantine-Switch-label {
   cursor: pointer;
 }
 
@@ -46,6 +48,9 @@
 #smartcloud-composer-admin .mantine-Switch-root[data-disabled],
 #smartcloud-composer-admin .mantine-Switch-body[data-disabled],
 #smartcloud-composer-admin .mantine-Switch-labelWrapper[data-disabled],
+#smartcloud-composer-admin .mantine-Switch-root[data-disabled] .mantine-Switch-inner,
+#smartcloud-composer-admin .mantine-Switch-input:disabled + .mantine-Switch-track,
+#smartcloud-composer-admin .mantine-Switch-input[readonly] + .mantine-Switch-track,
 #smartcloud-composer-admin .mantine-Checkbox-input:disabled + .mantine-Checkbox-icon,
 #smartcloud-composer-admin .mantine-Switch-input:disabled,
 #smartcloud-composer-admin .mantine-Checkbox-input:disabled {

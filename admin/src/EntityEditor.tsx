@@ -397,7 +397,14 @@ function HelpHeading({ title, topic, help }: { title: string; topic: DocTopic; h
 }
 
 function LongList({ label, description, placeholder, topic, help, value, change, readOnly }: { label: string; description: string; placeholder: string; topic: DocTopic; help?: (topic: DocTopic) => void; value: string[]; change: (value: string[]) => void; readOnly: boolean }) {
-  return <Textarea label={label} description={fieldDescription(description, topic, help)} placeholder={placeholder} value={value.join("\n")} onChange={(event) => change(event.currentTarget.value.split("\n").map((line) => line.trim()).filter(Boolean))} autosize minRows={3} maxRows={12} readOnly={readOnly} />;
+  return <Textarea label={label} description={fieldDescription(description, topic, help)} placeholder={placeholder} value={value.join("\n")}
+    onChange={(event) => change(event.currentTarget.value.split("\n"))}
+    onBlur={(event) => change(normalizeLongList(event.currentTarget.value))}
+    autosize minRows={3} maxRows={12} readOnly={readOnly} />;
+}
+
+function normalizeLongList(value: string): string[] {
+  return value.split("\n").map((line) => line.trim()).filter(Boolean);
 }
 
 function setNested(source: Payload, path: string[], value: unknown): Payload {

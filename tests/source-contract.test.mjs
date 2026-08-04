@@ -35,14 +35,14 @@ test("WordPress Plugin Checker conventions remain explicit", () => {
   assert.doesNotMatch(execution, /wpsuite_agent_composer_(?:design_policy|pattern_preload_error)/);
 });
 
-test("workspace-only WP Suite preset contains every one of the 16 current page types", {
+test("workspace-only WP Suite preset contains every one of the 18 current page types", {
   skip: !fs.existsSync(path.join(root, "presets/wpsuite/page-types.json"))
 }, () => {
   const preset = JSON.parse(read("presets/wpsuite/page-types.json"));
   const ids = preset.blueprints.map((blueprint) => blueprint.id).sort();
-  assert.equal(ids.length, 16);
+  assert.equal(ids.length, 18);
   assert.deepEqual(ids, [
-    "agency", "architecture", "case-study", "comparison", "deployment-access",
+    "about", "agency", "ai-agents", "architecture", "case-study", "comparison", "deployment-access",
     "docs-shell", "home", "page", "platform", "post", "product", "product-ai-kit",
     "product-flow", "product-gatey", "product-publisher", "solution"
   ]);
@@ -112,6 +112,19 @@ test("admin checkboxes suppress the WordPress duplicate checkmark and expose poi
 	assert.match(css, /visibility:\s*hidden\s*!important/);
   assert.match(css, /\.mantine-Checkbox-body:not\(\[data-disabled\]\)/);
   assert.match(css, /cursor:\s*pointer/);
+});
+
+test("guided long-list textareas preserve in-progress spaces and new lines", () => {
+  const editor = read("admin/src/EntityEditor.tsx");
+  assert.match(editor, /onChange=\{\(event\) => change\(event\.currentTarget\.value\.split\("\\n"\)\)\}/);
+  assert.match(editor, /onBlur=\{\(event\) => change\(normalizeLongList\(event\.currentTarget\.value\)\)\}/);
+  assert.doesNotMatch(editor, /onChange=\{[^\n]+\.trim\(\)[^\n]+\.filter\(Boolean\)/);
+});
+
+test("enabled switch controls expose a pointer cursor on their visible track", () => {
+  const css = read("admin/src/admin.css");
+  assert.match(css, /\.mantine-Switch-input:not\(:disabled\):not\(\[readonly\]\) \+ \.mantine-Switch-track/);
+  assert.match(css, /\.mantine-Switch-input:disabled \+ \.mantine-Switch-track/);
 });
 
 test("public core has no REST transport or application store responsibility", () => {
@@ -200,8 +213,8 @@ test("release copy contains no internal milestone or retired theme-contract narr
   assert.doesNotMatch(read("readme.txt"), /development milestone|not yet (?:the )?final/i);
   assert.match(read("smartcloud-agent-composer.php"), /License:\s+MIT/);
   assert.equal(fs.existsSync(path.join(root, "LICENSE")), true);
-  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.0\.1/);
-  assert.match(read("readme.txt"), /Stable tag:\s+1\.0\.1/);
+  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.0\.0/);
+  assert.match(read("readme.txt"), /Stable tag:\s+1\.0\.0/);
 });
 
 test("complete configuration backups are checksummed, secret-free, inactive, and rollback-safe", () => {
