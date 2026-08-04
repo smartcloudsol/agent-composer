@@ -52,10 +52,15 @@ final class Block_Catalog {
 			return false;
 		}
 
-		// Every non-core block requires a registered, product-owned provider.
-		// A live block registration or a theme namespace allowlist alone is not
-		// enough to make the Composer reproduce product behavior.
-		if ( ! $core && ! $this->is_provider_block( $name ) ) {
+		$registered_contracts = is_array( $extensions['registered_block_contracts'] ?? null )
+			? $extensions['registered_block_contracts']
+			: array();
+		$has_registered_contract = isset( $registered_contracts[ $name ] ) && is_array( $registered_contracts[ $name ] );
+
+		// Non-core blocks require either their provider Ability profile or an
+		// explicit registered-block contract. Registration and namespace opt-in
+		// alone never grant Composer access.
+		if ( ! $core && ! $this->is_provider_block( $name ) && ! $has_registered_contract ) {
 			return false;
 		}
 
@@ -83,6 +88,12 @@ final class Block_Catalog {
 		) {
 			return false;
 		}
+		if ( $has_registered_contract && 'server' === ( $registered_contracts[ $name ]['rendering'] ?? '' ) ) {
+			$schema = $this->get( $name );
+			if ( empty( $schema['dynamic'] ) ) {
+				return false;
+			}
+		}
 
 		/*
 		 * A design-policy extension is a site-wide capability ceiling, not a
@@ -105,7 +116,7 @@ final class Block_Catalog {
 		if (
 			false !== $namespace
 			&& in_array( $namespace, $extensions['allowed_plugin_namespaces'], true )
-			&& $this->is_provider_block( $name )
+			&& ( $this->is_provider_block( $name ) || $has_registered_contract )
 			&& $this->is_registered( $name )
 		) {
 			return true;
@@ -145,6 +156,10 @@ final class Block_Catalog {
 	private function schema_from_type( object $type ): array {
 		$name = $this->normalize_name( (string) ( $type->name ?? '' ) );
 		$provider = $this->providers->provider_for_block( $name );
+		$extensions = $this->config->get_block_extensions();
+		$contract = is_array( $extensions['registered_block_contracts'][ $name ] ?? null )
+			? $extensions['registered_block_contracts'][ $name ]
+			: array();
 
 		return array(
 			'name'             => $name,
@@ -163,6 +178,7 @@ final class Block_Catalog {
 			'provides_context' => $this->safe_value( is_array( $type->provides_context ?? null ) ? $type->provides_context : array() ),
 			'uses_context'     => $this->safe_value( is_array( $type->uses_context ?? null ) ? $type->uses_context : array() ),
 			'dynamic'          => method_exists( $type, 'is_dynamic' ) ? (bool) $type->is_dynamic() : ! empty( $type->render_callback ),
+			'composer_contract' => $contract,
 		);
 	}
 

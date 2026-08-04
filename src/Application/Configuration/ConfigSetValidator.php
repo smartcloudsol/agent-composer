@@ -72,6 +72,15 @@ final class ConfigSetValidator {
 			$by_type[ EntityType::BLUEPRINT ] ?? array(),
 			$errors
 		);
+		$this->validate_remote_media_policy(
+			is_array( $site_contract ) ? $site_contract : array(),
+			$errors
+		);
+		$this->validate_registered_block_contracts(
+			is_array( $site_contract ) ? $site_contract : array(),
+			$by_type[ EntityType::BLUEPRINT ] ?? array(),
+			$errors
+		);
 
 		$profiles       = $this->providers->profiles();
 		$provider_ids   = array_values( array_unique( array_map( static fn( array $profile ): string => (string) $profile['provider']['id'], $profiles ) ) );
@@ -184,6 +193,108 @@ final class ConfigSetValidator {
 				if ( ! in_array( (string) ( $registration['type'] ?? '' ), array( 'string', 'integer', 'number', 'boolean', 'array', 'object' ), true ) ) {
 					$errors[] = $this->issue( 'content-field-type-unsupported', 'An enabled content field uses an unsupported registered type.', $field_path );
 				}
+				if ( 'relation' === ( $rules['semantic_type'] ?? '' ) ) {
+					$cardinality = (string) ( $rules['cardinality'] ?? 'many' );
+					$registered_type = (string) ( $registration['type'] ?? '' );
+					if ( ! in_array( $cardinality, array( 'one', 'many' ), true ) || ( 'one' === $cardinality ? 'integer' !== $registered_type : 'array' !== $registered_type ) ) {
+						$errors[] = $this->issue( 'relation-cardinality-registration-mismatch', 'A relation cardinality must match its registered integer or array meta type.', $field_path );
+					}
+					$target_types = is_array( $rules['target_post_types'] ?? null ) ? $rules['target_post_types'] : array();
+					if ( empty( $target_types ) ) {
+						$errors[] = $this->issue( 'relation-target-types-missing', 'A relation field must declare at least one target post type.', $field_path );
+					}
+					foreach ( $target_types as $target_type ) {
+						if ( ! post_type_exists( sanitize_key( (string) $target_type ) ) ) {
+							$errors[] = $this->issue( 'relation-target-type-unavailable', 'A relation field targets an unavailable post type.', $field_path . '.target_post_types' );
+						}
+					}
+				}
+			}
+		}
+	}
+
+	private function validate_remote_media_policy( array $site_contract, array &$errors ): void {
+		$policy = is_array( $site_contract['design_policy'] ?? null ) ? $site_contract['design_policy'] : array();
+		$media  = $policy['remote_media_ingest'] ?? array();
+		if ( null !== $media && ! is_array( $media ) ) {
+			$errors[] = $this->issue( 'remote-media-policy-type', 'Remote media ingestion policy must be an object.', 'site-contract:design_policy.remote_media_ingest' );
+			return;
+		}
+		if ( ! is_array( $media ) || empty( $media['enabled'] ) ) {
+			return;
+		}
+		$hosts = (array) ( $media['allowed_hosts'] ?? array() );
+		$mimes = (array) ( $media['allowed_mime_types'] ?? array() );
+		if ( empty( $hosts ) ) {
+			$errors[] = $this->issue( 'remote-media-hosts-missing', 'Enabled remote media ingestion requires at least one exact host.', 'site-contract:design_policy.remote_media_ingest.allowed_hosts' );
+		}
+		foreach ( $hosts as $host ) {
+			if ( ! preg_match( '/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/', strtolower( trim( (string) $host ) ) ) ) {
+				$errors[] = $this->issue( 'remote-media-host-invalid', 'Remote media hosts must be exact DNS names without schemes, paths, ports, or wildcards.', 'site-contract:design_policy.remote_media_ingest.allowed_hosts' );
+			}
+		}
+		$allowed_mimes = array( 'image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif' );
+		if ( empty( $mimes ) || array_diff( array_map( 'sanitize_mime_type', $mimes ), $allowed_mimes ) ) {
+			$errors[] = $this->issue( 'remote-media-mime-invalid', 'Remote media MIME types must be selected from the supported raster image allowlist.', 'site-contract:design_policy.remote_media_ingest.allowed_mime_types' );
+		}
+		$max_bytes = $media['max_bytes'] ?? 12582912;
+		if ( ! is_int( $max_bytes ) || $max_bytes < 1024 || $max_bytes > 26214400 ) {
+			$errors[] = $this->issue( 'remote-media-size-invalid', 'Remote media max_bytes must be an integer from 1024 through 26214400.', 'site-contract:design_policy.remote_media_ingest.max_bytes' );
+		}
+	}
+
+	private function validate_registered_block_contracts( array $site_contract, array $blueprints, array &$errors ): void {
+		$policy     = is_array( $site_contract['design_policy'] ?? null ) ? $site_contract['design_policy'] : array();
+		$extensions = is_array( $policy['block_extensions'] ?? null ) ? $policy['block_extensions'] : array();
+		$contracts  = $extensions['registered_block_contracts'] ?? array();
+		if ( null !== $contracts && ! is_array( $contracts ) ) {
+			$errors[] = $this->issue( 'registered-block-contracts-type', 'Registered block contracts must be an object.', 'site-contract:design_policy.block_extensions.registered_block_contracts' );
+			return;
+		}
+
+		$namespaces = array_values( array_filter( array_map( static fn( mixed $value ): string => sanitize_key( (string) $value ), (array) ( $extensions['allowed_plugin_namespaces'] ?? array() ) ) ) );
+		$allowed    = array();
+		foreach ( $blueprints as $blueprint ) {
+			foreach ( (array) ( $blueprint['payload']['allowed_blocks'] ?? array() ) as $block_name ) {
+				$allowed[ strtolower( trim( (string) $block_name ) ) ] = true;
+			}
+		}
+		$registry = class_exists( '\\WP_Block_Type_Registry' ) ? \WP_Block_Type_Registry::get_instance() : null;
+		foreach ( is_array( $contracts ) ? $contracts : array() as $block_name => $contract ) {
+			$block_name = strtolower( trim( (string) $block_name ) );
+			$path       = 'site-contract:design_policy.block_extensions.registered_block_contracts.' . $block_name;
+			if ( ! preg_match( '#^[a-z0-9-]+/[a-z0-9-]+$#', $block_name ) || str_starts_with( $block_name, 'core/' ) || ! is_array( $contract ) ) {
+				$errors[] = $this->issue( 'registered-block-contract-invalid', 'A registered block contract requires a non-core block name and object value.', $path );
+				continue;
+			}
+			$namespace = strstr( $block_name, '/', true );
+			if ( false === $namespace || ! in_array( $namespace, $namespaces, true ) ) {
+				$errors[] = $this->issue( 'registered-block-namespace-not-allowed', 'A registered block contract requires an exact namespace opt-in.', $path );
+			}
+			if ( ! isset( $allowed[ $block_name ] ) ) {
+				$errors[] = $this->issue( 'registered-block-blueprint-missing', 'A registered block contract must be selected by at least one Blueprint.', $path );
+			}
+			$block_type = is_object( $registry ) ? $registry->get_registered( $block_name ) : null;
+			if ( ! is_object( $block_type ) ) {
+				$errors[] = $this->issue( 'registered-block-unavailable', 'A contracted third-party block is not registered on this site.', $path );
+				continue;
+			}
+			$rendering = (string) ( $contract['rendering'] ?? 'server' );
+			$is_dynamic = method_exists( $block_type, 'is_dynamic' ) ? (bool) $block_type->is_dynamic() : ! empty( $block_type->render_callback );
+			if ( 'server' === $rendering && ! $is_dynamic ) {
+				$errors[] = $this->issue( 'registered-block-server-rendering-mismatch', 'A server-rendered contract requires a dynamic registered block.', $path );
+			}
+			$registered_attributes = is_array( $block_type->attributes ?? null ) ? $block_type->attributes : array();
+			foreach ( (array) ( $contract['attributes'] ?? array() ) as $attribute => $schema ) {
+				$attribute_path = $path . '.attributes.' . $attribute;
+				if ( ! isset( $registered_attributes[ $attribute ] ) || ! is_array( $schema ) ) {
+					$errors[] = $this->issue( 'registered-block-attribute-unavailable', 'A contracted attribute is absent from the registered block schema.', $attribute_path );
+					continue;
+				}
+				$registered_type = (string) ( $registered_attributes[ $attribute ]['type'] ?? '' );
+				if ( '' !== (string) ( $schema['type'] ?? '' ) && $registered_type !== (string) $schema['type'] ) {
+					$errors[] = $this->issue( 'registered-block-attribute-type-mismatch', 'A contracted attribute type differs from the registered block schema.', $attribute_path );
+				}
 			}
 		}
 	}
@@ -200,6 +311,16 @@ final class ConfigSetValidator {
 		}
 		if ( 'strict' === $enforcement && '' === $language ) {
 			$errors[] = $this->issue( 'strict-content-language-missing', 'Strict content-language enforcement requires content_language.', 'site-contract:design_policy.content_language' );
+		}
+		$signals = $policy['content_language_mismatch_signals'] ?? array();
+		if ( ! is_array( $signals ) || array_is_list( $signals ) === false || count( $signals ) > 200 ) {
+			$errors[] = $this->issue( 'content-language-signals-invalid', 'Content language mismatch signals must be a list of at most 200 terms.', 'site-contract:design_policy.content_language_mismatch_signals' );
+		} else {
+			foreach ( $signals as $index => $signal ) {
+				if ( ! is_string( $signal ) || '' === trim( $signal ) || strlen( $signal ) > 64 ) {
+					$errors[] = $this->issue( 'content-language-signal-invalid', 'Each content language mismatch signal must be a non-empty string no longer than 64 bytes.', 'site-contract:design_policy.content_language_mismatch_signals.' . $index );
+				}
+			}
 		}
 		foreach ( $blueprints as $blueprint ) {
 			$payload = is_array( $blueprint['payload'] ?? null ) ? $blueprint['payload'] : array();

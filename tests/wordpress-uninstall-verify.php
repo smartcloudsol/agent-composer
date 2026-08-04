@@ -14,12 +14,13 @@ $state = array(
 	'role_exists'     => get_role( 'smartcloud_agent' ) instanceof WP_Role,
 	'audit_table'     => $table_exists,
 	'db_version'      => get_option( 'smartcloud_composer_db_version', false ),
+	'role_schema'     => get_option( 'smartcloud_composer_role_schema_version', false ),
 	'ordinary_draft'  => $ordinary_draft instanceof WP_Post,
 	'preview_draft'   => $preview_draft instanceof WP_Post,
 	'cleanup_cron'    => false !== wp_next_scheduled( 'smartcloud_composer_cleanup_preview_drafts' ),
 );
 
-if ( 0 !== $config_entities || $state['role_exists'] || $table_exists || false !== $state['db_version'] || ! $state['ordinary_draft'] || $state['preview_draft'] || $state['cleanup_cron'] ) {
+if ( 0 !== $config_entities || $state['role_exists'] || $table_exists || false !== $state['db_version'] || false !== $state['role_schema'] || ! $state['ordinary_draft'] || $state['preview_draft'] || $state['cleanup_cron'] ) {
 	throw new RuntimeException( 'Composer uninstall left plugin-owned data behind: ' . wp_json_encode( $state ) );
 }
 

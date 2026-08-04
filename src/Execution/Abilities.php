@@ -18,6 +18,7 @@ final class Abilities {
 	private Query_Loop_Materializer $query_loops;
 	private Content_Field_Materializer $content_fields;
 	private Semantic_Slot_Materializer $semantic_slots;
+	private Remote_Media_Ingestor $remote_media;
 
 	public function __construct(
 		Config_Repository $config,
@@ -27,7 +28,8 @@ final class Abilities {
 		Ability_Provider_Registry $providers,
 		Query_Loop_Materializer $query_loops,
 		Content_Field_Materializer $content_fields,
-		Semantic_Slot_Materializer $semantic_slots
+		Semantic_Slot_Materializer $semantic_slots,
+		Remote_Media_Ingestor $remote_media
 	) {
 		$this->config    = $config;
 		$this->drafts    = $drafts;
@@ -37,6 +39,7 @@ final class Abilities {
 		$this->query_loops = $query_loops;
 		$this->content_fields = $content_fields;
 		$this->semantic_slots = $semantic_slots;
+		$this->remote_media   = $remote_media;
 	}
 
 	public static function names(): array {
@@ -47,9 +50,12 @@ final class Abilities {
 			self::PREFIX . 'list-approved-patterns',
 			self::PREFIX . 'read-reference-page',
 			self::PREFIX . 'search-media',
+			self::PREFIX . 'assign-featured-image',
+			self::PREFIX . 'ingest-remote-media',
 			self::PREFIX . 'materialize-media-image',
 			self::PREFIX . 'materialize-query-loop',
 			self::PREFIX . 'get-content-field-contract',
+			self::PREFIX . 'search-relation-targets',
 			self::PREFIX . 'inspect-content-fields',
 			self::PREFIX . 'update-content-fields',
 			self::PREFIX . 'list-content-drafts',
@@ -151,6 +157,22 @@ final class Abilities {
 			true
 		);
 		$this->register_ability(
+			'assign-featured-image',
+			'Assign featured image',
+			'Assigns one readable existing Media Library image as the featured image of a Composer-owned draft. It requires optimistic-concurrency tokens and cannot modify published content.',
+			$this->featured_image_assignment_schema(),
+			array( $this, 'assign_featured_image' ),
+			false
+		);
+		$this->register_ability(
+			'ingest-remote-media',
+			'Ingest remote media',
+			'Downloads one image from a Site Contract-approved HTTPS host into the WordPress Media Library with bounded size, MIME validation, and idempotency. It may assign the image only to a Composer-owned draft and cannot publish or delete content.',
+			$this->remote_media_schema(),
+			array( $this, 'ingest_remote_media' ),
+			false
+		);
+		$this->register_ability(
 			'materialize-media-image',
 			'Materialize media image',
 			'Returns one existing image attachment as canonical core/image markup plus a page-type-aware placement Group. It can add a validated Flow gallery trigger without desynchronizing saved HTML from block attributes. It does not save content.',
@@ -172,6 +194,14 @@ final class Abilities {
 			'Returns only the registered CPT fields explicitly enabled by the active Site Contract for a selected Blueprint.',
 			$this->page_type_schema(),
 			array( $this, 'get_content_field_contract' ),
+			true
+		);
+		$this->register_ability(
+			'search-relation-targets',
+			'Search relation targets',
+			'Finds relation targets by title or exact slug using only the generic relation contract declared by the active Site Contract.',
+			$this->relation_target_search_schema(),
+			array( $this, 'search_relation_targets' ),
 			true
 		);
 		$this->register_ability(
@@ -349,6 +379,13 @@ final class Abilities {
 							'registered_rest_fields_required' => true,
 							'composer_owned_draft_writes_only' => true,
 							'explicit_confirmation_required'  => true,
+						),
+						'remote_media_ingest'                  => array_merge(
+							$this->config->get_remote_media_ingest_policy(),
+							array(
+								'controlled_ingest_capability_required' => true,
+								'composer_owned_draft_assignment_only' => true,
+							)
 						),
 						'text_editor_contract'                 => isset( $extensions['text_editor_contract'] ) && is_array( $extensions['text_editor_contract'] )
 							? $extensions['text_editor_contract']
@@ -630,6 +667,18 @@ final class Abilities {
 		);
 	}
 
+	public function ingest_remote_media( array $input ): array|\WP_Error {
+		return $this->execute( 'ingest-remote-media', $input, fn() => $this->remote_media->ingest( $input ) );
+	}
+
+	public function assign_featured_image( array $input ): array|\WP_Error {
+		return $this->execute(
+			'assign-featured-image',
+			$input,
+			fn() => $this->drafts->assign_featured_image( $input, absint( $input['attachment_id'] ?? 0 ) )
+		);
+	}
+
 	public function insert_or_update_blocks( array $input ): array|\WP_Error {
 		return $this->execute(
 			'insert-or-update-blocks',
@@ -644,6 +693,10 @@ final class Abilities {
 
 	public function get_content_field_contract( array $input ): array|\WP_Error {
 		return $this->execute( 'get-content-field-contract', $input, fn() => $this->content_fields->contract( $input ) );
+	}
+
+	public function search_relation_targets( array $input ): array|\WP_Error {
+		return $this->execute( 'search-relation-targets', $input, fn() => $this->content_fields->search_relation_targets( $input ) );
 	}
 
 	public function inspect_content_fields( array $input ): array|\WP_Error {
@@ -761,7 +814,7 @@ final class Abilities {
 						'destructive' => false,
 						'idempotent'  => $read_only || in_array(
 							$slug,
-							array( 'create-page-draft', 'create-content-draft', 'adopt-content-draft' ),
+							array( 'create-page-draft', 'create-content-draft', 'adopt-content-draft', 'assign-featured-image', 'ingest-remote-media' ),
 							true
 						),
 					),
@@ -850,6 +903,47 @@ final class Abilities {
 				),
 			),
 			'required'             => array( 'page_type', 'attachment_id' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	public function remote_media_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'source_url'      => array( 'type' => 'string', 'format' => 'uri', 'minLength' => 10, 'maxLength' => 2048 ),
+				'idempotency_key' => array( 'type' => 'string', 'minLength' => 8, 'maxLength' => 128, 'pattern' => '^[A-Za-z0-9._:-]+$' ),
+				'title'           => $this->string_property( 'Media Library title.', 0, 200 ),
+				'alt'             => $this->string_property( 'Accessible alternative text.', 0, 500 ),
+				'caption'         => $this->string_property( 'Optional plain-text Media Library caption.', 0, 1000 ),
+				'featured_for'    => array(
+					'type'                 => 'object',
+					'properties'           => array(
+						'post_id'               => array( 'type' => 'integer', 'minimum' => 1 ),
+						'page_type'             => $this->string_property( 'Immutable Blueprint page type assigned to the draft.', 1, 64 ),
+						'expected_modified_gmt' => array( 'type' => 'string', 'format' => 'date-time' ),
+						'expected_revision'     => array( 'type' => 'string', 'format' => 'uuid' ),
+					),
+					'required'             => array( 'post_id', 'page_type', 'expected_modified_gmt', 'expected_revision' ),
+					'additionalProperties' => false,
+				),
+			),
+			'required'             => array( 'source_url', 'idempotency_key' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	public function featured_image_assignment_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'post_id'               => array( 'type' => 'integer', 'minimum' => 1 ),
+				'page_type'             => $this->string_property( 'Immutable Blueprint page type assigned to the draft.', 1, 64 ),
+				'attachment_id'         => array( 'type' => 'integer', 'minimum' => 1 ),
+				'expected_modified_gmt' => array( 'type' => 'string', 'format' => 'date-time' ),
+				'expected_revision'     => array( 'type' => 'string', 'format' => 'uuid' ),
+			),
+			'required'             => array( 'post_id', 'page_type', 'attachment_id', 'expected_modified_gmt', 'expected_revision' ),
 			'additionalProperties' => false,
 		);
 	}
@@ -1026,6 +1120,20 @@ final class Abilities {
 				'page_type' => $this->string_property( 'Blueprint page type whose target and field contract must match the content item.', 1, 64 ),
 			),
 			'required'             => array( 'post_id', 'page_type' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	public function relation_target_search_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'page_type'     => $this->string_property( 'Blueprint page type whose active Site Contract declares the relation.', 1, 64 ),
+				'relation_field' => $this->string_property( 'Registered relation meta key returned by get-content-field-contract.', 1, 191 ),
+				'query'         => $this->string_property( 'Optional human title search or exact slug.', 0, 200 ),
+				'limit'         => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 50, 'default' => 20 ),
+			),
+			'required'             => array( 'page_type', 'relation_field' ),
 			'additionalProperties' => false,
 		);
 	}

@@ -330,6 +330,7 @@ final class Block_Tree_Service {
 			}
 
 			$this->validate_attributes( $name, $node['attrs'], $schema['attributes'], $errors );
+			$this->validate_registered_block_contract( $name, $node['attrs'], $schema['composer_contract'] ?? array(), $errors );
 			$this->validate_relationships( $name, $schema, $parent, $ancestors, $errors );
 			$this->validate_raw_html( $name, (string) $node['innerHTML'], $errors );
 			if ( 'core/image' === $name ) {
@@ -401,6 +402,15 @@ final class Block_Tree_Service {
 		if ( isset( $schema['enum'] ) && is_array( $schema['enum'] ) && ! in_array( $value, $schema['enum'], true ) ) {
 			$errors[] = $this->issue( 'invalid_attribute_enum', 'A block attribute is outside its registered enum.', array( 'attribute' => $path ) );
 		}
+		if ( array_key_exists( 'const', $schema ) && $value !== $schema['const'] ) {
+			$errors[] = $this->issue( 'invalid_attribute_constant', 'A block attribute does not match its fixed Composer contract value.', array( 'attribute' => $path ) );
+		}
+		if ( ( is_int( $value ) || is_float( $value ) ) && isset( $schema['minimum'] ) && $value < $schema['minimum'] ) {
+			$errors[] = $this->issue( 'attribute_below_minimum', 'A block attribute is below its Composer contract minimum.', array( 'attribute' => $path ) );
+		}
+		if ( ( is_int( $value ) || is_float( $value ) ) && isset( $schema['maximum'] ) && $value > $schema['maximum'] ) {
+			$errors[] = $this->issue( 'attribute_above_maximum', 'A block attribute exceeds its Composer contract maximum.', array( 'attribute' => $path ) );
+		}
 		if ( 'array' === $type && isset( $schema['items'] ) && is_array( $schema['items'] ) ) {
 			foreach ( $value as $index => $item ) {
 				$this->validate_schema_value( $item, $schema['items'], $path . '[' . $index . ']', $errors );
@@ -412,6 +422,24 @@ final class Block_Tree_Service {
 					$this->validate_schema_value( $item, $schema['properties'][ $key ], $path . '.' . $key, $errors );
 				}
 			}
+		}
+	}
+
+	private function validate_registered_block_contract( string $name, array $attrs, mixed $contract, array &$errors ): void {
+		if ( ! is_array( $contract ) || empty( $contract ) ) {
+			return;
+		}
+		foreach ( (array) ( $contract['attributes'] ?? array() ) as $attribute => $schema ) {
+			if ( ! is_array( $schema ) ) {
+				continue;
+			}
+			if ( ! array_key_exists( $attribute, $attrs ) ) {
+				if ( ! empty( $schema['required'] ) ) {
+					$errors[] = $this->issue( 'required_component_attribute_missing', 'A fixed registered-block contract attribute is missing.', array( 'block' => $name, 'attribute' => $attribute ) );
+				}
+				continue;
+			}
+			$this->validate_schema_value( $attrs[ $attribute ], $schema, $name . '.' . $attribute, $errors );
 		}
 	}
 

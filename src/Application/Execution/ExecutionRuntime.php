@@ -16,6 +16,7 @@ use SmartCloud\AgentComposer\Execution\Page_Validator;
 use SmartCloud\AgentComposer\Execution\Pattern_Assembler;
 use SmartCloud\AgentComposer\Execution\Pattern_Repository;
 use SmartCloud\AgentComposer\Execution\Query_Loop_Materializer;
+use SmartCloud\AgentComposer\Execution\Remote_Media_Ingestor;
 use SmartCloud\AgentComposer\Execution\Semantic_Slot_Materializer;
 use SmartCloud\AgentComposer\Execution\Content_Language_Validator;
 use SmartCloud\AgentComposer\Execution\Target_Resolver;
@@ -53,7 +54,8 @@ final class ExecutionRuntime {
 		$audit              = new Audit_Logger( $audit_table );
 		$query_loops        = new Query_Loop_Materializer( $config );
 		$content_fields     = new Content_Field_Materializer( $config, $this->drafts, $language );
-		$this->abilities    = new Abilities( $config, $this->drafts, $audit, $this->patterns, $this->providers, $query_loops, $content_fields, $slots );
+		$remote_media       = new Remote_Media_Ingestor( $config, $this->drafts );
+		$this->abilities    = new Abilities( $config, $this->drafts, $audit, $this->patterns, $this->providers, $query_loops, $content_fields, $slots, $remote_media );
 		$this->aliases      = new ExecutionAbilityAliases( $this->abilities );
 		$this->previews     = new PreviewDraftService( $this->abilities );
 		$this->mcp          = new ComposerMcpServer( $this->providers );

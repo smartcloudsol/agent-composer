@@ -6,7 +6,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-const SMARTCLOUD_WPSUITE_AGENT_COMPOSER_HUB_VERSION = '2.5.7';
+const SMARTCLOUD_WPSUITE_AGENT_COMPOSER_HUB_VERSION = '2.5.8';
 
 final class AgentComposerHubLoader {
 	private static ?self $instance = null;
@@ -42,26 +42,34 @@ final class AgentComposerHubLoader {
 			__( 'SmartCloud', 'smartcloud-agent-composer' ),
 			__( 'SmartCloud', 'smartcloud-agent-composer' ),
 			'manage_options',
-			SMARTCLOUD_WPSUITE_SLUG,
+			SMARTCLOUD_WPSUITE_CANONICAL_SLUG,
 			null,
 			$icon_url,
 			58
 		);
 		$connect_suffix = add_submenu_page(
-			SMARTCLOUD_WPSUITE_SLUG,
+			SMARTCLOUD_WPSUITE_CANONICAL_SLUG,
 			__( 'Connect your Site to WP Suite', 'smartcloud-agent-composer' ),
 			__( 'Connect your Site', 'smartcloud-agent-composer' ),
 			'manage_options',
-			SMARTCLOUD_WPSUITE_SLUG,
+			SMARTCLOUD_WPSUITE_CANONICAL_SLUG,
 			array( $this->admin, 'renderAdminPage' )
 		);
 		$settings_suffix = add_submenu_page(
-			SMARTCLOUD_WPSUITE_SLUG,
+			SMARTCLOUD_WPSUITE_CANONICAL_SLUG,
 			__( 'WP Suite General Settings', 'smartcloud-agent-composer' ),
 			__( 'Global Settings', 'smartcloud-agent-composer' ),
 			'manage_options',
-			SMARTCLOUD_WPSUITE_SLUG . '-settings',
+			SMARTCLOUD_WPSUITE_CANONICAL_SLUG . '-settings',
 			array( $this->admin, 'renderAdminPage' )
+		);
+		add_submenu_page(
+			null,
+			__( 'WP Suite', 'smartcloud-agent-composer' ),
+			__( 'WP Suite', 'smartcloud-agent-composer' ),
+			'manage_options',
+			SMARTCLOUD_WPSUITE_LEGACY_SLUG,
+			array( $this->admin, 'renderLegacyAdminPage' )
 		);
 		if ( method_exists( $this->admin, 'enqueueAdminScripts' ) ) {
 			$this->admin->enqueueAdminScripts( $connect_suffix, $settings_suffix );
@@ -78,16 +86,33 @@ final class AgentComposerHubLoader {
 		if ( ! function_exists( 'is_plugin_active' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		}
-		if ( ! empty( $GLOBALS['smartcloud_wpsuite_menu_parent'] ) ) {
-			return false;
+		$runtime_already_loaded = ! empty( $GLOBALS['smartcloud_wpsuite_menu_parent'] );
+		if ( ! defined( 'SMARTCLOUD_WPSUITE_CANONICAL_SLUG' ) ) {
+			define( 'SMARTCLOUD_WPSUITE_CANONICAL_SLUG', 'smartcloud-wpsuite' );
+		}
+		if ( ! defined( 'SMARTCLOUD_WPSUITE_LEGACY_SLUG' ) ) {
+			define( 'SMARTCLOUD_WPSUITE_LEGACY_SLUG', 'hub-for-wpsuiteio' );
 		}
 		if ( ! defined( 'SMARTCLOUD_WPSUITE_SLUG' ) ) {
-			define( 'SMARTCLOUD_WPSUITE_SLUG', 'hub-for-wpsuiteio' );
+			define( 'SMARTCLOUD_WPSUITE_SLUG', SMARTCLOUD_WPSUITE_CANONICAL_SLUG );
+		}
+		if ( ! defined( 'SMARTCLOUD_WPSUITE_RUNTIME_DIRECTORY' ) ) {
+			define( 'SMARTCLOUD_WPSUITE_RUNTIME_DIRECTORY', 'smartcloud-wpsuite' );
 		}
 
-		$owner_option = SMARTCLOUD_WPSUITE_SLUG . '/top-menu-owner';
+		$owner_option        = SMARTCLOUD_WPSUITE_CANONICAL_SLUG . '/top-menu-owner';
+		$legacy_owner_option = SMARTCLOUD_WPSUITE_LEGACY_SLUG . '/top-menu-owner';
 		$owner         = get_option( $owner_option );
 		$owner_version = (string) ( get_option( $owner_option . '/version' ) ?: '1.0.0' );
+		if ( empty( $owner ) ) {
+			$legacy_owner = get_option( $legacy_owner_option );
+			if ( ! empty( $legacy_owner ) ) {
+				$owner         = $legacy_owner;
+				$owner_version = (string) ( get_option( $legacy_owner_option . '/version' ) ?: '1.0.0' );
+				add_option( $owner_option, $owner, '', false );
+				add_option( $owner_option . '/version', $owner_version, '', false );
+			}
+		}
 		$owner_missing = empty( $owner );
 		$owner_is_me   = $owner === $this->plugin;
 
@@ -101,6 +126,15 @@ final class AgentComposerHubLoader {
 		$owner_inactive      = ! $owner_is_active || ! $owner_is_valid || ! $owner_exists;
 		$version_is_smaller  = version_compare( $owner_version, SMARTCLOUD_WPSUITE_AGENT_COMPOSER_HUB_VERSION, '<' );
 		$version_is_equal    = 0 === version_compare( $owner_version, SMARTCLOUD_WPSUITE_AGENT_COMPOSER_HUB_VERSION );
+		if ( $runtime_already_loaded ) {
+			if ( $owner_missing || $owner_inactive || $version_is_smaller ) {
+				update_option( $owner_option, $this->plugin, false );
+				update_option( $owner_option . '/version', SMARTCLOUD_WPSUITE_AGENT_COMPOSER_HUB_VERSION, false );
+				update_option( $legacy_owner_option, $this->plugin, false );
+				update_option( $legacy_owner_option . '/version', SMARTCLOUD_WPSUITE_AGENT_COMPOSER_HUB_VERSION, false );
+			}
+			return false;
+		}
 
 		if ( ! $owner_missing && ! $owner_is_me && ! $owner_inactive && ! $version_is_smaller ) {
 			return false;
@@ -113,13 +147,13 @@ final class AgentComposerHubLoader {
 				define( 'SMARTCLOUD_WPSUITE_VERSION', SMARTCLOUD_WPSUITE_AGENT_COMPOSER_HUB_VERSION );
 			}
 			if ( ! defined( 'SMARTCLOUD_WPSUITE_PATH' ) ) {
-				define( 'SMARTCLOUD_WPSUITE_PATH', plugin_dir_path( __FILE__ ) . SMARTCLOUD_WPSUITE_SLUG . '/' );
+				define( 'SMARTCLOUD_WPSUITE_PATH', plugin_dir_path( __FILE__ ) . SMARTCLOUD_WPSUITE_RUNTIME_DIRECTORY . '/' );
 			}
 			if ( ! defined( 'SMARTCLOUD_WPSUITE_URL' ) ) {
-				define( 'SMARTCLOUD_WPSUITE_URL', plugin_dir_url( __FILE__ ) . SMARTCLOUD_WPSUITE_SLUG . '/' );
+				define( 'SMARTCLOUD_WPSUITE_URL', plugin_dir_url( __FILE__ ) . SMARTCLOUD_WPSUITE_RUNTIME_DIRECTORY . '/' );
 			}
 			if ( ! defined( 'SMARTCLOUD_WPSUITE_READY_HOOK' ) ) {
-				define( 'SMARTCLOUD_WPSUITE_READY_HOOK', SMARTCLOUD_WPSUITE_SLUG . '/ready' );
+				define( 'SMARTCLOUD_WPSUITE_READY_HOOK', SMARTCLOUD_WPSUITE_CANONICAL_SLUG . '/ready' );
 			}
 			if ( file_exists( SMARTCLOUD_WPSUITE_PATH . 'index.php' ) ) {
 				require_once SMARTCLOUD_WPSUITE_PATH . 'index.php';
@@ -130,11 +164,15 @@ final class AgentComposerHubLoader {
 			if ( ! $owner_is_me || ! $version_is_equal ) {
 				update_option( $owner_option, $this->plugin, false );
 				update_option( $owner_option . '/version', SMARTCLOUD_WPSUITE_AGENT_COMPOSER_HUB_VERSION, false );
+				update_option( $legacy_owner_option, $this->plugin, false );
+				update_option( $legacy_owner_option . '/version', SMARTCLOUD_WPSUITE_AGENT_COMPOSER_HUB_VERSION, false );
 			}
 		}
 		if ( ! $owner_is_me && $version_is_smaller ) {
 			update_option( $owner_option, $this->plugin, false );
 			update_option( $owner_option . '/version', SMARTCLOUD_WPSUITE_AGENT_COMPOSER_HUB_VERSION, false );
+			update_option( $legacy_owner_option, $this->plugin, false );
+			update_option( $legacy_owner_option . '/version', SMARTCLOUD_WPSUITE_AGENT_COMPOSER_HUB_VERSION, false );
 		}
 		return $result;
 	}

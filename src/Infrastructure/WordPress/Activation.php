@@ -7,6 +7,7 @@ use SmartCloud\AgentComposer\Infrastructure\Persistence\AuditTable;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\WordPressConfigurationRepository;
 
 final class Activation {
+	private const ROLE_SCHEMA_VERSION = '2';
 	public const ROLE                = 'smartcloud_agent';
 	public const CAP_USE             = 'smartcloud_agent_use';
 	public const CAP_VIEW_STATUS     = 'smartcloud_composer_view_status';
@@ -16,6 +17,7 @@ final class Activation {
 	public const CAP_ROLLBACK_CONFIG = 'smartcloud_composer_rollback_config';
 	public const CAP_VIEW_AUDIT      = 'smartcloud_composer_view_audit';
 	public const CAP_EXECUTE_DRAFTS  = 'smartcloud_composer_execute_drafts';
+	public const CAP_INGEST_MEDIA    = 'smartcloud_composer_ingest_media';
 
 	public static function activate( bool $network_wide = false ): void {
 		if ( is_multisite() && $network_wide ) {
@@ -36,6 +38,7 @@ final class Activation {
 		self::migrate_legacy_role_users();
 		self::migrate_blueprint_entity_keys();
 		update_option( 'smartcloud_composer_db_version', SMARTCLOUD_COMPOSER_VERSION, false );
+		update_option( 'smartcloud_composer_role_schema_version', self::ROLE_SCHEMA_VERSION, false );
 		flush_rewrite_rules( false );
 	}
 
@@ -43,6 +46,11 @@ final class Activation {
 		self::migrate_blueprint_entity_keys();
 		if ( (string) get_option( 'smartcloud_composer_db_version', '' ) !== SMARTCLOUD_COMPOSER_VERSION ) {
 			self::activate_site();
+			return;
+		}
+		if ( (string) get_option( 'smartcloud_composer_role_schema_version', '' ) !== self::ROLE_SCHEMA_VERSION ) {
+			self::install_roles();
+			update_option( 'smartcloud_composer_role_schema_version', self::ROLE_SCHEMA_VERSION, false );
 		}
 	}
 
@@ -54,6 +62,7 @@ final class Activation {
 			self::CAP_USE            => true,
 			self::CAP_VIEW_STATUS    => true,
 			self::CAP_EXECUTE_DRAFTS => true,
+			self::CAP_INGEST_MEDIA   => true,
 		);
 		$role = get_role( self::ROLE ) ?: add_role( self::ROLE, __( 'SmartCloud Agent', 'smartcloud-agent-composer' ), $agent_caps );
 		if ( $role ) {
@@ -109,6 +118,7 @@ final class Activation {
 			self::CAP_ROLLBACK_CONFIG,
 			self::CAP_VIEW_AUDIT,
 			self::CAP_EXECUTE_DRAFTS,
+			self::CAP_INGEST_MEDIA,
 		);
 	}
 

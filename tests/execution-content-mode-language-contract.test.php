@@ -173,9 +173,15 @@ namespace SmartCloud\AgentComposer\Execution {
 	mode_error('pattern_fallback_copy_remaining', static fn() => $slots->assert_no_registered_fallbacks('smartcloud-agent-canvas/hero-service', 'pattern'), 'Registered fallback fingerprints must block unchanged public copy.');
 
 	$language = (new \ReflectionClass(Content_Language_Validator::class))->newInstanceWithoutConstructor();
-	$strict = array('content_language' => 'hu-HU', 'content_language_enforcement' => 'strict', 'content_language_exceptions' => array('SmartCloud'));
+	$strict = array(
+		'content_language' => 'hu-HU',
+		'content_language_enforcement' => 'strict',
+		'content_language_exceptions' => array('SmartCloud'),
+		'content_language_mismatch_signals' => array('an', 'and', 'are', 'as', 'at', 'by', 'for', 'from', 'has', 'have', 'in', 'it', 'of', 'on', 'or', 'that', 'the', 'this', 'to', 'use', 'with', 'your', 'you', 'what', 'how', 'more', 'clear', 'help', 'next', 'step'),
+	);
 	mode_assert(! empty($language->issues_for_policy($strict, 'This is the clear next step for your service and the people who use it.')), 'Substantial English text must fail strict hu-HU validation.');
 	mode_assert(empty($language->issues_for_policy($strict, 'A SmartCloud rendszer magyar nyelvű, ellenőrzött szakmai adatokat kezel.')), 'Approved brands in Hungarian copy must not create a false positive.');
+	mode_assert(empty($language->issues_for_policy($strict, 'A GasztroKlinika szakgyógyszerésze a terápiák áttekintésében is segít, és a páciensek kérdéseire is válaszol.')), 'Hungarian articles and the Hungarian word „is” must not count as English evidence.');
 
 	$draftSource = (string) file_get_contents(dirname(__DIR__) . '/src/Execution/Draft_Service.php');
 	$assemblerSource = (string) file_get_contents(dirname(__DIR__) . '/src/Execution/Pattern_Assembler.php');

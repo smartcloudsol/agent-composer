@@ -260,6 +260,51 @@ final class Draft_Service {
 		return $response;
 	}
 
+	public function assign_featured_image( array $input, int $attachment_id ): array {
+		$this->assert_no_forbidden_input( $input );
+		if ( $attachment_id < 1 || ! wp_attachment_is_image( $attachment_id ) || ! current_user_can( 'read_post', $attachment_id ) ) {
+			throw new Execution_Exception( 'featured_image_invalid', 'The requested featured image is not a readable Media Library image.' );
+		}
+		$post_id           = absint( $input['post_id'] ?? 0 );
+		$expected_modified = $this->normalize_expected_modified_gmt( (string) ( $input['expected_modified_gmt'] ?? '' ) );
+		$expected_revision = $this->sanitize_revision( $input['expected_revision'] ?? '' );
+		$post              = $this->get_owned_draft( $post_id );
+		$page_type         = sanitize_key( (string) get_post_meta( $post_id, self::PAGE_TYPE_META, true ) );
+		if ( $page_type !== sanitize_key( (string) ( $input['page_type'] ?? '' ) ) ) {
+			throw new Execution_Exception( 'page_type_immutable', 'The page type cannot be changed during featured-image assignment.' );
+		}
+		$target = $this->targets->resolve( $page_type );
+		$this->assert_post_contract( $post, $page_type, $target );
+		$this->targets->assert_current_user_can_edit( $post, true );
+		if ( get_post_thumbnail_id( $post_id ) === $attachment_id ) {
+			return $this->describe( $post );
+		}
+
+		global $wpdb;
+		$this->begin_locked_update( $post_id, $expected_modified, $expected_revision, $page_type, $target );
+		try {
+			if ( ! set_post_thumbnail( $post_id, $attachment_id ) ) {
+				throw new Execution_Exception( 'featured_image_assignment_failed', 'WordPress could not assign the featured image.' );
+			}
+			$result = wp_update_post( array( 'ID' => $post_id, 'post_status' => 'draft' ), true );
+			if ( is_wp_error( $result ) ) {
+				throw new Execution_Exception( 'featured_image_assignment_failed', $result->get_error_message() );
+			}
+			if ( false === $wpdb->query( 'COMMIT' ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Commits the locked featured-image update.
+				throw new Execution_Exception( 'commit_failed', 'The database could not safely commit the featured-image update.' );
+			}
+		} catch ( \Throwable $error ) {
+			$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Rolls back the explicit concurrency transaction.
+			clean_post_cache( $post_id );
+			throw $error;
+		}
+		clean_post_cache( $post_id );
+		$updated = $this->get_owned_draft( $post_id );
+		$response = $this->describe( $updated );
+		$response['featured_image_id'] = $attachment_id;
+		return $response;
+	}
+
 	public function insert_or_update_blocks( array $input ): array {
 		$this->assert_no_forbidden_input( $input );
 		$post_id           = absint( $input['post_id'] ?? 0 );

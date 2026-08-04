@@ -34,7 +34,7 @@ final class Content_Field_Materializer {
 			if ( ! is_array( $rule ) || empty( $rule['read'] ) ) {
 				continue;
 			}
-			$fields[] = array(
+			$field = array(
 				'key'         => $meta_key,
 				'type'        => (string) $registration['type'],
 				'description' => sanitize_text_field( (string) ( $registration['description'] ?? '' ) ),
@@ -42,6 +42,16 @@ final class Content_Field_Materializer {
 				'write'       => ! empty( $rule['write'] ),
 				'rest_schema' => $this->public_rest_schema( $registration ),
 			);
+			if ( 'relation' === ( $rule['semantic_type'] ?? '' ) ) {
+				$field['semantic_type']       = 'relation';
+				$field['cardinality']         = $rule['cardinality'];
+				$field['ordered']             = $rule['ordered'];
+				$field['target_post_types']   = $rule['target_post_types'];
+				$field['target_post_statuses'] = $rule['target_post_statuses'];
+				$field['maximum_items']       = $rule['maximum_items'];
+				$field['storage']             = $rule['storage'];
+			}
+			$fields[] = $field;
 		}
 
 		return array(
@@ -91,6 +101,90 @@ final class Content_Field_Materializer {
 		);
 	}
 
+	/** Resolve human titles or stable slugs without exposing provider-specific logic. */
+	public function search_relation_targets( array $input ): array {
+		$page_type = sanitize_key( (string) ( $input['page_type'] ?? '' ) );
+		$field_key = sanitize_key( (string) ( $input['relation_field'] ?? '' ) );
+		$contract  = $this->contract( array( 'page_type' => $page_type ) );
+		$field     = null;
+		foreach ( $contract['fields'] as $candidate ) {
+			if ( $field_key === ( $candidate['key'] ?? '' ) && 'relation' === ( $candidate['semantic_type'] ?? '' ) ) {
+				$field = $candidate;
+				break;
+			}
+		}
+		if ( ! is_array( $field ) ) {
+			throw new Execution_Exception( 'relation_field_not_allowed', 'The active Site Contract does not expose this relation field for the selected Blueprint.' );
+		}
+
+		$query         = sanitize_text_field( (string) ( $input['query'] ?? '' ) );
+		$limit         = max( 1, min( 50, absint( $input['limit'] ?? 20 ) ) );
+		$target_types  = array_values( (array) ( $field['target_post_types'] ?? array() ) );
+		$target_states = array_values( (array) ( $field['target_post_statuses'] ?? array( 'publish' ) ) );
+		$args          = array(
+			'post_type'              => $target_types,
+			'post_status'            => $target_states,
+			'posts_per_page'         => min( 150, $limit * 3 ),
+			'orderby'                => 'title',
+			'order'                  => 'ASC',
+			'no_found_rows'          => true,
+			'suppress_filters'       => false,
+			'update_post_meta_cache' => false,
+			'update_post_term_cache' => false,
+		);
+		if ( '' !== $query ) {
+			$args['s'] = $query;
+		}
+		$candidates = get_posts( $args );
+		if ( '' !== $query ) {
+			$slug_match = get_page_by_path( sanitize_title( $query ), OBJECT, $target_types );
+			if ( $slug_match instanceof \WP_Post ) {
+				array_unshift( $candidates, $slug_match );
+			}
+		}
+
+		$matches = array();
+		$seen    = array();
+		foreach ( $candidates as $candidate ) {
+			if (
+				! $candidate instanceof \WP_Post
+				|| isset( $seen[ $candidate->ID ] )
+				|| ! in_array( $candidate->post_type, $target_types, true )
+				|| ! in_array( $candidate->post_status, $target_states, true )
+				|| ! current_user_can( 'read_post', $candidate->ID )
+			) {
+				continue;
+			}
+			$seen[ $candidate->ID ] = true;
+			$matches[] = array(
+				'id'          => (int) $candidate->ID,
+				'title'       => get_the_title( $candidate ),
+				'slug'        => (string) $candidate->post_name,
+				'post_type'   => (string) $candidate->post_type,
+				'post_status' => (string) $candidate->post_status,
+				'match'       => $this->relation_match( $candidate, $query ),
+			);
+		}
+		usort(
+			$matches,
+			static fn( array $left, array $right ): int => array( $left['match']['rank'], $left['title'], $left['id'] ) <=> array( $right['match']['rank'], $right['title'], $right['id'] )
+		);
+		$matches = array_slice( $matches, 0, $limit );
+
+		return array(
+			'page_type'           => $page_type,
+			'source_post_type'    => (string) $contract['target_post_type'],
+			'relation_field'      => $field_key,
+			'target_post_types'   => $target_types,
+			'target_post_statuses' => $target_states,
+			'maximum_items'       => (int) ( $field['maximum_items'] ?? 1 ),
+			'ordered'             => ! empty( $field['ordered'] ),
+			'query'               => $query,
+			'matches'             => $matches,
+			'match_count'         => count( $matches ),
+		);
+	}
+
 	public function update( array $input ): array {
 		if ( true !== ( $input['confirm_update'] ?? false ) ) {
 			throw new Execution_Exception( 'content_field_confirmation_required', 'Content-field updates require explicit confirmation.' );
@@ -129,8 +223,10 @@ final class Content_Field_Materializer {
 				throw new Execution_Exception( 'content_field_capability_denied', 'The current WordPress user cannot edit an approved content field: ' . $meta_key ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Ability error, not HTML.
 			}
 			$this->assert_value( $value, $allowed[ $meta_key ], $meta_key );
+			$this->assert_relation_value( $value, $allowed[ $meta_key ]['composer_contract'] ?? array(), $meta_key );
 			$sanitized = sanitize_meta( $meta_key, $value, 'post', $post_type );
 			$this->assert_value( $sanitized, $allowed[ $meta_key ], $meta_key );
+			$this->assert_relation_value( $sanitized, $allowed[ $meta_key ]['composer_contract'] ?? array(), $meta_key );
 			$values[ $meta_key ] = $sanitized;
 		}
 		$language_text = wp_json_encode( $values, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
@@ -154,6 +250,7 @@ final class Content_Field_Materializer {
 				continue;
 			}
 			$result[ $meta_key ] = $registered[ $meta_key ];
+			$result[ $meta_key ]['composer_contract'] = $rule;
 		}
 		return $result;
 	}
@@ -209,7 +306,43 @@ final class Content_Field_Materializer {
 		if ( ! empty( $schema ) && function_exists( 'rest_validate_value_from_schema' ) ) {
 			$validation = rest_validate_value_from_schema( $value, $schema, 'fields.' . $meta_key );
 			if ( is_wp_error( $validation ) ) {
-				throw new Execution_Exception( 'content_field_schema_mismatch', $validation->get_error_message() );
+				throw new Execution_Exception( 'content_field_schema_mismatch', $validation->get_error_message() ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Structured ability error, not HTML output.
+			}
+		}
+	}
+
+	private function assert_relation_value( mixed $value, array $contract, string $meta_key ): void {
+		if ( 'relation' !== ( $contract['semantic_type'] ?? '' ) ) {
+			return;
+		}
+
+		$cardinality = (string) ( $contract['cardinality'] ?? 'many' );
+		$ids = 'one' === $cardinality ? array( $value ) : $value;
+		if ( ! is_array( $ids ) || ( 'many' === $cardinality && ! array_is_list( $ids ) ) ) {
+			throw new Execution_Exception( 'relation_cardinality_mismatch', 'A relation field does not match its declared cardinality: ' . $meta_key ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
+		}
+		if ( count( $ids ) > (int) ( $contract['maximum_items'] ?? 1 ) ) {
+			throw new Execution_Exception( 'relation_item_limit_exceeded', 'A relation field exceeds its declared item limit: ' . $meta_key ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
+		}
+		if ( count( $ids ) !== count( array_unique( $ids, SORT_REGULAR ) ) ) {
+			throw new Execution_Exception( 'relation_duplicate_target', 'A relation field cannot contain duplicate targets: ' . $meta_key ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
+		}
+
+		$target_types    = (array) ( $contract['target_post_types'] ?? array() );
+		$target_statuses = (array) ( $contract['target_post_statuses'] ?? array( 'publish' ) );
+		foreach ( $ids as $id ) {
+			if ( ! is_int( $id ) || $id < 1 ) {
+				throw new Execution_Exception( 'relation_target_id_invalid', 'A relation target must be a positive integer post ID: ' . $meta_key ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
+			}
+			$target = get_post( $id );
+			if ( ! $target instanceof \WP_Post ) {
+				throw new Execution_Exception( 'relation_target_missing', 'A relation target post does not exist: ' . $meta_key ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
+			}
+			if ( ! in_array( $target->post_type, $target_types, true ) ) {
+				throw new Execution_Exception( 'relation_target_type_mismatch', 'A relation target uses a forbidden post type: ' . $meta_key ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
+			}
+			if ( ! in_array( $target->post_status, $target_statuses, true ) ) {
+				throw new Execution_Exception( 'relation_target_status_mismatch', 'A relation target uses a forbidden post status: ' . $meta_key ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
 			}
 		}
 	}
@@ -230,5 +363,20 @@ final class Content_Field_Materializer {
 
 	private function string_length( string $value ): int {
 		return function_exists( 'mb_strlen' ) ? mb_strlen( $value ) : strlen( $value );
+	}
+
+	private function relation_match( \WP_Post $post, string $query ): array {
+		if ( '' === $query ) {
+			return array( 'kind' => 'browse', 'rank' => 3 );
+		}
+		$needle = function_exists( 'mb_strtolower' ) ? mb_strtolower( $query ) : strtolower( $query );
+		$title  = function_exists( 'mb_strtolower' ) ? mb_strtolower( get_the_title( $post ) ) : strtolower( get_the_title( $post ) );
+		if ( sanitize_title( $query ) === $post->post_name ) {
+			return array( 'kind' => 'exact-slug', 'rank' => 0 );
+		}
+		if ( $needle === $title ) {
+			return array( 'kind' => 'exact-title', 'rank' => 1 );
+		}
+		return array( 'kind' => 'title-search', 'rank' => 2 );
 	}
 }

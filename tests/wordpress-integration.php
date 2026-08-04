@@ -287,6 +287,7 @@ try {
 		$assert( ! $agent_role->has_cap( $forbidden_capability ), 'The agent role must not have ' . $forbidden_capability . '.' );
 	}
 	$assert( $agent_role->has_cap( Activation::CAP_EXECUTE_DRAFTS ), 'The agent role must have the draft execution capability.' );
+	$assert( $agent_role->has_cap( Activation::CAP_INGEST_MEDIA ), 'The agent role must have only the governed Composer media-ingest capability.' );
 	$assert( ! $agent_role->has_cap( Activation::CAP_ACTIVATE_CONFIG ), 'The agent role must not activate configuration.' );
 
 	$runtime_ability = wp_get_ability( 'smartcloud-agent-composer/get-runtime-capabilities' );

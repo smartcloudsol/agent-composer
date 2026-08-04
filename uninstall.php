@@ -47,6 +47,7 @@ function smartcloud_composer_uninstall_site(): void {
 
 	$options = array(
 		'smartcloud_composer_db_version',
+		'smartcloud_composer_role_schema_version',
 		'smartcloud_composer_active_config_set',
 		'smartcloud_composer_previous_config_set',
 		'smartcloud_composer_active_snapshot',
@@ -86,6 +87,7 @@ function smartcloud_composer_uninstall_site(): void {
 		'smartcloud_composer_rollback_config',
 		'smartcloud_composer_view_audit',
 		'smartcloud_composer_execute_drafts',
+		'smartcloud_composer_ingest_media',
 	);
 	$administrator = get_role( 'administrator' );
 	if ( $administrator ) {

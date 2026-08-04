@@ -16,7 +16,7 @@ final class AdminPage {
 	public function menu(): void {
 		$parent = ! empty( $GLOBALS['smartcloud_wpsuite_menu_parent'] )
 			? (string) $GLOBALS['smartcloud_wpsuite_menu_parent']
-			: ( defined( 'SMARTCLOUD_WPSUITE_SLUG' ) ? SMARTCLOUD_WPSUITE_SLUG : 'hub-for-wpsuiteio' );
+			: ( defined( 'SMARTCLOUD_WPSUITE_CANONICAL_SLUG' ) ? SMARTCLOUD_WPSUITE_CANONICAL_SLUG : 'smartcloud-wpsuite' );
 		$this->hook_suffix = (string) add_submenu_page(
 			$parent,
 			__( 'Agent Composer', 'smartcloud-agent-composer' ),
@@ -50,8 +50,8 @@ final class AdminPage {
 		}
 		$asset        = is_readable( $asset_file ) ? require $asset_file : array( 'dependencies' => array( 'wp-api-fetch', 'wp-element', 'wp-i18n' ), 'version' => SMARTCLOUD_COMPOSER_VERSION );
 		$dependencies = (array) $asset['dependencies'];
-		$hub_path = SMARTCLOUD_COMPOSER_DIR . 'hub-for-wpsuiteio/';
-		$hub_url  = SMARTCLOUD_COMPOSER_URL . 'hub-for-wpsuiteio/';
+		$hub_path = SMARTCLOUD_COMPOSER_DIR . 'smartcloud-wpsuite/';
+		$hub_url  = SMARTCLOUD_COMPOSER_URL . 'smartcloud-wpsuite/';
 		if ( ! wp_script_is( 'smartcloud-wpsuite-mantine-vendor', 'registered' ) && is_readable( $hub_path . 'assets/js/mantine-vendor.min.js' ) ) {
 			wp_register_script( 'smartcloud-wpsuite-mantine-vendor', $hub_url . 'assets/js/mantine-vendor.min.js', array( 'react', 'react-dom' ), '1.0.8', true );
 		}

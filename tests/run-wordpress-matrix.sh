@@ -58,6 +58,11 @@ php8.1 "${WP_CLI}" site create --path="${WP_ROOT}" --slug=secondary --title='Com
 php8.1 "${WP_CLI}" plugin install --path="${WP_ROOT}" "${PLUGIN_ZIP}" --force
 php8.1 "${WP_CLI}" plugin activate --path="${WP_ROOT}" smartcloud-agent-composer --network
 
+if [[ "${RUN_PLUGIN_CHECK:-1}" == "1" ]]; then
+    php8.1 "${WP_CLI}" plugin install --path="${WP_ROOT}" plugin-check --activate-network
+    php8.1 "${WP_CLI}" plugin check smartcloud-agent-composer --path="${WP_ROOT}" --categories=plugin_repo
+fi
+
 for php_binary in "${PHP_BINARIES[@]}"; do
     command -v "${php_binary}" >/dev/null
     echo "Running WordPress ${WP_VERSION} integration on ${php_binary}"

@@ -26,8 +26,15 @@ final class Content_Language_Validator {
 		if ( 'strict' !== (string) ( $blueprint['content_language_enforcement'] ?? 'advisory' ) ) {
 			return array();
 		}
-		$language = strtolower( (string) ( $blueprint['content_language'] ?? '' ) );
-		if ( ! str_starts_with( $language, 'hu' ) ) {
+		$signals = array_values(
+			array_filter(
+				array_map(
+					static fn( mixed $signal ): string => strtolower( trim( (string) $signal ) ),
+					(array) ( $blueprint['content_language_mismatch_signals'] ?? array() )
+				)
+			)
+		);
+		if ( empty( $signals ) ) {
 			return array();
 		}
 		$text = wp_strip_all_tags( $text );
@@ -39,10 +46,10 @@ final class Content_Language_Validator {
 		if ( count( $words ) < 8 ) {
 			return array();
 		}
-		$english = array_flip( array( 'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'has', 'have', 'in', 'is', 'it', 'of', 'on', 'or', 'that', 'the', 'this', 'to', 'use', 'with', 'your', 'you', 'what', 'how', 'more', 'clear', 'help', 'next', 'step' ) );
+		$mismatch_signals = array_flip( $signals );
 		$hits = 0;
 		foreach ( $words as $word ) {
-			if ( isset( $english[ $word ] ) ) {
+			if ( isset( $mismatch_signals[ $word ] ) ) {
 				++$hits;
 			}
 		}
@@ -50,7 +57,7 @@ final class Content_Language_Validator {
 			return array(
 				array(
 					'code'    => 'content_language_substantial_mismatch',
-					'message' => 'Substantial English public copy conflicts with the strict hu-HU content language policy.',
+					'message' => 'Substantial public-copy signals conflict with the strict Blueprint content language policy.',
 					'path'    => '',
 				),
 			);

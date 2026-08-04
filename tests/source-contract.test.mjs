@@ -35,15 +35,15 @@ test("WordPress Plugin Checker conventions remain explicit", () => {
   assert.doesNotMatch(execution, /wpsuite_agent_composer_(?:design_policy|pattern_preload_error)/);
 });
 
-test("workspace-only WP Suite preset contains every one of the 15 current page types", {
+test("workspace-only WP Suite preset contains every one of the 16 current page types", {
   skip: !fs.existsSync(path.join(root, "presets/wpsuite/page-types.json"))
 }, () => {
   const preset = JSON.parse(read("presets/wpsuite/page-types.json"));
   const ids = preset.blueprints.map((blueprint) => blueprint.id).sort();
-  assert.equal(ids.length, 15);
+  assert.equal(ids.length, 16);
   assert.deepEqual(ids, [
     "agency", "architecture", "case-study", "comparison", "deployment-access",
-    "docs-shell", "page", "platform", "post", "product", "product-ai-kit",
+    "docs-shell", "home", "page", "platform", "post", "product", "product-ai-kit",
     "product-flow", "product-gatey", "product-publisher", "solution"
   ]);
   assert.ok(preset.blueprints.every(({ excerpt }) => ["required", "optional", "disabled"].includes(excerpt)));
@@ -66,6 +66,13 @@ test("WordPress admin build exposes the complete public feature source and exter
   assert.match(read("admin/php/admin.php"), /add_submenu_page/);
   assert.doesNotMatch(read("admin/php/admin.php"), /add_menu_page/);
   assert.match(read("smartcloud-agent-composer.php"), /hub-loader\.php/);
+  assert.match(read("admin/php/admin.php"), /smartcloud-wpsuite\//);
+  const hubLoader = read("hub-loader.php");
+  assert.match(hubLoader, /SMARTCLOUD_WPSUITE_RUNTIME_DIRECTORY/);
+  assert.match(hubLoader, /SMARTCLOUD_WPSUITE_CANONICAL_SLUG/);
+  assert.match(hubLoader, /SMARTCLOUD_WPSUITE_LEGACY_SLUG/);
+  assert.match(hubLoader, /smartcloud-wpsuite/);
+  assert.match(hubLoader, /hub-for-wpsuiteio/);
 });
 
 test("guided admin exposes the existing-content access gate without requiring JSON editing", () => {
@@ -80,6 +87,8 @@ test("guided admin exposes the existing-content access gate without requiring JS
   assert.match(editor, /content_access/);
   assert.match(editor, /content_field_access/);
   assert.match(editor, /Composer field access/);
+  assert.match(editor, /Remote Media Library ingestion/);
+  assert.match(editor, /remote_media_ingest/);
   assert.match(editor, /Write draft/);
   for (const label of ["Select all Read", "Deselect all Read", "Select all Write draft", "Deselect all Write draft"]) {
     assert.match(editor, new RegExp(label));
@@ -142,7 +151,7 @@ test("Composer execution contract is checksum-pinned and canonical names are fro
   const surface = JSON.parse(read("tests/fixtures/execution-ability-surface.json"));
   assert.equal(surface.contract, manifest.contract);
   const aliases = read("src/Integration/Abilities/ExecutionAbilityAliases.php");
-  assert.equal(surface.operations.length, 24);
+  assert.equal(surface.operations.length, 27);
   for (const alias of surface.preferred_aliases) {
     assert.match(aliases, new RegExp(alias.replaceAll("-", "\\-")));
   }
@@ -191,8 +200,8 @@ test("release copy contains no internal milestone or retired theme-contract narr
   assert.doesNotMatch(read("readme.txt"), /development milestone|not yet (?:the )?final/i);
   assert.match(read("smartcloud-agent-composer.php"), /License:\s+MIT/);
   assert.equal(fs.existsSync(path.join(root, "LICENSE")), true);
-  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.0\.0/);
-  assert.match(read("readme.txt"), /Stable tag:\s+1\.0\.0/);
+  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.0\.1/);
+  assert.match(read("readme.txt"), /Stable tag:\s+1\.0\.1/);
 });
 
 test("complete configuration backups are checksummed, secret-free, inactive, and rollback-safe", () => {

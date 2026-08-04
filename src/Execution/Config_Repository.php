@@ -43,10 +43,17 @@ final class Config_Repository {
 			'content_language'          => '',
 			'content_language_enforcement' => 'advisory',
 			'content_language_exceptions' => array(),
+			'content_language_mismatch_signals' => array(),
 			'allowed_pattern_namespaces' => array( 'wpsuite' ),
 			'post_type_contract'         => array( 'page' => 'page' ),
 			'content_access'             => array(),
 			'content_field_access'       => array(),
+			'remote_media_ingest'        => array(
+				'enabled'            => false,
+				'allowed_hosts'      => array(),
+				'allowed_mime_types' => array( 'image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif' ),
+				'max_bytes'          => 12582912,
+			),
 			'disallowed_blocks'         => array(
 				'core/html',
 				'core/shortcode',
@@ -67,6 +74,7 @@ final class Config_Repository {
 			'block_extensions'          => array(
 				'allowed_core_blocks'       => array(),
 				'allowed_plugin_namespaces' => array(),
+				'registered_block_contracts' => array(),
 				'require_registered_blocks' => true,
 				'custom_html_contract'      => array(),
 				'text_editor_contract'      => array(),
@@ -90,6 +98,7 @@ final class Config_Repository {
 			? (string) $policy['content_language_enforcement']
 			: 'advisory';
 		$policy['content_language_exceptions'] = $this->bounded_string_list( $policy['content_language_exceptions'] ?? array(), 100, 200 );
+		$policy['content_language_mismatch_signals'] = $this->bounded_string_list( $policy['content_language_mismatch_signals'] ?? array(), 200, 64 );
 		if ( 'strict' === $policy['content_language_enforcement'] && '' === $policy['content_language'] ) {
 			throw new Execution_Exception( 'strict_content_language_missing', 'Strict content-language enforcement requires a BCP 47 content_language.' );
 		}
@@ -99,6 +108,7 @@ final class Config_Repository {
 		$policy['allowed_post_types']         = array_values( array_unique( array_values( $policy['post_type_contract'] ) ) );
 		$policy['content_access']             = $this->content_access_policy( $policy['content_access'] ?? array(), $policy['allowed_post_types'] );
 		$policy['content_field_access']       = $this->content_field_access_policy( $policy['content_field_access'] ?? array(), $policy['allowed_post_types'] );
+		$policy['remote_media_ingest']        = $this->normalize_remote_media_ingest( $policy['remote_media_ingest'] ?? array() );
 		$policy['block_extensions']            = $this->normalize_block_extensions( $policy['block_extensions'] ?? array() );
 		$policy['seo_contract']['required_fields'] = array_values(
 			array_unique(
@@ -138,6 +148,34 @@ final class Config_Repository {
 		$filtered['block_extensions']['custom_html_contract'] = array();
 		$this->design_policy = $filtered;
 		return $this->design_policy;
+	}
+
+	/** @return array{enabled:bool,allowed_hosts:list<string>,allowed_mime_types:list<string>,max_bytes:int} */
+	public function get_remote_media_ingest_policy(): array {
+		return $this->get_design_policy()['remote_media_ingest'];
+	}
+
+	private function normalize_remote_media_ingest( mixed $value ): array {
+		$value = is_array( $value ) ? $value : array();
+		$hosts = array();
+		foreach ( (array) ( $value['allowed_hosts'] ?? array() ) as $host ) {
+			$host = strtolower( trim( (string) $host, ". \t\n\r\0\x0B" ) );
+			if ( preg_match( '/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/', $host ) ) {
+				$hosts[] = $host;
+			}
+		}
+		$allowed_mimes = array_values(
+			array_intersect(
+				array( 'image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif' ),
+				array_map( 'sanitize_mime_type', (array) ( $value['allowed_mime_types'] ?? array() ) )
+			)
+		);
+		return array(
+			'enabled'            => true === ( $value['enabled'] ?? false ) && ! empty( $hosts ) && ! empty( $allowed_mimes ),
+			'allowed_hosts'      => array_values( array_unique( $hosts ) ),
+			'allowed_mime_types' => $allowed_mimes,
+			'max_bytes'          => min( 26214400, max( 1024, (int) ( $value['max_bytes'] ?? 12582912 ) ) ),
+		);
 	}
 
 	/**
@@ -186,6 +224,7 @@ final class Config_Repository {
 			: array(
 				'allowed_core_blocks'       => array(),
 				'allowed_plugin_namespaces' => array(),
+				'registered_block_contracts' => array(),
 				'require_registered_blocks' => true,
 				'custom_html_contract'      => array(),
 				'core_html_javascript'      => false,
@@ -271,6 +310,7 @@ final class Config_Repository {
 		}
 		$blueprint['content_language'] = '' !== $blueprint_language ? $blueprint_language : $site_language;
 		$blueprint['content_language_enforcement'] = (string) $policy['content_language_enforcement'];
+		$blueprint['content_language_mismatch_signals'] = (array) ( $policy['content_language_mismatch_signals'] ?? array() );
 		$blueprint['content_language_exceptions'] = array_values(
 			array_unique(
 				array_merge(
@@ -434,10 +474,12 @@ final class Config_Repository {
 			? (bool) $value['captioned_media_image_materializer']
 			: $legacy_captioned_image;
 		$query_loop                   = $this->normalize_query_loop_materializer( $value['query_loop_materializer'] ?? array() );
+		$registered_block_contracts  = $this->normalize_registered_block_contracts( $value['registered_block_contracts'] ?? array() );
 
 		return array(
 			'allowed_core_blocks'       => array_values( array_diff( $core, array( 'core/html' ) ) ),
 			'allowed_plugin_namespaces' => $namespaces,
+			'registered_block_contracts' => $registered_block_contracts,
 			'require_registered_blocks' => true,
 			'custom_html_contract'      => array(),
 			'core_html_javascript'      => false,
@@ -446,6 +488,68 @@ final class Config_Repository {
 			'query_loop_materializer'   => $query_loop,
 			'text_editor_contract'      => $text_editor_contract,
 		);
+	}
+
+	/**
+	 * Normalize declarative contracts for registered third-party blocks.
+	 *
+	 * These contracts do not grant access on their own. The exact namespace and
+	 * block must still be enabled by the Site Contract and selected Blueprint.
+	 */
+	private function normalize_registered_block_contracts( mixed $value ): array {
+		if ( ! is_array( $value ) || count( $value ) > 100 ) {
+			return array();
+		}
+
+		$result = array();
+		foreach ( $value as $block_name => $contract ) {
+			$block_name = strtolower( trim( (string) $block_name ) );
+			if ( ! preg_match( '#^[a-z0-9-]+/[a-z0-9-]+$#', $block_name ) || str_starts_with( $block_name, 'core/' ) || ! is_array( $contract ) ) {
+				continue;
+			}
+
+			$rendering = (string) ( $contract['rendering'] ?? 'server' );
+			if ( ! in_array( $rendering, array( 'server', 'saved' ), true ) ) {
+				continue;
+			}
+
+			$attributes = array();
+			foreach ( (array) ( $contract['attributes'] ?? array() ) as $attribute => $schema ) {
+				$attribute = (string) $attribute;
+				if ( ! preg_match( '/^[A-Za-z][A-Za-z0-9_-]{0,127}$/', $attribute ) || ! is_array( $schema ) ) {
+					continue;
+				}
+				$type = (string) ( $schema['type'] ?? '' );
+				if ( ! in_array( $type, array( 'string', 'integer', 'number', 'boolean', 'array', 'object' ), true ) ) {
+					continue;
+				}
+				$normalized = array( 'type' => $type );
+				if ( isset( $schema['allowed'] ) && is_array( $schema['allowed'] ) && count( $schema['allowed'] ) <= 100 ) {
+					$normalized['enum'] = array_values( $schema['allowed'] );
+				}
+				if ( array_key_exists( 'fixed', $schema ) ) {
+					$normalized['const'] = $schema['fixed'];
+					$normalized['required'] = true;
+				}
+				if ( true === ( $schema['required'] ?? false ) ) {
+					$normalized['required'] = true;
+				}
+				if ( isset( $schema['minimum'] ) && is_numeric( $schema['minimum'] ) ) {
+					$normalized['minimum'] = (float) $schema['minimum'];
+				}
+				if ( isset( $schema['maximum'] ) && is_numeric( $schema['maximum'] ) ) {
+					$normalized['maximum'] = (float) $schema['maximum'];
+				}
+				$attributes[ $attribute ] = $normalized;
+			}
+
+			$result[ $block_name ] = array(
+				'rendering'  => $rendering,
+				'attributes' => $attributes,
+			);
+		}
+		ksort( $result );
+		return $result;
 	}
 
 	private function normalize_query_loop_materializer( mixed $value ): array {
@@ -547,7 +651,7 @@ final class Config_Repository {
 		if ( ! is_array( $value ) ) {
 			return array();
 		}
-		return array_values( array_unique( array_filter( array_map( 'sanitize_key', $value ) ) ) );
+		return array_values( array_unique( array_filter( array_map( static fn( mixed $item ): string => sanitize_key( (string) $item ), $value ) ) ) );
 	}
 
 	/** @param string[] $allowed_post_types */
@@ -604,7 +708,28 @@ final class Config_Repository {
 				$write = true === ( $rules['write'] ?? false );
 				$read  = $write || true === ( $rules['read'] ?? false );
 				if ( $read ) {
-					$result[ $post_type ][ $meta_key ] = array( 'read' => true, 'write' => $write );
+					$normalized = array( 'read' => true, 'write' => $write );
+					if ( 'relation' === ( $rules['semantic_type'] ?? '' ) ) {
+						$targets = $this->slug_list( $rules['target_post_types'] ?? array() );
+						if ( ! empty( $targets ) ) {
+							$cardinality = 'one' === ( $rules['cardinality'] ?? '' ) ? 'one' : 'many';
+							$normalized += array(
+								'semantic_type'    => 'relation',
+								'cardinality'      => $cardinality,
+								'ordered'          => 'many' === $cardinality && true === ( $rules['ordered'] ?? false ),
+								'target_post_types' => $targets,
+								'target_post_statuses' => ! empty( $this->slug_list( $rules['target_post_statuses'] ?? array( 'publish' ) ) )
+									? $this->slug_list( $rules['target_post_statuses'] ?? array( 'publish' ) )
+									: array( 'publish' ),
+								'maximum_items'    => 'many' === $cardinality ? min( 100, max( 1, absint( $rules['maximum_items'] ?? 20 ) ) ) : 1,
+								'storage'          => array(
+									'provider'     => 'native-meta',
+									'value_format' => 'post_id',
+								),
+							);
+						}
+					}
+					$result[ $post_type ][ $meta_key ] = $normalized;
 				}
 			}
 		}

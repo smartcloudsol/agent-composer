@@ -1,15 +1,15 @@
 {
   "contract": "smartcloud-agent-composer-execution",
   "files": {
-    "Abilities.php": "sha256:192a0ff113c904338cf3db38fb16b419ae75b7cbd40be71c9207ce3a1c3cfe57",
+    "Abilities.php": "sha256:226e9d3b0a8735c88642e960ff33d07bd97a06e3386f7ab7cd1209886cc34fcd",
     "Ability_Provider_Registry.php": "sha256:ab6f8c679b614136f25e78fcf30ae386e793dbb167ecc6f7974dea62e519e7f1",
     "Audit_Logger.php": "sha256:f517fa4314ebbdd3f2004b61ba49c4d3885b05b90aab13393acbec6f49b7b163",
-    "Block_Catalog.php": "sha256:23992acecd08799cd5511af74f27d55857a42f806684d56212de6077c92f27c5",
-    "Block_Tree_Service.php": "sha256:eea1ab3fcf9bf95a478874ca71f3c77ac57233ec06c8c13d967d1d50d831af5e",
-    "Config_Repository.php": "sha256:9208a4726939691173cac613a2073fa6f7115703134d75225c744b4a0ba4699b",
-    "Content_Field_Materializer.php": "sha256:f7058c3ec8abca7448744a5e2194c83c364cd54e8d8d29ec978137896a6ff7c4",
-    "Content_Language_Validator.php": "sha256:8e7f1687ad95f7866b93d3c17439dead1a13b7d86d55f1ba5c4ada52bc9b9ca3",
-    "Draft_Service.php": "sha256:6ed2341799d2e3553f5e009102174fc5a439b15418f2794f6ca00b252d9428f5",
+    "Block_Catalog.php": "sha256:1ebed7ab2988ae4809d6b8abcd9948f4137b1e529cebd73b8c28f98af012c430",
+    "Block_Tree_Service.php": "sha256:ed85b5fc9d0f33742d798799437df2df742b3c641b60392eec11a6911e70f1cc",
+    "Config_Repository.php": "sha256:9ed6059b33dd0eb53cb1e59e4bf7b385059770fc3cc7792df28c45a738a50ad1",
+    "Content_Field_Materializer.php": "sha256:1d6b4b0c6ba8da8ef6f2a49b873d603e64dbeb70573b39e632fca0b85edd11cd",
+    "Content_Language_Validator.php": "sha256:4b99e180d7161481d3f8e03cf135b1b9285ac0789a3b55a3da90515c9a3688e0",
+    "Draft_Service.php": "sha256:6ff36445a1d6c87c4b7c8c6a249eb4b067e18965cd1e6a76e5e11371ff55e291",
     "Excerpt_Policy.php": "sha256:eb061a192291b68e9b25c14361ad880a8fd6e2d75cf65892137ebd1bf758f5d9",
     "Execution_Exception.php": "sha256:b2b3def11ecb5a760eb20c0bdd1dcf885677d5f97ad8508655ba85100fc293e6",
     "Markup_Contract_Validator.php": "sha256:a708a65fe8f7a10936c3aef69d74085baab81fcba8489e35ceabca7db038d3d4",
@@ -17,6 +17,7 @@
     "Pattern_Assembler.php": "sha256:27de9d4773a5b4fa409d1cc77961140d256c092802f269e48b3c4f422e0af767",
     "Pattern_Repository.php": "sha256:823a19e5a67380390a2ccf4d0bc3cb90a881fdd4f35f18cb97998622c67b2c10",
     "Query_Loop_Materializer.php": "sha256:b8e540800858dd5ecd9e615a3423a1504794b3d0b629723b5bd6812cb2682ca5",
+    "Remote_Media_Ingestor.php": "sha256:b0f4843026e14c3611e562e6fc24c9adfe760cbd146171157a6c888640ae679d",
     "Semantic_Slot_Materializer.php": "sha256:09f92b076f8b423f7650fe30bd011d0c10f692d0ac5a6691fc18644669790c3e",
     "Target_Resolver.php": "sha256:86a417c583a1276822365bce810a676b51bd8b56f8cbec61b9d58ebc79bc7657"
   }

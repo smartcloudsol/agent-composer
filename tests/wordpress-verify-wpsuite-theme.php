@@ -15,8 +15,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 $theme = wp_get_theme();
-if ( 'twentytwentyfive-child' !== $theme->get_stylesheet() || '1.0.29' !== (string) $theme->get( 'Version' ) ) {
-	throw new RuntimeException( 'The stripped WP Suite child theme is not active at version 1.0.29.' );
+if ( 'twentytwentyfive-child' !== $theme->get_stylesheet() || '1.0.35' !== (string) $theme->get( 'Version' ) ) {
+	throw new RuntimeException( 'The stripped WP Suite child theme is not active at version 1.0.35.' );
 }
 
 $theme_root = $theme->get_stylesheet_directory();
@@ -45,8 +45,8 @@ $blueprints = array_values(
 		static fn ( array $entity ): bool => 'blueprint' === ( $entity['type'] ?? '' )
 	)
 );
-if ( 'wpsuite-site-contract-2' !== $active || 15 !== count( $blueprints ) ) {
-	throw new RuntimeException( 'The active database Config Set does not contain all 15 WP Suite blueprints.' );
+if ( 'wpsuite-site-contract-2' !== $active || 16 !== count( $blueprints ) ) {
+	throw new RuntimeException( 'The active database Config Set does not contain all 16 WP Suite blueprints.' );
 }
 
 $discovery = new SiteDiscoveryService(
@@ -107,8 +107,8 @@ if ( empty( $query_validation['valid'] ) ) {
 }
 
 $pattern_names = $result['theme']['manifest']['patterns'] ?? array();
-if ( 39 !== count( $pattern_names ) ) {
-	throw new RuntimeException( 'Expected 39 declared WP Suite patterns, found ' . count( $pattern_names ) . '.' );
+if ( 45 !== count( $pattern_names ) ) {
+	throw new RuntimeException( 'Expected 45 declared WP Suite patterns, found ' . count( $pattern_names ) . '.' );
 }
 
 $common_css = apply_filters( 'wpsuite_scoped_css_common_files', array( 'common.css', 'wps-solutions.css' ) );
