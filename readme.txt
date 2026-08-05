@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.1
-Stable tag: 1.0.1
+Stable tag: 1.0.2
 License: MIT
 License URI: https://mit-license.org/
 
@@ -131,6 +131,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 
 == Changelog ==
 
+= 1.0.2 =
+* Dependency: Rebuilt the bundled WP Suite Hub and Amplify vendor runtime with exact supported SmartCloud Amplify UI 6.15.5/3.6.5/6.15.5 versions.
+
 = 1.0.1 =
 * Compatibility: Restored ownership-safe WP Suite Theme CSS fragment updates on WordPress-managed Custom CSS storage.
 
@@ -139,6 +142,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.0.2 =
+Recommended dependency refresh away from deprecated SmartCloud Amplify UI releases.
 
 = 1.0.1 =
 Recommended compatibility update for Starter-managed WP Suite Theme CSS.
