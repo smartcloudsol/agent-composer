@@ -213,8 +213,8 @@ test("release copy contains no internal milestone or retired theme-contract narr
   assert.doesNotMatch(read("readme.txt"), /development milestone|not yet (?:the )?final/i);
   assert.match(read("smartcloud-agent-composer.php"), /License:\s+MIT/);
   assert.equal(fs.existsSync(path.join(root, "LICENSE")), true);
-  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.0\.0/);
-  assert.match(read("readme.txt"), /Stable tag:\s+1\.0\.0/);
+  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.0\.1/);
+  assert.match(read("readme.txt"), /Stable tag:\s+1\.0\.1/);
 });
 
 test("complete configuration backups are checksummed, secret-free, inactive, and rollback-safe", () => {

@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.1
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 License: MIT
 License URI: https://mit-license.org/
 
@@ -131,5 +131,17 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 
 == Changelog ==
 
+= 1.0.1 =
+* Compatibility: Restored ownership-safe WP Suite Theme CSS fragment updates on WordPress-managed Custom CSS storage.
+
 = 1.0.0 =
 * Initial public release.
+* Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
+
+== Upgrade Notice ==
+
+= 1.0.1 =
+Recommended compatibility update for Starter-managed WP Suite Theme CSS.
+
+= 1.0.0 =
+Initial public release.
