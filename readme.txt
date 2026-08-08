@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.1
-Stable tag: 1.0.2
+Stable tag: 1.0.3
 License: MIT
 License URI: https://mit-license.org/
 
@@ -131,6 +131,10 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 
 == Changelog ==
 
+= 1.0.3 =
+* Multisite: Store shared Hub ownership per site and recognize network-activated owners.
+* Hub admin: Load the WebCrypto vendor before the shared admin bundle.
+
 = 1.0.2 =
 * Dependency: Rebuilt the bundled WP Suite Hub and Amplify vendor runtime with exact supported SmartCloud Amplify UI 6.15.5/3.6.5/6.15.5 versions.
 
@@ -142,6 +146,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.0.3 =
+Recommended for multisite installations using the shared WP Suite Hub.
 
 = 1.0.2 =
 Recommended dependency refresh away from deprecated SmartCloud Amplify UI releases.
