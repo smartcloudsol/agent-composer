@@ -155,6 +155,7 @@ final class PresetService {
 				'allowed_pattern_namespaces' => array( $namespace ),
 				'post_type_contract'         => array( 'page' => 'page' ),
 				'content_field_access'        => array(),
+				'content_taxonomy_access'     => array(),
 				'disallowed_blocks'          => array( 'core/html', 'core/shortcode', 'core/freeform', 'core/legacy-widget', 'core/widget-group', 'core/embed' ),
 				'constraints'                => array(
 					'exactly_one_h1'    => true,

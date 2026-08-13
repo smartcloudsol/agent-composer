@@ -108,6 +108,7 @@ function EntityDocs() {
     <Text>{__("Owns site-wide brand, language, content, SEO, media, accessibility, security, layout, and block-extension policy, plus defaults inherited by Blueprints without explicit page-type values.", TEXT_DOMAIN)}</Text>
       <Text>{__("Composer content access is managed in the guided Site Contract editor per registered post type. Discover exposes list metadata, Read permits content analysis, Clone creates a separate agent-owned draft, and Adopt permits an explicit takeover only while the original item is a draft. WordPress capabilities and a matching Blueprint remain mandatory for every operation.", TEXT_DOMAIN)}</Text>
       <Text>{__("Composer field access is a second, field-level gate. Discovery lists only public, single-value, REST-registered fields. Read and Write draft must be enabled explicitly for each key; field writes remain limited to Composer-owned assigned drafts and require fresh concurrency tokens plus confirmation.", TEXT_DOMAIN)}</Text>
+      <Text>{__("Composer taxonomy access governs public terms separately for each Blueprint target and registered taxonomy. Search is the base permission, assignment additionally changes only an agent-owned draft, and creation is the narrowest global permission. Creating implies assignment and search; assignment implies search. Maximum terms, append or replace behavior, and hierarchical creation parents are explicit Site Contract policy.", TEXT_DOMAIN)}</Text>
     <Title order={3} mt="md">{__("Blueprint", TEXT_DOMAIN)}</Title>
     <Text>{__("Owns one page type: WordPress target, template assignment, visual variant, allowed patterns and blocks, required pattern order, word boundary, reference sources, and content or migration rules.", TEXT_DOMAIN)}</Text>
     <Text>{__("A Detected Theme Starter is only a safe beginning. Clone or edit its inactive Config Set, add page-type Blueprints, extend their approved pattern and block contracts, and refine the Site Contract to reach the level of integration the active theme and installed providers can actually support.", TEXT_DOMAIN)}</Text>
@@ -313,6 +314,7 @@ function ProviderDocs() {
     <List withPadding spacing="xs">
       <List.Item>{__("Theme name, version, parent, and optional read-only presentational manifest.", TEXT_DOMAIN)}</List.Item>
       <List.Item>{__("Registered block templates and pattern metadata discovered through WordPress even when the theme has no Composer manifest.", TEXT_DOMAIN)}</List.Item>
+      <List.Item>{__("Registered taxonomies per content type, including hierarchy, public UI and REST visibility, and the current user's assignment and creation capabilities.", TEXT_DOMAIN)}</List.Item>
       <List.Item>{__("Provider-owned WordPress Ability profiles and runtime readiness.", TEXT_DOMAIN)}</List.Item>
       <List.Item>{__("Separate theme, provider, and combined site capability fingerprints.", TEXT_DOMAIN)}</List.Item>
       <List.Item>{__("Immutable discovery snapshots created only by an explicit rescan.", TEXT_DOMAIN)}</List.Item>

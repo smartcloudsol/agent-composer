@@ -173,10 +173,36 @@ final class SiteDiscoveryService {
 				'supports_editor' => post_type_supports( (string) $name, 'editor' ),
 				'current_user_can_edit' => '' !== $capability && current_user_can( $capability ),
 				'registered_meta' => $this->registered_meta( (string) $name ),
+				'registered_taxonomies' => $this->registered_taxonomies( (string) $name ),
 			);
 		}
 		usort( $post_types, static fn( array $left, array $right ): int => strcmp( $left['label'], $right['label'] ) );
 		return $post_types;
+	}
+
+	private function registered_taxonomies( string $post_type ): array {
+		$taxonomies = array();
+		foreach ( get_object_taxonomies( $post_type, 'objects' ) as $name => $taxonomy ) {
+			if ( ! $taxonomy instanceof \WP_Taxonomy ) {
+				continue;
+			}
+			$assign_cap = (string) ( $taxonomy->cap->assign_terms ?? '' );
+			$taxonomies[] = array(
+				'name'                    => sanitize_key( (string) $name ),
+				'label'                   => sanitize_text_field( (string) ( $taxonomy->labels->name ?? $taxonomy->label ?? $name ) ),
+				'builtin'                 => ! empty( $taxonomy->_builtin ),
+				'public'                  => ! empty( $taxonomy->public ) || ! empty( $taxonomy->publicly_queryable ),
+				'show_ui'                 => ! empty( $taxonomy->show_ui ),
+				'show_in_rest'            => ! empty( $taxonomy->show_in_rest ),
+				'hierarchical'            => ! empty( $taxonomy->hierarchical ),
+				'current_user_can_assign' => '' !== $assign_cap
+					&& current_user_can( \SmartCloud\AgentComposer\Infrastructure\WordPress\Activation::CAP_ASSIGN_TERMS )
+					&& current_user_can( $assign_cap ),
+				'current_user_can_create' => current_user_can( \SmartCloud\AgentComposer\Infrastructure\WordPress\Activation::CAP_CREATE_TERMS ),
+			);
+		}
+		usort( $taxonomies, static fn( array $left, array $right ): int => strcmp( $left['label'], $right['label'] ) );
+		return $taxonomies;
 	}
 
 	private function registered_meta( string $post_type ): array {

@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.1
-Stable tag: 1.0.4
+Stable tag: 1.1.0
 License: MIT
 License URI: https://mit-license.org/
 
@@ -131,6 +131,11 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 
 == Changelog ==
 
+= 1.1.0 =
+* Taxonomies: Add a governed search, optional creation, draft assignment, and read-back workflow for Site Contract-approved public terms.
+* Administration: Discover attached taxonomies and configure search, assignment, creation, limits, assignment mode, and hierarchical parent policy in the guided Site Contract editor.
+* Safety: Keep term creation confirmation-gated and idempotent, restrict relationships to Composer-owned assigned drafts with optimistic concurrency, and expose no term edit or deletion operation.
+
 = 1.0.4 =
 * Relations: Make field contracts identify the required relation lookup, write, and verification workflow.
 * MCP: Add concrete result schemas and stronger descriptions, including the editable-content alias, so clients use `search-relation-targets` for post IDs.
@@ -151,6 +156,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.1.0 =
+Recommended for sites where agents manage categories, tags, or custom taxonomy terms. Review and activate explicit taxonomy permissions in a cloned Config Set, then restart the site MCP runtime and refresh the client tool catalog.
 
 = 1.0.4 =
 Recommended for sites that use structured relation fields. This update makes relation-ID lookup explicit and removes misleading editable-content totals; restart the site MCP runtime and refresh the client tool catalog after upgrading.

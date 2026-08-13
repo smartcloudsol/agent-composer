@@ -48,6 +48,7 @@ final class Config_Repository {
 			'post_type_contract'         => array( 'page' => 'page' ),
 			'content_access'             => array(),
 			'content_field_access'       => array(),
+			'content_taxonomy_access'    => array(),
 			'remote_media_ingest'        => array(
 				'enabled'            => false,
 				'allowed_hosts'      => array(),
@@ -108,6 +109,7 @@ final class Config_Repository {
 		$policy['allowed_post_types']         = array_values( array_unique( array_values( $policy['post_type_contract'] ) ) );
 		$policy['content_access']             = $this->content_access_policy( $policy['content_access'] ?? array(), $policy['allowed_post_types'] );
 		$policy['content_field_access']       = $this->content_field_access_policy( $policy['content_field_access'] ?? array(), $policy['allowed_post_types'] );
+		$policy['content_taxonomy_access']    = $this->content_taxonomy_access_policy( $policy['content_taxonomy_access'] ?? array(), $policy['allowed_post_types'] );
 		$policy['remote_media_ingest']        = $this->normalize_remote_media_ingest( $policy['remote_media_ingest'] ?? array() );
 		$policy['block_extensions']            = $this->normalize_block_extensions( $policy['block_extensions'] ?? array() );
 		$policy['seo_contract']['required_fields'] = array_values(
@@ -214,6 +216,15 @@ final class Config_Repository {
 		$policy    = $this->get_design_policy();
 		return is_array( $policy['content_field_access'][ $post_type ] ?? null )
 			? $policy['content_field_access'][ $post_type ]
+			: array();
+	}
+
+	/** @return array<string,array{search:bool,assign:bool,create:bool,maximum_items:int,assignment_mode:string,creation_parent_policy:string,creation_parent_slugs:list<string>}> */
+	public function get_content_taxonomy_access( string $post_type ): array {
+		$post_type = sanitize_key( $post_type );
+		$policy    = $this->get_design_policy();
+		return is_array( $policy['content_taxonomy_access'][ $post_type ] ?? null )
+			? $policy['content_taxonomy_access'][ $post_type ]
 			: array();
 	}
 
@@ -731,6 +742,45 @@ final class Config_Repository {
 					}
 					$result[ $post_type ][ $meta_key ] = $normalized;
 				}
+			}
+		}
+		return $result;
+	}
+
+	/** @param string[] $allowed_post_types */
+	private function content_taxonomy_access_policy( mixed $value, array $allowed_post_types ): array {
+		if ( ! is_array( $value ) ) {
+			return array();
+		}
+
+		$result = array();
+		foreach ( $value as $post_type => $taxonomies ) {
+			$post_type = sanitize_key( (string) $post_type );
+			if ( ! in_array( $post_type, $allowed_post_types, true ) || ! is_array( $taxonomies ) ) {
+				continue;
+			}
+			foreach ( $taxonomies as $taxonomy => $rules ) {
+				$taxonomy = sanitize_key( (string) $taxonomy );
+				if ( '' === $taxonomy || ! is_array( $rules ) ) {
+					continue;
+				}
+				$create = true === ( $rules['create'] ?? false );
+				$assign = $create || true === ( $rules['assign'] ?? false );
+				$search = $assign || true === ( $rules['search'] ?? false );
+				if ( ! $search ) {
+					continue;
+				}
+				$parent_policy = $create && 'allowlist' === ( $rules['creation_parent_policy'] ?? '' ) ? 'allowlist' : 'root-only';
+				$parent_slugs  = array_slice( $this->slug_list( $rules['creation_parent_slugs'] ?? array() ), 0, 100 );
+				$result[ $post_type ][ $taxonomy ] = array(
+					'search'                 => true,
+					'assign'                 => $assign,
+					'create'                 => $create,
+					'maximum_items'          => min( 100, max( 1, absint( $rules['maximum_items'] ?? 20 ) ) ),
+					'assignment_mode'        => 'append' === ( $rules['assignment_mode'] ?? '' ) ? 'append' : 'replace',
+					'creation_parent_policy' => $parent_policy,
+					'creation_parent_slugs'  => 'allowlist' === $parent_policy ? $parent_slugs : array(),
+				);
 			}
 		}
 		return $result;

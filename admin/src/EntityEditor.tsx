@@ -223,11 +223,12 @@ function ContentAccessFields({ payload, update, immutable, postTypes, blueprints
   const policy = objectAt(payload, ["design_policy"]);
   const access = objectAt(policy, ["content_access"]);
   const fieldAccess = objectAt(policy, ["content_field_access"]);
+  const taxonomyAccess = objectAt(policy, ["content_taxonomy_access"]);
   const contract = objectAt(policy, ["post_type_contract"]);
-  const configured = new Set([...Object.values(contract), ...Object.keys(access), ...Object.keys(fieldAccess)].filter((value): value is string => typeof value === "string"));
+  const configured = new Set([...Object.values(contract), ...Object.keys(access), ...Object.keys(fieldAccess), ...Object.keys(taxonomyAccess)].filter((value): value is string => typeof value === "string"));
   const known = new Map(postTypes.map((item) => [item.name, item]));
   for (const name of configured) {
-    if (!known.has(name)) known.set(name, { name, label: name, builtin: false, public: false, show_ui: false, show_in_rest: false, supports_editor: false, current_user_can_edit: false, registered_meta: [] });
+    if (!known.has(name)) known.set(name, { name, label: name, builtin: false, public: false, show_ui: false, show_in_rest: false, supports_editor: false, current_user_can_edit: false, registered_taxonomies: [], registered_meta: [] });
   }
 
   const setRule = (postType: string, rule: "discover" | "read" | "clone" | "adopt_drafts", checked: boolean, pageTypes: string[]) => {
@@ -296,6 +297,34 @@ function ContentAccessFields({ payload, update, immutable, postTypes, blueprints
     update(["design_policy"], nextPolicy);
   };
 
+  const setTaxonomyRules = (postType: string, taxonomy: string, patch: Record<string, unknown>) => {
+    const nextPolicy = { ...policy };
+    const nextTaxonomyAccess = { ...taxonomyAccess };
+    const postTypeTaxonomies = { ...objectAt(taxonomyAccess, [postType]) };
+    const current = objectAt(postTypeTaxonomies, [taxonomy]);
+    const nextRules: Record<string, unknown> = {
+      search: current.search === true,
+      assign: current.assign === true,
+      create: current.create === true,
+      maximum_items: typeof current.maximum_items === "number" ? current.maximum_items : 20,
+      assignment_mode: current.assignment_mode === "append" ? "append" : "replace",
+      creation_parent_policy: current.creation_parent_policy === "allowlist" ? "allowlist" : "root-only",
+      creation_parent_slugs: Array.isArray(current.creation_parent_slugs) ? current.creation_parent_slugs : [],
+      ...patch
+    };
+    if (nextRules.create === true) { nextRules.assign = true; nextRules.search = true; }
+    if (nextRules.assign === true) nextRules.search = true;
+    if (nextRules.assign !== true) nextRules.create = false;
+    if (nextRules.search !== true) { nextRules.assign = false; nextRules.create = false; }
+    if (nextRules.creation_parent_policy !== "allowlist") nextRules.creation_parent_slugs = [];
+    if (nextRules.search === true) postTypeTaxonomies[taxonomy] = nextRules;
+    else delete postTypeTaxonomies[taxonomy];
+    if (Object.keys(postTypeTaxonomies).length) nextTaxonomyAccess[postType] = postTypeTaxonomies;
+    else delete nextTaxonomyAccess[postType];
+    nextPolicy.content_taxonomy_access = nextTaxonomyAccess;
+    update(["design_policy"], nextPolicy);
+  };
+
   return <Stack gap="sm">
     <div><Title order={4}>{__("Composer content access", TEXT_DOMAIN)}</Title>
       <Text size="sm" c="dimmed" mt={4}>{__("Explicitly grant the active Composer configuration access to existing WordPress content. WordPress user capabilities are still enforced for every item. Published content can be inspected or cloned; direct write access is limited to adopting editable drafts.", TEXT_DOMAIN)}</Text></div>
@@ -336,6 +365,44 @@ function ContentAccessFields({ payload, update, immutable, postTypes, blueprints
                     </Group>
                   </Group>
                 </Card>;
+              })}
+            </Stack></Accordion.Panel>
+          </Accordion.Item>
+        </Accordion>}
+        {(postType.registered_taxonomies || []).length > 0 && <Accordion variant="contained" radius="sm">
+          <Accordion.Item value="registered-taxonomies">
+            <Accordion.Control>{`${__("Composer taxonomy access", TEXT_DOMAIN)} (${postType.registered_taxonomies.length})`}</Accordion.Control>
+            <Accordion.Panel><Stack gap="xs">
+              <Alert color="blue">{__("Search for an existing public term first. Assignment is draft-only; creation is an additional global navigation change and therefore requires both search and assignment. Every operation is still checked against WordPress capabilities.", TEXT_DOMAIN)}</Alert>
+              {postType.registered_taxonomies.map((taxonomy) => {
+                const rules = objectAt(taxonomyAccess, [postType.name, taxonomy.name]);
+                const searchable = taxonomy.public && taxonomy.show_ui && taxonomy.show_in_rest;
+                const canSearch = enabled && searchable;
+                const canAssign = canSearch && taxonomy.current_user_can_assign;
+                const canCreate = canAssign && taxonomy.current_user_can_create;
+                const search = rules.search === true;
+                const assign = rules.assign === true;
+                const create = rules.create === true;
+                return <Card key={taxonomy.name} withBorder radius="sm" p="xs"><Stack gap="xs">
+                  <Group justify="space-between" align="flex-start" wrap="wrap">
+                    <div><Text fw={600}>{taxonomy.label}</Text><Code>{taxonomy.name}</Code></div>
+                    <Text size="xs" c="dimmed">{taxonomy.hierarchical ? __("Hierarchical", TEXT_DOMAIN) : __("Flat", TEXT_DOMAIN)}</Text>
+                  </Group>
+                  {!searchable && <Alert color="yellow">{__("Composer requires a public, wp-admin-visible, REST-visible taxonomy.", TEXT_DOMAIN)}</Alert>}
+                  <SimpleGrid cols={{ base: 1, sm: 3 }}>
+                    <Checkbox label={__("Search terms", TEXT_DOMAIN)} description={__("Find and reuse existing terms.", TEXT_DOMAIN)} checked={search} disabled={!canSearch} onChange={(event) => setTaxonomyRules(postType.name, taxonomy.name, { search: event.currentTarget.checked })} />
+                    <Checkbox label={__("Assign to draft", TEXT_DOMAIN)} description={__("Attach approved terms to an owned draft.", TEXT_DOMAIN)} checked={assign} disabled={!canAssign} onChange={(event) => setTaxonomyRules(postType.name, taxonomy.name, { assign: event.currentTarget.checked })} />
+                    <Checkbox label={__("Create terms", TEXT_DOMAIN)} description={__("Create a term only when no suitable term exists.", TEXT_DOMAIN)} checked={create} disabled={!canCreate} onChange={(event) => setTaxonomyRules(postType.name, taxonomy.name, { create: event.currentTarget.checked })} />
+                  </SimpleGrid>
+                  <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                    <NumberInput label={__("Maximum terms", TEXT_DOMAIN)} description={__("Assignment ceiling per draft, from 1 through 100.", TEXT_DOMAIN)} min={1} max={100} value={typeof rules.maximum_items === "number" ? rules.maximum_items : 20} disabled={!canSearch || !search} onChange={(value) => setTaxonomyRules(postType.name, taxonomy.name, { maximum_items: Number(value) || 1 })} />
+                    <Select label={__("Assignment mode", TEXT_DOMAIN)} description={__("Append preserves current terms; replace sets the complete selection.", TEXT_DOMAIN)} value={rules.assignment_mode === "append" ? "append" : "replace"} data={[{ value: "append", label: __("Append", TEXT_DOMAIN) }, { value: "replace", label: __("Replace", TEXT_DOMAIN) }]} disabled={!canAssign || !assign} onChange={(value) => { if (value) setTaxonomyRules(postType.name, taxonomy.name, { assignment_mode: value }); }} />
+                  </SimpleGrid>
+                  {taxonomy.hierarchical && create && <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                    <Select label={__("Creation parent policy", TEXT_DOMAIN)} description={__("Create only root terms or under explicitly allowed parent slugs.", TEXT_DOMAIN)} value={rules.creation_parent_policy === "allowlist" ? "allowlist" : "root-only"} data={[{ value: "root-only", label: __("Root only", TEXT_DOMAIN) }, { value: "allowlist", label: __("Parent allowlist", TEXT_DOMAIN) }]} disabled={!canCreate} onChange={(value) => { if (value) setTaxonomyRules(postType.name, taxonomy.name, { creation_parent_policy: value }); }} />
+                    {rules.creation_parent_policy === "allowlist" && <TagsInput label={__("Allowed parent slugs", TEXT_DOMAIN)} description={__("Durable existing term slugs accepted as creation parents.", TEXT_DOMAIN)} placeholder="parent-term" value={Array.isArray(rules.creation_parent_slugs) ? rules.creation_parent_slugs.filter((value): value is string => typeof value === "string") : []} disabled={!canCreate} onChange={(value) => setTaxonomyRules(postType.name, taxonomy.name, { creation_parent_slugs: value })} clearable />}
+                  </SimpleGrid>}
+                </Stack></Card>;
               })}
             </Stack></Accordion.Panel>
           </Accordion.Item>

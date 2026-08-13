@@ -109,6 +109,17 @@ export interface ProviderDiscovery {
     show_in_rest: boolean;
     supports_editor: boolean;
     current_user_can_edit: boolean;
+    registered_taxonomies: Array<{
+      name: string;
+      label: string;
+      builtin: boolean;
+      public: boolean;
+      show_ui: boolean;
+      show_in_rest: boolean;
+      hierarchical: boolean;
+      current_user_can_assign: boolean;
+      current_user_can_create: boolean;
+    }>;
     registered_meta: Array<{
       key: string;
       type: "string" | "integer" | "number" | "boolean" | "array" | "object";

@@ -7,7 +7,7 @@ use SmartCloud\AgentComposer\Infrastructure\Persistence\AuditTable;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\WordPressConfigurationRepository;
 
 final class Activation {
-	private const ROLE_SCHEMA_VERSION = '2';
+	private const ROLE_SCHEMA_VERSION = '3';
 	public const ROLE                = 'smartcloud_agent';
 	public const CAP_USE             = 'smartcloud_agent_use';
 	public const CAP_VIEW_STATUS     = 'smartcloud_composer_view_status';
@@ -18,6 +18,8 @@ final class Activation {
 	public const CAP_VIEW_AUDIT      = 'smartcloud_composer_view_audit';
 	public const CAP_EXECUTE_DRAFTS  = 'smartcloud_composer_execute_drafts';
 	public const CAP_INGEST_MEDIA    = 'smartcloud_composer_ingest_media';
+	public const CAP_ASSIGN_TERMS    = 'smartcloud_composer_assign_terms';
+	public const CAP_CREATE_TERMS    = 'smartcloud_composer_create_terms';
 
 	public static function activate( bool $network_wide = false ): void {
 		if ( is_multisite() && $network_wide ) {
@@ -63,6 +65,8 @@ final class Activation {
 			self::CAP_VIEW_STATUS    => true,
 			self::CAP_EXECUTE_DRAFTS => true,
 			self::CAP_INGEST_MEDIA   => true,
+			self::CAP_ASSIGN_TERMS   => true,
+			self::CAP_CREATE_TERMS   => true,
 		);
 		$role = get_role( self::ROLE ) ?: add_role( self::ROLE, __( 'SmartCloud Agent', 'smartcloud-agent-composer' ), $agent_caps );
 		if ( $role ) {
@@ -119,6 +123,8 @@ final class Activation {
 			self::CAP_VIEW_AUDIT,
 			self::CAP_EXECUTE_DRAFTS,
 			self::CAP_INGEST_MEDIA,
+			self::CAP_ASSIGN_TERMS,
+			self::CAP_CREATE_TERMS,
 		);
 	}
 

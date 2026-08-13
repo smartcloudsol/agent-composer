@@ -1,15 +1,15 @@
 {
   "contract": "smartcloud-agent-composer-execution",
   "files": {
-    "Abilities.php": "sha256:eb279e2185918c9d163ff8bd7d455c534cc39c28f4bcdaebd9bd2d61141fb9c9",
+    "Abilities.php": "sha256:06d34f7170b76eed94b7ac3679e987673016d61fa7fb96e614b92db0512cc961",
     "Ability_Provider_Registry.php": "sha256:ab6f8c679b614136f25e78fcf30ae386e793dbb167ecc6f7974dea62e519e7f1",
     "Audit_Logger.php": "sha256:f517fa4314ebbdd3f2004b61ba49c4d3885b05b90aab13393acbec6f49b7b163",
     "Block_Catalog.php": "sha256:1ebed7ab2988ae4809d6b8abcd9948f4137b1e529cebd73b8c28f98af012c430",
     "Block_Tree_Service.php": "sha256:ed85b5fc9d0f33742d798799437df2df742b3c641b60392eec11a6911e70f1cc",
-    "Config_Repository.php": "sha256:9ed6059b33dd0eb53cb1e59e4bf7b385059770fc3cc7792df28c45a738a50ad1",
+    "Config_Repository.php": "sha256:0fa708c2b2bc003ba78ca10bb57326e79b689872fd672a61b4a47a701bc0f8fa",
     "Content_Field_Materializer.php": "sha256:ce0b431dcb82c7bca255817f488c64387dfc52f67c64f7a75972b40398082e06",
     "Content_Language_Validator.php": "sha256:4b99e180d7161481d3f8e03cf135b1b9285ac0789a3b55a3da90515c9a3688e0",
-    "Draft_Service.php": "sha256:57f38a86f4419c90bc44fb26f4a217fa0e57aa04bd6bfba8c8ebd5bf5ca69268",
+    "Draft_Service.php": "sha256:bc58fbcc471a4481bc1ad2e6114878d317bcd675f6a9c4f848c9bd2c5f0ccd08",
     "Excerpt_Policy.php": "sha256:eb061a192291b68e9b25c14361ad880a8fd6e2d75cf65892137ebd1bf758f5d9",
     "Execution_Exception.php": "sha256:b2b3def11ecb5a760eb20c0bdd1dcf885677d5f97ad8508655ba85100fc293e6",
     "Markup_Contract_Validator.php": "sha256:a708a65fe8f7a10936c3aef69d74085baab81fcba8489e35ceabca7db038d3d4",
@@ -19,6 +19,7 @@
     "Query_Loop_Materializer.php": "sha256:b8e540800858dd5ecd9e615a3423a1504794b3d0b629723b5bd6812cb2682ca5",
     "Remote_Media_Ingestor.php": "sha256:b0f4843026e14c3611e562e6fc24c9adfe760cbd146171157a6c888640ae679d",
     "Semantic_Slot_Materializer.php": "sha256:09f92b076f8b423f7650fe30bd011d0c10f692d0ac5a6691fc18644669790c3e",
-    "Target_Resolver.php": "sha256:86a417c583a1276822365bce810a676b51bd8b56f8cbec61b9d58ebc79bc7657"
+    "Target_Resolver.php": "sha256:86a417c583a1276822365bce810a676b51bd8b56f8cbec61b9d58ebc79bc7657",
+    "Taxonomy_Term_Service.php": "sha256:7f46bf3cfebeba21fbb4cb712a2927a7720fb5682e358fe5c1f9d6f4de0da37d"
   }
 }

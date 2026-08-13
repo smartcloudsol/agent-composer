@@ -17,6 +17,7 @@ final class Abilities {
 	private Ability_Provider_Registry $providers;
 	private Query_Loop_Materializer $query_loops;
 	private Content_Field_Materializer $content_fields;
+	private Taxonomy_Term_Service $taxonomy_terms;
 	private Semantic_Slot_Materializer $semantic_slots;
 	private Remote_Media_Ingestor $remote_media;
 
@@ -28,6 +29,7 @@ final class Abilities {
 		Ability_Provider_Registry $providers,
 		Query_Loop_Materializer $query_loops,
 		Content_Field_Materializer $content_fields,
+		Taxonomy_Term_Service $taxonomy_terms,
 		Semantic_Slot_Materializer $semantic_slots,
 		Remote_Media_Ingestor $remote_media
 	) {
@@ -38,6 +40,7 @@ final class Abilities {
 		$this->providers = $providers;
 		$this->query_loops = $query_loops;
 		$this->content_fields = $content_fields;
+		$this->taxonomy_terms = $taxonomy_terms;
 		$this->semantic_slots = $semantic_slots;
 		$this->remote_media   = $remote_media;
 	}
@@ -58,6 +61,11 @@ final class Abilities {
 			self::PREFIX . 'search-relation-targets',
 			self::PREFIX . 'inspect-content-fields',
 			self::PREFIX . 'update-content-fields',
+			self::PREFIX . 'get-taxonomy-contract',
+			self::PREFIX . 'search-taxonomy-terms',
+			self::PREFIX . 'create-taxonomy-term',
+			self::PREFIX . 'assign-taxonomy-terms',
+			self::PREFIX . 'inspect-taxonomy-terms',
 			self::PREFIX . 'list-content-drafts',
 			self::PREFIX . 'inspect-content-item',
 			self::PREFIX . 'clone-content-item',
@@ -223,6 +231,51 @@ final class Abilities {
 			false
 		);
 		$this->register_ability(
+			'get-taxonomy-contract',
+			'Get taxonomy contract',
+			'Returns only public registered taxonomies explicitly enabled by the active Site Contract for a selected Blueprint, including the required search, optional creation, assignment, and verification workflow.',
+			$this->page_type_schema(),
+			array( $this, 'get_taxonomy_contract' ),
+			true,
+			$this->taxonomy_contract_output_schema()
+		);
+		$this->register_ability(
+			'search-taxonomy-terms',
+			'Search taxonomy terms',
+			'Resolves public term names or exact durable slugs to term IDs in one Site Contract-approved taxonomy. It does not create, edit, delete, or assign terms.',
+			$this->taxonomy_search_schema(),
+			array( $this, 'search_taxonomy_terms' ),
+			true,
+			$this->taxonomy_search_output_schema()
+		);
+		$this->register_ability(
+			'create-taxonomy-term',
+			'Create taxonomy term',
+			'Creates one public term in a Site Contract-approved taxonomy with a durable slug and standalone archive description. It never edits or deletes an existing term.',
+			$this->taxonomy_create_schema(),
+			array( $this, 'create_taxonomy_term' ),
+			false,
+			$this->taxonomy_term_output_schema()
+		);
+		$this->register_ability(
+			'assign-taxonomy-terms',
+			'Assign taxonomy terms',
+			'Assigns existing approved taxonomy terms only to a Composer-owned draft assigned to the current agent, with explicit confirmation and optimistic concurrency.',
+			$this->taxonomy_assignment_schema(),
+			array( $this, 'assign_taxonomy_terms' ),
+			false,
+			$this->taxonomy_assignment_output_schema()
+		);
+		$this->register_ability(
+			'inspect-taxonomy-terms',
+			'Inspect assigned taxonomy terms',
+			'Returns Site Contract-approved taxonomy relationships and fresh concurrency tokens for one Composer-owned draft assigned to the current agent.',
+			$this->taxonomy_inspection_schema(),
+			array( $this, 'inspect_taxonomy_terms' ),
+			true,
+			$this->taxonomy_inspection_output_schema()
+		);
+		$this->register_ability(
 			'list-content-drafts',
 			'List editable content',
 			'Lists only editable or adoptable content by status, post type, Blueprint, and Composer assignment state. Never use this ability to resolve relation target IDs; use search-relation-targets instead.',
@@ -352,6 +405,9 @@ final class Abilities {
 				$field_access = is_array( $policy['content_field_access'] ?? null )
 					? $policy['content_field_access']
 					: array();
+				$taxonomy_access = is_array( $policy['content_taxonomy_access'] ?? null )
+					? $policy['content_taxonomy_access']
+					: array();
 				return array(
 					'composer'                 => array(
 						'name'    => 'SmartCloud Agent Composer',
@@ -382,6 +438,15 @@ final class Abilities {
 							'registered_rest_fields_required' => true,
 							'composer_owned_draft_writes_only' => true,
 							'explicit_confirmation_required'  => true,
+						),
+						'taxonomy_term_workflow'               => array(
+							'enabled'                          => ! empty( $taxonomy_access ),
+							'allowlisted_post_type_count'      => count( $taxonomy_access ),
+							'search_before_create_required'    => true,
+							'composer_owned_draft_writes_only' => true,
+							'explicit_confirmation_required'   => true,
+							'term_edit_supported'              => false,
+							'term_delete_supported'            => false,
 						),
 						'remote_media_ingest'                  => array_merge(
 							$this->config->get_remote_media_ingest_policy(),
@@ -710,6 +775,26 @@ final class Abilities {
 		return $this->execute( 'update-content-fields', $input, fn() => $this->content_fields->update( $input ) );
 	}
 
+	public function get_taxonomy_contract( array $input ): array|\WP_Error {
+		return $this->execute( 'get-taxonomy-contract', $input, fn() => $this->taxonomy_terms->contract( $input ) );
+	}
+
+	public function search_taxonomy_terms( array $input ): array|\WP_Error {
+		return $this->execute( 'search-taxonomy-terms', $input, fn() => $this->taxonomy_terms->search( $input ) );
+	}
+
+	public function create_taxonomy_term( array $input ): array|\WP_Error {
+		return $this->execute( 'create-taxonomy-term', $input, fn() => $this->taxonomy_terms->create( $input ) );
+	}
+
+	public function assign_taxonomy_terms( array $input ): array|\WP_Error {
+		return $this->execute( 'assign-taxonomy-terms', $input, fn() => $this->taxonomy_terms->assign( $input ) );
+	}
+
+	public function inspect_taxonomy_terms( array $input ): array|\WP_Error {
+		return $this->execute( 'inspect-taxonomy-terms', $input, fn() => $this->taxonomy_terms->inspect( $input ) );
+	}
+
 	public function list_content_drafts( array $input ): array|\WP_Error {
 		return $this->execute( 'list-content-drafts', $input, fn() => $this->drafts->list_content_drafts( $input ) );
 	}
@@ -817,7 +902,7 @@ final class Abilities {
 						'destructive' => false,
 						'idempotent'  => $read_only || in_array(
 							$slug,
-							array( 'create-page-draft', 'create-content-draft', 'adopt-content-draft', 'assign-featured-image', 'ingest-remote-media' ),
+							array( 'create-page-draft', 'create-content-draft', 'adopt-content-draft', 'assign-featured-image', 'ingest-remote-media', 'create-taxonomy-term', 'assign-taxonomy-terms' ),
 							true
 						),
 					),
@@ -836,7 +921,7 @@ final class Abilities {
 
 		try {
 			$result    = $callback();
-			$object_id = is_array( $result ) ? absint( $result['post_id'] ?? 0 ) : 0;
+			$object_id = is_array( $result ) ? absint( $result['post_id'] ?? $result['term_id'] ?? 0 ) : 0;
 			$this->audit->log( $operation, 'success', $input, $object_id );
 			if ( is_array( $result ) ) {
 				$result['_request_id'] = $this->audit->get_request_id();
@@ -846,11 +931,12 @@ final class Abilities {
 			$post_id  = absint( $input['post_id'] ?? 0 );
 			$conflict = in_array(
 				$error->get_execution_code(),
-				array( 'edit_conflict', 'draft_assigned_to_other_agent' ),
+				array( 'edit_conflict', 'draft_assigned_to_other_agent', 'taxonomy_term_conflict' ),
 				true
 			);
 			$this->audit->log( $operation, 'error', $input, $post_id, $error->get_execution_code(), array( 'conflict' => $conflict ) );
-			$status = $conflict ? 409 : 400;
+			$denied = in_array( $error->get_execution_code(), array( 'taxonomy_term_create_denied', 'taxonomy_assignment_denied' ), true );
+			$status = $conflict ? 409 : ( $denied ? 403 : 400 );
 			return new \WP_Error( 'smartcloud_agent_' . $error->get_execution_code(), $error->getMessage(), array( 'status' => $status, 'request_id' => $this->audit->get_request_id() ) );
 		} catch ( \Throwable $error ) {
 			$this->audit->log( $operation, 'error', $input, absint( $input['post_id'] ?? 0 ), 'internal_error' );
@@ -1259,6 +1345,214 @@ final class Abilities {
 			'required'             => array( 'post_id', 'page_type', 'expected_modified_gmt', 'expected_revision', 'fields', 'confirm_update' ),
 			'additionalProperties' => false,
 		);
+	}
+
+	public function taxonomy_search_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'page_type' => $this->string_property( 'Blueprint page type whose target declares taxonomy access.', 1, 64 ),
+				'taxonomy'  => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 32, 'pattern' => '^[a-z0-9_-]+$' ),
+				'query'     => $this->string_property( 'Optional public term-name search or exact durable slug.', 0, 200 ),
+				'limit'     => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 50, 'default' => 20 ),
+				'offset'    => array( 'type' => 'integer', 'minimum' => 0, 'maximum' => 5000, 'default' => 0 ),
+			),
+			'required'             => array( 'page_type', 'taxonomy' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	public function taxonomy_create_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'page_type'       => $this->string_property( 'Blueprint page type whose target declares taxonomy creation.', 1, 64 ),
+				'content_language' => $this->string_property( 'Exact effective BCP 47 content language returned by the selected Blueprint.', 2, 35 ),
+				'taxonomy'        => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 32, 'pattern' => '^[a-z0-9_-]+$' ),
+				'name'            => $this->string_property( 'Concise public navigation label and archive title.', 1, 200 ),
+				'slug'            => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 200, 'pattern' => '^[a-z0-9]+(?:-[a-z0-9]+)*$' ),
+				'description'     => $this->string_property( 'Standalone source-supported archive description.', 1, 2000 ),
+				'parent_slug'     => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 200, 'pattern' => '^[a-z0-9]+(?:-[a-z0-9]+)*$' ),
+				'confirm_create'  => array( 'type' => 'boolean', 'enum' => array( true ) ),
+			),
+			'required'             => array( 'page_type', 'content_language', 'taxonomy', 'name', 'slug', 'description', 'confirm_create' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	public function taxonomy_assignment_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'post_id'               => array( 'type' => 'integer', 'minimum' => 1 ),
+				'page_type'             => $this->string_property( 'Immutable Blueprint page type assigned to the draft.', 1, 64 ),
+				'taxonomy'              => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 32, 'pattern' => '^[a-z0-9_-]+$' ),
+				'term_ids'              => array(
+					'type'        => 'array',
+					'minItems'    => 1,
+					'maxItems'    => 100,
+					'uniqueItems' => true,
+					'items'       => array( 'type' => 'integer', 'minimum' => 1 ),
+				),
+				'mode'                  => array( 'type' => 'string', 'enum' => array( 'replace', 'append' ), 'default' => 'replace' ),
+				'expected_modified_gmt' => array( 'type' => 'string', 'format' => 'date-time' ),
+				'expected_revision'     => array( 'type' => 'string', 'format' => 'uuid' ),
+				'confirm_assignment'    => array( 'type' => 'boolean', 'enum' => array( true ) ),
+			),
+			'required'             => array( 'post_id', 'page_type', 'taxonomy', 'term_ids', 'mode', 'expected_modified_gmt', 'expected_revision', 'confirm_assignment' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	public function taxonomy_inspection_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'post_id'   => array( 'type' => 'integer', 'minimum' => 1 ),
+				'page_type' => $this->string_property( 'Immutable Blueprint page type assigned to the draft.', 1, 64 ),
+				'taxonomy'  => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 32, 'pattern' => '^[a-z0-9_-]+$' ),
+			),
+			'required'             => array( 'post_id', 'page_type' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	public function taxonomy_contract_output_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'page_type'        => array( 'type' => 'string' ),
+				'target_post_type' => array( 'type' => 'string' ),
+				'content_language' => array( 'type' => 'string' ),
+				'taxonomies'       => array(
+					'type'  => 'array',
+					'items' => array(
+						'type'                 => 'object',
+						'properties'           => array(
+							'taxonomy'     => array( 'type' => 'string' ),
+							'label'        => array( 'type' => 'string' ),
+							'plural_label' => array( 'type' => 'string' ),
+							'description'  => array( 'type' => 'string' ),
+							'hierarchical' => array( 'type' => 'boolean' ),
+							'search'       => array( 'type' => 'boolean' ),
+							'create'       => array( 'type' => 'boolean' ),
+							'assign'       => array( 'type' => 'boolean' ),
+							'maximum_items' => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 100 ),
+							'assignment_mode' => array( 'type' => 'string', 'enum' => array( 'replace', 'append' ) ),
+							'creation_parent_policy' => array( 'type' => 'string', 'enum' => array( 'root-only', 'allowlist' ) ),
+							'creation_parent_slugs' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
+							'current_user_can_create' => array( 'type' => 'boolean' ),
+							'current_user_can_assign' => array( 'type' => 'boolean' ),
+						),
+						'required'             => array( 'taxonomy', 'label', 'plural_label', 'description', 'hierarchical', 'search', 'create', 'assign', 'maximum_items', 'assignment_mode', 'creation_parent_policy', 'creation_parent_slugs', 'current_user_can_create', 'current_user_can_assign' ),
+						'additionalProperties' => false,
+					),
+				),
+				'write_boundary'        => array( 'type' => 'string', 'enum' => array( 'composer-owned-assigned-draft' ) ),
+				'term_edit_supported'   => array( 'type' => 'boolean', 'enum' => array( false ) ),
+				'term_delete_supported' => array( 'type' => 'boolean', 'enum' => array( false ) ),
+				'workflow'              => array( 'type' => 'object', 'additionalProperties' => true ),
+			),
+			'required'             => array( 'page_type', 'target_post_type', 'content_language', 'taxonomies', 'write_boundary', 'term_edit_supported', 'term_delete_supported', 'workflow' ),
+			'additionalProperties' => true,
+		);
+	}
+
+	public function taxonomy_search_output_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'purpose'          => array( 'type' => 'string', 'enum' => array( 'taxonomy-term-resolution' ) ),
+				'page_type'        => array( 'type' => 'string' ),
+				'target_post_type' => array( 'type' => 'string' ),
+				'taxonomy'         => array( 'type' => 'string' ),
+				'query'            => array( 'type' => 'string' ),
+				'matches'          => array( 'type' => 'array', 'items' => $this->taxonomy_term_item_schema( true ) ),
+				'match_count'      => array( 'type' => 'integer', 'minimum' => 0 ),
+				'limit'            => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 50 ),
+				'offset'           => array( 'type' => 'integer', 'minimum' => 0 ),
+				'has_more'         => array( 'type' => 'boolean' ),
+				'result_id_path'   => array( 'type' => 'string', 'enum' => array( 'matches[].term_id' ) ),
+				'next_abilities'   => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
+			),
+			'required'             => array( 'purpose', 'page_type', 'target_post_type', 'taxonomy', 'query', 'matches', 'match_count', 'limit', 'offset', 'has_more', 'result_id_path', 'next_abilities' ),
+			'additionalProperties' => true,
+		);
+	}
+
+	public function taxonomy_term_output_schema(): array {
+		$schema = $this->taxonomy_term_item_schema();
+		$schema['properties']['created'] = array( 'type' => 'boolean' );
+		$schema['properties']['idempotent_replay'] = array( 'type' => 'boolean' );
+		$schema['properties']['next_ability'] = array( 'type' => 'string', 'enum' => array( self::PREFIX . 'assign-taxonomy-terms' ) );
+		$schema['required'] = array_merge( $schema['required'], array( 'created', 'idempotent_replay', 'next_ability' ) );
+		$schema['additionalProperties'] = true;
+		return $schema;
+	}
+
+	public function taxonomy_assignment_output_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'post_id'         => array( 'type' => 'integer', 'minimum' => 1 ),
+				'page_type'       => array( 'type' => 'string' ),
+				'post_type'       => array( 'type' => 'string' ),
+				'modified_gmt'    => array( 'type' => 'string', 'format' => 'date-time' ),
+				'revision'        => array( 'type' => 'string', 'format' => 'uuid' ),
+				'taxonomy'        => array( 'type' => 'string' ),
+				'assignment_mode' => array( 'type' => 'string', 'enum' => array( 'replace', 'append' ) ),
+				'terms'           => array( 'type' => 'array', 'items' => $this->taxonomy_term_item_schema() ),
+				'verify_ability'  => array( 'type' => 'string', 'enum' => array( self::PREFIX . 'inspect-taxonomy-terms' ) ),
+			),
+			'required'             => array( 'post_id', 'page_type', 'post_type', 'modified_gmt', 'revision', 'taxonomy', 'assignment_mode', 'terms', 'verify_ability' ),
+			'additionalProperties' => true,
+		);
+	}
+
+	public function taxonomy_inspection_output_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'post_id'      => array( 'type' => 'integer', 'minimum' => 1 ),
+				'page_type'    => array( 'type' => 'string' ),
+				'post_type'    => array( 'type' => 'string' ),
+				'modified_gmt' => array( 'type' => 'string', 'format' => 'date-time' ),
+				'revision'     => array( 'type' => 'string', 'format' => 'uuid' ),
+				'taxonomies'   => array(
+					'type'  => 'array',
+					'items' => array(
+						'type'                 => 'object',
+						'properties'           => array(
+							'taxonomy' => array( 'type' => 'string' ),
+							'terms'    => array( 'type' => 'array', 'items' => $this->taxonomy_term_item_schema() ),
+						),
+						'required'             => array( 'taxonomy', 'terms' ),
+						'additionalProperties' => false,
+					),
+				),
+			),
+			'required'             => array( 'post_id', 'page_type', 'post_type', 'modified_gmt', 'revision', 'taxonomies' ),
+			'additionalProperties' => true,
+		);
+	}
+
+	private function taxonomy_term_item_schema( bool $with_match = false ): array {
+		$properties = array(
+			'term_id'     => array( 'type' => 'integer', 'minimum' => 1 ),
+			'taxonomy'    => array( 'type' => 'string' ),
+			'name'        => array( 'type' => 'string' ),
+			'slug'        => array( 'type' => 'string' ),
+			'description' => array( 'type' => 'string' ),
+			'parent_id'   => array( 'type' => 'integer', 'minimum' => 0 ),
+			'count'       => array( 'type' => 'integer', 'minimum' => 0 ),
+			'archive_url' => array( 'type' => 'string' ),
+		);
+		$required = array_keys( $properties );
+		if ( $with_match ) {
+			$properties['match'] = array( 'type' => 'object', 'additionalProperties' => true );
+			$required[] = 'match';
+		}
+		return array( 'type' => 'object', 'properties' => $properties, 'required' => $required, 'additionalProperties' => false );
 	}
 
 	public function content_clone_schema(): array {

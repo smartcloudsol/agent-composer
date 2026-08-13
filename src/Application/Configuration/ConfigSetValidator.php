@@ -72,6 +72,11 @@ final class ConfigSetValidator {
 			$by_type[ EntityType::BLUEPRINT ] ?? array(),
 			$errors
 		);
+		$this->validate_content_taxonomy_access(
+			is_array( $site_contract ) ? $site_contract : array(),
+			$by_type[ EntityType::BLUEPRINT ] ?? array(),
+			$errors
+		);
 		$this->validate_remote_media_policy(
 			is_array( $site_contract ) ? $site_contract : array(),
 			$errors
@@ -208,6 +213,109 @@ final class ConfigSetValidator {
 							$errors[] = $this->issue( 'relation-target-type-unavailable', 'A relation field targets an unavailable post type.', $field_path . '.target_post_types' );
 						}
 					}
+				}
+			}
+		}
+	}
+
+	private function validate_content_taxonomy_access( array $site_contract, array $blueprints, array &$errors ): void {
+		$policy = is_array( $site_contract['design_policy'] ?? null ) ? $site_contract['design_policy'] : array();
+		$access = $policy['content_taxonomy_access'] ?? array();
+		if ( null !== $access && ! is_array( $access ) ) {
+			$errors[] = $this->issue( 'content-taxonomy-access-type', 'Content taxonomy access must be an object.', 'site-contract:design_policy.content_taxonomy_access' );
+			return;
+		}
+
+		$targets = array();
+		foreach ( $blueprints as $blueprint ) {
+			$payload   = is_array( $blueprint['payload'] ?? null ) ? $blueprint['payload'] : array();
+			$post_type = sanitize_key( (string) ( $payload['target_post_type'] ?? '' ) );
+			if ( '' !== $post_type ) {
+				$targets[ $post_type ] = true;
+			}
+		}
+
+		foreach ( is_array( $access ) ? $access : array() as $post_type => $taxonomies ) {
+			$post_type = sanitize_key( (string) $post_type );
+			$base_path = 'site-contract:design_policy.content_taxonomy_access.' . $post_type;
+			if ( '' === $post_type || ! isset( $targets[ $post_type ] ) ) {
+				$errors[] = $this->issue( 'content-taxonomy-blueprint-missing', 'Content taxonomy access requires a Blueprint targeting the same post type.', $base_path );
+				continue;
+			}
+			if ( ! post_type_exists( $post_type ) || ! is_array( $taxonomies ) ) {
+				$errors[] = $this->issue( 'content-taxonomy-post-type-unavailable', 'Content taxonomy access targets an unavailable post type or invalid taxonomy map.', $base_path );
+				continue;
+			}
+
+			foreach ( $taxonomies as $taxonomy => $rules ) {
+				$taxonomy     = sanitize_key( (string) $taxonomy );
+				$taxonomy_path = $base_path . '.' . $taxonomy;
+				$object       = '' !== $taxonomy && function_exists( 'get_taxonomy' ) ? get_taxonomy( $taxonomy ) : false;
+				if ( '' === $taxonomy || ! is_array( $rules ) || ! $object || ! is_object_in_taxonomy( $post_type, $taxonomy ) ) {
+					$errors[] = $this->issue( 'content-taxonomy-unavailable', 'An enabled taxonomy must be registered for the selected post type.', $taxonomy_path );
+					continue;
+				}
+				if ( ( empty( $object->public ) && empty( $object->publicly_queryable ) ) || empty( $object->show_ui ) || empty( $object->show_in_rest ) ) {
+					$errors[] = $this->issue( 'content-taxonomy-registration-unsafe', 'An enabled taxonomy must be public, wp-admin-visible, and REST-visible.', $taxonomy_path );
+				}
+				foreach ( array( 'search', 'assign', 'create' ) as $flag ) {
+					if ( array_key_exists( $flag, $rules ) && ! is_bool( $rules[ $flag ] ) ) {
+						$errors[] = $this->issue( 'content-taxonomy-flag-invalid', 'Taxonomy search, assign, and create flags must be booleans.', $taxonomy_path . '.' . $flag );
+					}
+				}
+
+				$search = true === ( $rules['search'] ?? false );
+				$assign = true === ( $rules['assign'] ?? false );
+				$create = true === ( $rules['create'] ?? false );
+				if ( ! $search ) {
+					$errors[] = $this->issue( 'content-taxonomy-search-required', 'Every enabled taxonomy policy must allow search.', $taxonomy_path . '.search' );
+				}
+				if ( $assign && ! $search ) {
+					$errors[] = $this->issue( 'content-taxonomy-assign-dependency', 'Taxonomy assignment requires search access.', $taxonomy_path . '.assign' );
+				}
+				if ( $create && ( ! $assign || ! $search ) ) {
+					$errors[] = $this->issue( 'content-taxonomy-create-dependency', 'Taxonomy creation requires assignment and search access.', $taxonomy_path . '.create' );
+				}
+				$assign_capability = (string) ( $object->cap->assign_terms ?? '' );
+				if ( $assign && ( '' === $assign_capability || ! current_user_can( \SmartCloud\AgentComposer\Infrastructure\WordPress\Activation::CAP_ASSIGN_TERMS ) || ! current_user_can( $assign_capability ) ) ) {
+					$errors[] = $this->issue( 'content-taxonomy-assign-capability-missing', 'The current user requires both the Composer taxonomy assignment capability and the taxonomy assignment capability.', $taxonomy_path . '.assign' );
+				}
+				if ( $create && ! current_user_can( \SmartCloud\AgentComposer\Infrastructure\WordPress\Activation::CAP_CREATE_TERMS ) ) {
+					$errors[] = $this->issue( 'content-taxonomy-create-capability-missing', 'The current user lacks the dedicated Composer taxonomy creation capability.', $taxonomy_path . '.create' );
+				}
+
+				$maximum = $rules['maximum_items'] ?? 20;
+				if ( ! is_int( $maximum ) || $maximum < 1 || $maximum > 100 ) {
+					$errors[] = $this->issue( 'content-taxonomy-maximum-invalid', 'Taxonomy maximum_items must be an integer from 1 through 100.', $taxonomy_path . '.maximum_items' );
+				}
+				if ( ! in_array( (string) ( $rules['assignment_mode'] ?? 'replace' ), array( 'append', 'replace' ), true ) ) {
+					$errors[] = $this->issue( 'content-taxonomy-assignment-mode-invalid', 'Taxonomy assignment mode must be append or replace.', $taxonomy_path . '.assignment_mode' );
+				}
+
+				$parent_policy = (string) ( $rules['creation_parent_policy'] ?? 'root-only' );
+				$parent_slugs  = $rules['creation_parent_slugs'] ?? array();
+				if ( ! in_array( $parent_policy, array( 'root-only', 'allowlist' ), true ) ) {
+					$errors[] = $this->issue( 'content-taxonomy-parent-policy-invalid', 'Hierarchical taxonomy creation parent policy must be root-only or allowlist.', $taxonomy_path . '.creation_parent_policy' );
+				}
+				if ( ! is_array( $parent_slugs ) || array_is_list( $parent_slugs ) === false || count( $parent_slugs ) > 100 ) {
+					$errors[] = $this->issue( 'content-taxonomy-parent-slugs-invalid', 'Taxonomy creation parent slugs must be a list.', $taxonomy_path . '.creation_parent_slugs' );
+					continue;
+				}
+				foreach ( $parent_slugs as $index => $slug ) {
+					if ( ! is_string( $slug ) || strlen( $slug ) > 200 || sanitize_title( $slug ) !== $slug || '' === $slug ) {
+						$errors[] = $this->issue( 'content-taxonomy-parent-slug-invalid', 'Every taxonomy creation parent slug must be a durable WordPress term slug.', $taxonomy_path . '.creation_parent_slugs.' . $index );
+					} elseif ( ! term_exists( $slug, $taxonomy ) ) {
+						$errors[] = $this->issue( 'content-taxonomy-parent-term-unavailable', 'Every allowed taxonomy parent slug must resolve to an existing term.', $taxonomy_path . '.creation_parent_slugs.' . $index );
+					}
+				}
+				if ( 'root-only' === $parent_policy && ! empty( $parent_slugs ) ) {
+					$errors[] = $this->issue( 'content-taxonomy-root-parent-slugs-forbidden', 'Root-only taxonomy creation cannot declare parent slugs.', $taxonomy_path . '.creation_parent_slugs' );
+				}
+				if ( ! empty( $object->hierarchical ) && $create && 'allowlist' === $parent_policy && empty( $parent_slugs ) ) {
+					$errors[] = $this->issue( 'content-taxonomy-parent-allowlist-empty', 'Allowlisted hierarchical creation requires at least one parent slug.', $taxonomy_path . '.creation_parent_slugs' );
+				}
+				if ( empty( $object->hierarchical ) && ( 'root-only' !== $parent_policy || ! empty( $parent_slugs ) ) ) {
+					$errors[] = $this->issue( 'content-taxonomy-flat-parent-policy-invalid', 'Non-hierarchical taxonomies cannot declare creation parents.', $taxonomy_path . '.creation_parent_policy' );
 				}
 			}
 		}

@@ -260,6 +260,77 @@ final class Draft_Service {
 		return $response;
 	}
 
+	/**
+	 * Atomically assign an already validated term set to an assigned draft.
+	 *
+	 * Taxonomy policy, term discovery, and term validation belong to
+	 * Taxonomy_Term_Service. This method retains the same ownership, immutable
+	 * target, and optimistic-concurrency boundary as every other draft write.
+	 *
+	 * @param int[] $term_ids
+	 */
+	public function update_owned_taxonomy_terms( array $input, string $taxonomy, array $term_ids, bool $append, int $maximum_items ): array {
+		$this->assert_no_forbidden_input( $input );
+		$taxonomy = sanitize_key( $taxonomy );
+		if ( '' === $taxonomy || empty( $term_ids ) ) {
+			throw new Execution_Exception( 'taxonomy_assignment_invalid', 'A taxonomy and at least one term ID are required.' );
+		}
+
+		$post_id           = absint( $input['post_id'] ?? 0 );
+		$expected_modified = $this->normalize_expected_modified_gmt( (string) ( $input['expected_modified_gmt'] ?? '' ) );
+		$expected_revision = $this->sanitize_revision( $input['expected_revision'] ?? '' );
+		$post              = $this->get_owned_draft( $post_id );
+		$page_type         = sanitize_key( (string) get_post_meta( $post_id, self::PAGE_TYPE_META, true ) );
+		if ( $page_type !== sanitize_key( (string) ( $input['page_type'] ?? '' ) ) ) {
+			throw new Execution_Exception( 'page_type_immutable', 'The page type cannot be changed during taxonomy assignment.' );
+		}
+		$target = $this->targets->resolve( $page_type );
+		$this->assert_post_contract( $post, $page_type, $target );
+		$this->targets->assert_current_user_can_edit( $post, true );
+		if ( ! is_object_in_taxonomy( $post->post_type, $taxonomy ) ) {
+			throw new Execution_Exception( 'taxonomy_post_type_mismatch', 'The taxonomy is not registered for this draft post type.' );
+		}
+
+		global $wpdb;
+		$this->begin_locked_update( $post_id, $expected_modified, $expected_revision, $page_type, $target );
+		try {
+			$final_ids = $term_ids;
+			if ( $append ) {
+				$existing = wp_get_object_terms( $post_id, $taxonomy, array( 'fields' => 'ids' ) );
+				if ( is_wp_error( $existing ) ) {
+					throw new Execution_Exception( 'taxonomy_term_inspection_failed', $existing->get_error_message() );
+				}
+				$final_ids = array_values( array_unique( array_merge( array_map( 'absint', (array) $existing ), $term_ids ) ) );
+			}
+			if ( count( $final_ids ) > min( 100, max( 1, $maximum_items ) ) ) {
+				throw new Execution_Exception( 'taxonomy_term_limit_exceeded', 'The assignment exceeds the Site Contract taxonomy-term limit.' );
+			}
+			$assigned = wp_set_object_terms( $post_id, $term_ids, $taxonomy, $append );
+			if ( is_wp_error( $assigned ) ) {
+				throw new Execution_Exception( 'taxonomy_assignment_failed', $assigned->get_error_message() );
+			}
+			$result = wp_update_post( array( 'ID' => $post_id, 'post_status' => 'draft' ), true );
+			if ( is_wp_error( $result ) ) {
+				throw new Execution_Exception( 'taxonomy_assignment_failed', $result->get_error_message() );
+			}
+			if ( false === $wpdb->query( 'COMMIT' ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Commits the locked taxonomy relationship update.
+				throw new Execution_Exception( 'commit_failed', 'The database could not safely commit the taxonomy assignment.' );
+			}
+		} catch ( \Throwable $error ) {
+			$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Rolls back the explicit concurrency transaction.
+			clean_post_cache( $post_id );
+			clean_object_term_cache( $post_id, $post->post_type );
+			throw $error;
+		}
+
+		clean_post_cache( $post_id );
+		clean_object_term_cache( $post_id, $post->post_type );
+		$updated = $this->get_owned_draft( $post_id );
+		$response = $this->describe( $updated );
+		$response['assigned_term_ids'] = array_values( array_map( 'absint', $term_ids ) );
+		return $response;
+	}
+
 	public function assign_featured_image( array $input, int $attachment_id ): array {
 		$this->assert_no_forbidden_input( $input );
 		if ( $attachment_id < 1 || ! wp_attachment_is_image( $attachment_id ) || ! current_user_can( 'read_post', $attachment_id ) ) {

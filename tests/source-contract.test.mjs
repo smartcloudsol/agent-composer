@@ -87,6 +87,11 @@ test("guided admin exposes the existing-content access gate without requiring JS
   assert.match(editor, /content_access/);
   assert.match(editor, /content_field_access/);
   assert.match(editor, /Composer field access/);
+  assert.match(editor, /content_taxonomy_access/);
+  assert.match(editor, /Composer taxonomy access/);
+  for (const label of ["Search terms", "Assign to draft", "Create terms", "Maximum terms", "Assignment mode", "Creation parent policy", "Allowed parent slugs"]) {
+    assert.match(editor, new RegExp(label));
+  }
   assert.match(editor, /Remote Media Library ingestion/);
   assert.match(editor, /remote_media_ingest/);
   assert.match(editor, /Write draft/);
@@ -102,7 +107,11 @@ test("guided admin exposes the existing-content access gate without requiring JS
   assert.match(discovery, /supports_editor/);
   assert.match(discovery, /current_user_can_edit/);
   assert.match(discovery, /registered_meta/);
+  assert.match(discovery, /registered_taxonomies/);
+  assert.match(discovery, /current_user_can_assign/);
+  assert.match(discovery, /current_user_can_create/);
   assert.match(docs, /Composer content access is managed in the guided Site Contract editor/);
+  assert.match(docs, /Composer taxonomy access governs public terms/);
 });
 
 test("admin checkboxes suppress the WordPress duplicate checkmark and expose pointer cursors", () => {
@@ -164,7 +173,7 @@ test("Composer execution contract is checksum-pinned and canonical names are fro
   const surface = JSON.parse(read("tests/fixtures/execution-ability-surface.json"));
   assert.equal(surface.contract, manifest.contract);
   const aliases = read("src/Integration/Abilities/ExecutionAbilityAliases.php");
-  assert.equal(surface.operations.length, 27);
+  assert.equal(surface.operations.length, 32);
   for (const alias of surface.preferred_aliases) {
     assert.match(aliases, new RegExp(alias.replaceAll("-", "\\-")));
   }
@@ -232,8 +241,8 @@ test("release copy contains no internal milestone or retired theme-contract narr
   assert.doesNotMatch(read("readme.txt"), /development milestone|not yet (?:the )?final/i);
   assert.match(read("smartcloud-agent-composer.php"), /License:\s+MIT/);
   assert.equal(fs.existsSync(path.join(root, "LICENSE")), true);
-  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.0\.4/);
-  assert.match(read("readme.txt"), /Stable tag:\s+1\.0\.4/);
+  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.1\.0/);
+  assert.match(read("readme.txt"), /Stable tag:\s+1\.1\.0/);
 });
 
 test("complete configuration backups are checksummed, secret-free, inactive, and rollback-safe", () => {

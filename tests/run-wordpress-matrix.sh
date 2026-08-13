@@ -67,6 +67,8 @@ for php_binary in "${PHP_BINARIES[@]}"; do
     command -v "${php_binary}" >/dev/null
     echo "Running WordPress ${WP_VERSION} integration on ${php_binary}"
     "${php_binary}" "${WP_CLI}" eval-file "${SCRIPT_DIR}/wordpress-integration.php" --path="${WP_ROOT}" --url=composer-c4.test
+    SMARTCLOUD_TAXONOMY_STAGE=setup "${php_binary}" "${WP_CLI}" eval-file "${SCRIPT_DIR}/wordpress-taxonomy-integration.php" --path="${WP_ROOT}" --url=composer-c4.test
+    SMARTCLOUD_TAXONOMY_STAGE=run "${php_binary}" "${WP_CLI}" eval-file "${SCRIPT_DIR}/wordpress-taxonomy-integration.php" --path="${WP_ROOT}" --url=composer-c4.test
     SMARTCLOUD_PRESET_STAGE=setup "${php_binary}" "${WP_CLI}" eval-file "${SCRIPT_DIR}/wordpress-preset-runtime.php" --path="${WP_ROOT}" --url=composer-c4.test
     SMARTCLOUD_PRESET_STAGE=universal "${php_binary}" "${WP_CLI}" eval-file "${SCRIPT_DIR}/wordpress-preset-runtime.php" --path="${WP_ROOT}" --url=composer-c4.test
     SMARTCLOUD_PRESET_STAGE=recommended "${php_binary}" "${WP_CLI}" eval-file "${SCRIPT_DIR}/wordpress-preset-runtime.php" --path="${WP_ROOT}" --url=composer-c4.test
