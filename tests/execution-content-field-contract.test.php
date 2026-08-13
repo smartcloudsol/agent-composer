@@ -114,6 +114,17 @@ namespace SmartCloud\AgentComposer\Execution {
 	$searchSchema = $abilities->relation_target_search_schema();
 	field_assert_same(array('page_type', 'relation_field'), $searchSchema['required'] ?? null, 'Generic relation lookup must bind every query to a Blueprint and declared field.');
 	field_assert_same(50, $searchSchema['properties']['limit']['maximum'] ?? null, 'Relation target lookup must remain bounded.');
+	$searchOutputSchema = $abilities->relation_target_search_output_schema();
+	field_assert_true(in_array('matches', $searchOutputSchema['required'] ?? array(), true), 'Relation lookup output must require its result list.');
+	field_assert_same(array('matches[].id'), $searchOutputSchema['properties']['result_id_path']['enum'] ?? null, 'Relation lookup output must identify the post-ID result path.');
+	$fieldContractOutputSchema = $abilities->content_field_contract_output_schema();
+	field_assert_true(in_array('relation_workflow', $fieldContractOutputSchema['required'] ?? array(), true), 'Field contracts must expose the generic relation execution workflow.');
+	$listOutputSchema = $abilities->draft_list_output_schema();
+	field_assert_same(
+		'Total records visible after Composer policy and WordPress capability filtering.',
+		$listOutputSchema['properties']['total']['description'] ?? null,
+		'Editable-content totals must explicitly describe their post-filter semantics.'
+	);
 
 	$source = file_get_contents(dirname(__DIR__) . '/src/Execution/Content_Field_Materializer.php');
 	field_assert_true(is_string($source), 'The content field materializer source must be readable.');
@@ -127,6 +138,8 @@ namespace SmartCloud\AgentComposer\Execution {
 	field_assert_true(str_contains($source, 'assert_relation_value'), 'Composer must validate first-class relation targets before writing.');
 	field_assert_true(str_contains($source, 'search_relation_targets'), 'Composer must resolve relation targets generically from the active Site Contract.');
 	field_assert_true(str_contains($source, "current_user_can( 'read_post', \$candidate->ID )"), 'Relation target lookup must enforce per-record read capabilities.');
+	field_assert_true(str_contains($source, "'lookup_result_id_path'       => 'matches[].id'"), 'Relation fields must tell clients where resolved post IDs are returned.');
+	field_assert_true(str_contains($source, "'never_use_for_lookup'"), 'Relation fields must explicitly reject editable-content listing as an ID lookup path.');
 	$catalog_source = file_get_contents(dirname(__DIR__) . '/src/Execution/Block_Catalog.php');
 	field_assert_true(is_string($catalog_source) && str_contains($catalog_source, '$has_registered_contract'), 'A declared block contract must be an alternative to a provider-specific Ability profile.');
 

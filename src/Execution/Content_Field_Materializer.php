@@ -16,6 +16,10 @@ final class Content_Field_Materializer {
 	private const MAX_OBJECT_KEYS      = 100;
 	private const MAX_STRING_LENGTH    = 100000;
 	private const ALLOWED_TYPES        = array( 'string', 'integer', 'number', 'boolean', 'array', 'object' );
+	private const RELATION_LOOKUP_ABILITY = 'smartcloud-agent-composer/search-relation-targets';
+	private const FIELD_UPDATE_ABILITY    = 'smartcloud-agent-composer/update-content-fields';
+	private const FIELD_INSPECT_ABILITY   = 'smartcloud-agent-composer/inspect-content-fields';
+	private const EDITABLE_LIST_ABILITY   = 'smartcloud-agent-composer/list-content-drafts';
 
 	public function __construct(
 		private readonly Config_Repository $config,
@@ -50,6 +54,14 @@ final class Content_Field_Materializer {
 				$field['target_post_statuses'] = $rule['target_post_statuses'];
 				$field['maximum_items']       = $rule['maximum_items'];
 				$field['storage']             = $rule['storage'];
+				$field['execution_workflow']  = array(
+					'lookup_ability'              => self::RELATION_LOOKUP_ABILITY,
+					'lookup_result_id_path'       => 'matches[].id',
+					'lookup_required_before_write' => true,
+					'write_ability'               => self::FIELD_UPDATE_ABILITY,
+					'verify_ability'              => self::FIELD_INSPECT_ABILITY,
+					'never_use_for_lookup'        => array( self::EDITABLE_LIST_ABILITY ),
+				);
 			}
 			$fields[] = $field;
 		}
@@ -60,6 +72,13 @@ final class Content_Field_Materializer {
 			'fields'            => $fields,
 			'write_boundary'    => 'composer-owned-assigned-draft',
 			'delete_supported'  => false,
+			'relation_workflow' => array(
+				'lookup_ability'        => self::RELATION_LOOKUP_ABILITY,
+				'lookup_result_id_path' => 'matches[].id',
+				'write_ability'         => self::FIELD_UPDATE_ABILITY,
+				'verify_ability'        => self::FIELD_INSPECT_ABILITY,
+				'never_use_for_lookup'  => array( self::EDITABLE_LIST_ABILITY ),
+			),
 		);
 	}
 
@@ -172,6 +191,7 @@ final class Content_Field_Materializer {
 		$matches = array_slice( $matches, 0, $limit );
 
 		return array(
+			'purpose'             => 'relation-target-resolution',
 			'page_type'           => $page_type,
 			'source_post_type'    => (string) $contract['target_post_type'],
 			'relation_field'      => $field_key,
@@ -182,6 +202,8 @@ final class Content_Field_Materializer {
 			'query'               => $query,
 			'matches'             => $matches,
 			'match_count'         => count( $matches ),
+			'result_id_path'      => 'matches[].id',
+			'next_ability'        => self::FIELD_UPDATE_ABILITY,
 		);
 	}
 

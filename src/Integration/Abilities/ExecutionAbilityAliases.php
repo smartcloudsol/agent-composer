@@ -61,11 +61,11 @@ final class ExecutionAbilityAliases {
 		wp_register_ability(
 			$name,
 			array(
-				'label'               => 'SmartCloud Agent Composer canonical execution name',
-				'description'         => sprintf( 'Canonical public name for the %s%s execution operation.', Abilities::PREFIX, $target ),
+				'label'               => $this->label( $target ),
+				'description'         => $this->description( $target ),
 				'category'            => Abilities::CATEGORY,
 				'input_schema'        => $this->schema( $schema ),
-				'output_schema'       => array( 'type' => 'object', 'additionalProperties' => true ),
+				'output_schema'       => $this->output_schema( $target ),
 				'execute_callback'    => array( $this->abilities, $method ),
 				'permission_callback' => array( $this->abilities, 'check_permission' ),
 				'meta'                => array(
@@ -75,6 +75,27 @@ final class ExecutionAbilityAliases {
 				),
 			)
 		);
+	}
+
+	private function label( string $target ): string {
+		if ( 'list-content-drafts' === $target ) {
+			return 'List editable content (canonical name)';
+		}
+		return 'SmartCloud Agent Composer canonical execution name';
+	}
+
+	private function description( string $target ): string {
+		if ( 'list-content-drafts' === $target ) {
+			return 'Lists only editable or adoptable content. Never use this ability to resolve relation target IDs; use search-relation-targets instead.';
+		}
+		return sprintf( 'Canonical public name for the %s%s execution operation.', Abilities::PREFIX, $target );
+	}
+
+	private function output_schema( string $target ): array {
+		if ( 'list-content-drafts' === $target ) {
+			return $this->abilities->draft_list_output_schema();
+		}
+		return array( 'type' => 'object', 'additionalProperties' => true );
 	}
 
 	private function schema( string $schema ): array {

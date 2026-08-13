@@ -170,6 +170,25 @@ test("Composer execution contract is checksum-pinned and canonical names are fro
   }
 });
 
+test("relation discovery is unambiguous and editable-content totals are post-filtered", () => {
+  const abilities = read("src/Execution/Abilities.php");
+  const aliases = read("src/Integration/Abilities/ExecutionAbilityAliases.php");
+  const fields = read("src/Execution/Content_Field_Materializer.php");
+  const drafts = read("src/Execution/Draft_Service.php");
+  assert.match(abilities, /only Composer ability intended for relation-target ID lookup/);
+  assert.match(abilities, /Never use this ability to resolve relation target IDs/);
+  assert.match(abilities, /relation_target_search_output_schema/);
+  assert.match(aliases, /Never use this ability to resolve relation target IDs/);
+  assert.match(aliases, /draft_list_output_schema/);
+  assert.match(fields, /lookup_required_before_write/);
+  assert.match(fields, /never_use_for_lookup/);
+  assert.match(fields, /'result_id_path'\s*=>\s*'matches\[\]\.id'/);
+  assert.match(drafts, /'purpose'\s*=>\s*'editable-content-discovery'/);
+  assert.match(drafts, /'total'\s*=>\s*\$visible_total/);
+  assert.match(drafts, /'has_more'\s*=>\s*\$offset \+ count\( \$items \) < \$visible_total/);
+  assert.doesNotMatch(drafts, /'total'\s*=>\s*\(int\) \$query->found_posts/);
+});
+
 test("draft ability schemas require the effective Blueprint language", () => {
   const abilities = read("src/Execution/Abilities.php");
   const aliases = read("src/Integration/Abilities/ExecutionAbilityAliases.php");
@@ -213,8 +232,8 @@ test("release copy contains no internal milestone or retired theme-contract narr
   assert.doesNotMatch(read("readme.txt"), /development milestone|not yet (?:the )?final/i);
   assert.match(read("smartcloud-agent-composer.php"), /License:\s+MIT/);
   assert.equal(fs.existsSync(path.join(root, "LICENSE")), true);
-  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.0\.2/);
-  assert.match(read("readme.txt"), /Stable tag:\s+1\.0\.2/);
+  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.0\.4/);
+  assert.match(read("readme.txt"), /Stable tag:\s+1\.0\.4/);
 });
 
 test("complete configuration backups are checksummed, secret-free, inactive, and rollback-safe", () => {

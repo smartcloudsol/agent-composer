@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.1
-Stable tag: 1.0.3
+Stable tag: 1.0.4
 License: MIT
 License URI: https://mit-license.org/
 
@@ -131,6 +131,11 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 
 == Changelog ==
 
+= 1.0.4 =
+* Relations: Make field contracts identify the required relation lookup, write, and verification workflow.
+* MCP: Add concrete result schemas and stronger descriptions, including the editable-content alias, so clients use `search-relation-targets` for post IDs.
+* Discovery: Count and paginate `list-content-drafts` only after Composer policy and WordPress capability filtering.
+
 = 1.0.3 =
 * Multisite: Store shared Hub ownership per site and recognize network-activated owners.
 * Hub admin: Load the WebCrypto vendor before the shared admin bundle.
@@ -146,6 +151,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.0.4 =
+Recommended for sites that use structured relation fields. This update makes relation-ID lookup explicit and removes misleading editable-content totals; restart the site MCP runtime and refresh the client tool catalog after upgrading.
 
 = 1.0.3 =
 Recommended for multisite installations using the shared WP Suite Hub.

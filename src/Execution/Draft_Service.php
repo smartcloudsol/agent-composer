@@ -684,38 +684,47 @@ final class Draft_Service {
 		$order      = 'ASC' === strtoupper( (string) ( $input['order'] ?? 'DESC' ) ) ? 'ASC' : 'DESC';
 		$search     = sanitize_text_field( (string) ( $input['search'] ?? '' ) );
 
-		$query = new \WP_Query(
-			array(
-				'post_type'              => '' !== $post_type ? $post_type : $this->targets->registered_allowed_post_types(),
-				'post_status'            => 'any' === $status ? array( 'draft', 'pending', 'future', 'private', 'publish' ) : $status,
-				'posts_per_page'         => $limit,
-				'offset'                 => $offset,
-				'orderby'                => $orderby,
-				'order'                  => $order,
-				's'                      => $search,
-				'ignore_sticky_posts'    => true,
-				'fields'                 => 'all',
-				'update_post_meta_cache' => true,
-				'update_post_term_cache' => false,
-			)
+		$query_args = array(
+			'post_type'              => '' !== $post_type ? $post_type : $this->targets->registered_allowed_post_types(),
+			'post_status'            => 'any' === $status ? array( 'draft', 'pending', 'future', 'private', 'publish' ) : $status,
+			'posts_per_page'         => 200,
+			'orderby'                => $orderby,
+			'order'                  => $order,
+			's'                      => $search,
+			'ignore_sticky_posts'    => true,
+			'fields'                 => 'all',
+			'update_post_meta_cache' => true,
+			'update_post_term_cache' => false,
 		);
 
-		$items = array();
-		foreach ( $query->posts as $post ) {
-			if ( ! $post instanceof \WP_Post || ! $this->can_list_post( $post ) ) {
-				continue;
+		$items            = array();
+		$visible_total    = 0;
+		$candidate_offset = 0;
+		do {
+			$query_args['offset'] = $candidate_offset;
+			$query = new \WP_Query( $query_args );
+			foreach ( $query->posts as $post ) {
+				if ( ! $post instanceof \WP_Post || ! $this->can_list_post( $post ) ) {
+					continue;
+				}
+				$item = $this->summarize_list_item( $post );
+				if ( ! $this->matches_page_type_filter( $item, $page_type ) || ! $this->matches_assignment_filter( $item, $assignment ) ) {
+					continue;
+				}
+				if ( $visible_total >= $offset && count( $items ) < $limit ) {
+					$items[] = $item;
+				}
+				++$visible_total;
 			}
-			$item = $this->summarize_list_item( $post );
-			if ( ! $this->matches_page_type_filter( $item, $page_type ) || ! $this->matches_assignment_filter( $item, $assignment ) ) {
-				continue;
-			}
-			$items[] = $item;
-		}
+			$candidate_offset += count( $query->posts );
+		} while ( ! empty( $query->posts ) && $candidate_offset < (int) $query->found_posts );
 
 		return array(
+			'purpose'     => 'editable-content-discovery',
 			'items'       => $items,
 			'count'       => count( $items ),
-			'total'       => (int) $query->found_posts,
+			'total'       => $visible_total,
+			'has_more'    => $offset + count( $items ) < $visible_total,
 			'limit'       => $limit,
 			'offset'      => $offset,
 			'filters'     => array(
@@ -728,6 +737,8 @@ final class Draft_Service {
 				'order'      => $order,
 			),
 			'content_included' => false,
+			'relation_target_lookup_supported' => false,
+			'relation_target_lookup_ability'   => 'smartcloud-agent-composer/search-relation-targets',
 		);
 	}
 

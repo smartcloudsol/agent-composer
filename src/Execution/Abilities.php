@@ -191,18 +191,20 @@ final class Abilities {
 		$this->register_ability(
 			'get-content-field-contract',
 			'Get content field contract',
-			'Returns only the registered CPT fields explicitly enabled by the active Site Contract for a selected Blueprint.',
+			'Returns only the registered CPT fields explicitly enabled by the active Site Contract for a selected Blueprint. Relation fields identify the required lookup, write, and verification abilities.',
 			$this->page_type_schema(),
 			array( $this, 'get_content_field_contract' ),
-			true
+			true,
+			$this->content_field_contract_output_schema()
 		);
 		$this->register_ability(
 			'search-relation-targets',
 			'Search relation targets',
-			'Finds relation targets by title or exact slug using only the generic relation contract declared by the active Site Contract.',
+			'Resolves human titles or exact slugs to the WordPress post IDs required by relation fields. This is the only Composer ability intended for relation-target ID lookup.',
 			$this->relation_target_search_schema(),
 			array( $this, 'search_relation_targets' ),
-			true
+			true,
+			$this->relation_target_search_output_schema()
 		);
 		$this->register_ability(
 			'inspect-content-fields',
@@ -222,11 +224,12 @@ final class Abilities {
 		);
 		$this->register_ability(
 			'list-content-drafts',
-			'List content drafts',
-			'Lists editable content items by status, post type, blueprint, and Composer assignment state without returning post content.',
+			'List editable content',
+			'Lists only editable or adoptable content by status, post type, Blueprint, and Composer assignment state. Never use this ability to resolve relation target IDs; use search-relation-targets instead.',
 			$this->draft_list_schema(),
 			array( $this, 'list_content_drafts' ),
-			true
+			true,
+			$this->draft_list_output_schema()
 		);
 		$this->register_ability(
 			'inspect-content-item',
@@ -795,7 +798,7 @@ final class Abilities {
 			&& current_user_can( 'edit_posts' );
 	}
 
-	private function register_ability( string $slug, string $label, string $description, array $input_schema, callable $callback, bool $read_only ): void {
+	private function register_ability( string $slug, string $label, string $description, array $input_schema, callable $callback, bool $read_only, ?array $output_schema = null ): void {
 		wp_register_ability(
 			self::PREFIX . $slug,
 			array(
@@ -803,7 +806,7 @@ final class Abilities {
 					'description'         => $description,
 				'category'            => self::CATEGORY,
 				'input_schema'        => $input_schema,
-				'output_schema'       => array( 'type' => 'object', 'additionalProperties' => true ),
+				'output_schema'       => $output_schema ?? array( 'type' => 'object', 'additionalProperties' => true ),
 				'execute_callback'    => $callback,
 				'permission_callback' => array( $this, 'check_permission' ),
 				'meta'                => array(
@@ -1100,6 +1103,41 @@ final class Abilities {
 		);
 	}
 
+	public function draft_list_output_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'purpose'     => array( 'type' => 'string', 'enum' => array( 'editable-content-discovery' ) ),
+				'items'       => array(
+					'type'  => 'array',
+					'items' => array(
+						'type'                 => 'object',
+						'properties'           => array(
+							'post_id'   => array( 'type' => 'integer', 'minimum' => 1 ),
+							'title'     => array( 'type' => 'string' ),
+							'status'    => array( 'type' => 'string' ),
+							'post_type' => array( 'type' => 'string' ),
+							'page_type' => array( 'type' => 'string' ),
+						),
+						'required'             => array( 'post_id', 'title', 'status', 'post_type', 'page_type' ),
+						'additionalProperties' => true,
+					),
+				),
+				'count'       => array( 'type' => 'integer', 'minimum' => 0 ),
+				'total'       => array( 'type' => 'integer', 'minimum' => 0, 'description' => 'Total records visible after Composer policy and WordPress capability filtering.' ),
+				'has_more'    => array( 'type' => 'boolean' ),
+				'limit'       => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 50 ),
+				'offset'      => array( 'type' => 'integer', 'minimum' => 0 ),
+				'filters'     => array( 'type' => 'object', 'additionalProperties' => true ),
+				'content_included' => array( 'type' => 'boolean', 'enum' => array( false ) ),
+				'relation_target_lookup_supported' => array( 'type' => 'boolean', 'enum' => array( false ) ),
+				'relation_target_lookup_ability' => array( 'type' => 'string', 'enum' => array( self::PREFIX . 'search-relation-targets' ) ),
+			),
+			'required'             => array( 'purpose', 'items', 'count', 'total', 'has_more', 'limit', 'offset', 'filters', 'content_included', 'relation_target_lookup_supported', 'relation_target_lookup_ability' ),
+			'additionalProperties' => true,
+		);
+	}
+
 	public function content_inspection_schema(): array {
 		return array(
 			'type'                 => 'object',
@@ -1135,6 +1173,70 @@ final class Abilities {
 			),
 			'required'             => array( 'page_type', 'relation_field' ),
 			'additionalProperties' => false,
+		);
+	}
+
+	public function relation_target_search_output_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'purpose'        => array( 'type' => 'string', 'enum' => array( 'relation-target-resolution' ) ),
+				'page_type'      => array( 'type' => 'string' ),
+				'source_post_type' => array( 'type' => 'string' ),
+				'relation_field' => array( 'type' => 'string' ),
+				'matches'        => array(
+					'type'  => 'array',
+					'items' => array(
+						'type'                 => 'object',
+						'properties'           => array(
+							'id'          => array( 'type' => 'integer', 'minimum' => 1 ),
+							'title'       => array( 'type' => 'string' ),
+							'slug'        => array( 'type' => 'string' ),
+							'post_type'   => array( 'type' => 'string' ),
+							'post_status' => array( 'type' => 'string' ),
+							'match'       => array( 'type' => 'object', 'additionalProperties' => true ),
+						),
+						'required'             => array( 'id', 'title', 'slug', 'post_type', 'post_status', 'match' ),
+						'additionalProperties' => false,
+					),
+				),
+				'match_count'    => array( 'type' => 'integer', 'minimum' => 0 ),
+				'result_id_path' => array( 'type' => 'string', 'enum' => array( 'matches[].id' ) ),
+				'next_ability'   => array( 'type' => 'string', 'enum' => array( self::PREFIX . 'update-content-fields' ) ),
+			),
+			'required'             => array( 'purpose', 'page_type', 'source_post_type', 'relation_field', 'matches', 'match_count', 'result_id_path', 'next_ability' ),
+			'additionalProperties' => true,
+		);
+	}
+
+	public function content_field_contract_output_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'page_type'        => array( 'type' => 'string' ),
+				'target_post_type' => array( 'type' => 'string' ),
+				'fields'           => array(
+					'type'  => 'array',
+					'items' => array(
+						'type'                 => 'object',
+						'properties'           => array(
+							'key'                => array( 'type' => 'string' ),
+							'type'               => array( 'type' => 'string' ),
+							'read'               => array( 'type' => 'boolean' ),
+							'write'              => array( 'type' => 'boolean' ),
+							'semantic_type'      => array( 'type' => 'string' ),
+							'execution_workflow' => array( 'type' => 'object', 'additionalProperties' => true ),
+						),
+						'required'             => array( 'key', 'type', 'read', 'write' ),
+						'additionalProperties' => true,
+					),
+				),
+				'write_boundary'   => array( 'type' => 'string' ),
+				'delete_supported' => array( 'type' => 'boolean' ),
+				'relation_workflow' => array( 'type' => 'object', 'additionalProperties' => true ),
+			),
+			'required'             => array( 'page_type', 'target_post_type', 'fields', 'write_boundary', 'delete_supported', 'relation_workflow' ),
+			'additionalProperties' => true,
 		);
 	}
 
