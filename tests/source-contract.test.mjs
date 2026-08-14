@@ -241,8 +241,19 @@ test("release copy contains no internal milestone or retired theme-contract narr
   assert.doesNotMatch(read("readme.txt"), /development milestone|not yet (?:the )?final/i);
   assert.match(read("smartcloud-agent-composer.php"), /License:\s+MIT/);
   assert.equal(fs.existsSync(path.join(root, "LICENSE")), true);
-  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.1\.0/);
-  assert.match(read("readme.txt"), /Stable tag:\s+1\.1\.0/);
+  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.1\.1/);
+  assert.match(read("readme.txt"), /Stable tag:\s+1\.1\.1/);
+});
+
+test("draft idempotency locks support MySQL and SQLite without weakening ownership", () => {
+  const drafts = read("src/Execution/Draft_Service.php");
+  assert.match(drafts, /SELECT GET_LOCK/);
+  assert.match(drafts, /SELECT RELEASE_LOCK/);
+  assert.match(drafts, /uses_sqlite_database/);
+  assert.match(drafts, /add_option\( \$option_name, \$value, '', false \)/);
+  assert.match(drafts, /expires_at/);
+  assert.match(drafts, /option_name = %s AND option_value = %s/);
+  assert.match(drafts, /wp_cache_delete\( \$lock\['name'\], 'options' \)/);
 });
 
 test("complete configuration backups are checksummed, secret-free, inactive, and rollback-safe", () => {

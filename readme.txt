@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 8.1
-Stable tag: 1.1.0
+Stable tag: 1.1.1
 License: MIT
 License URI: https://mit-license.org/
 
@@ -131,6 +131,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 
 == Changelog ==
 
+= 1.1.1 =
+* Compatibility: Allow governed draft creation on SQLite-backed WordPress installations with an atomic, expiring idempotency lock.
+
 = 1.1.0 =
 * Taxonomies: Add a governed search, optional creation, draft assignment, and read-back workflow for Site Contract-approved public terms.
 * Administration: Discover attached taxonomies and configure search, assignment, creation, limits, assignment mode, and hierarchical parent policy in the guided Site Contract editor.
@@ -156,6 +159,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.1.1 =
+Recommended for WordPress Playground and other SQLite-backed installations that use Composer draft creation.
 
 = 1.1.0 =
 Recommended for sites where agents manage categories, tags, or custom taxonomy terms. Review and activate explicit taxonomy permissions in a cloned Config Set, then restart the site MCP runtime and refresh the client tool catalog.

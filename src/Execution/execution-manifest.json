@@ -9,7 +9,7 @@
     "Config_Repository.php": "sha256:0fa708c2b2bc003ba78ca10bb57326e79b689872fd672a61b4a47a701bc0f8fa",
     "Content_Field_Materializer.php": "sha256:ce0b431dcb82c7bca255817f488c64387dfc52f67c64f7a75972b40398082e06",
     "Content_Language_Validator.php": "sha256:4b99e180d7161481d3f8e03cf135b1b9285ac0789a3b55a3da90515c9a3688e0",
-    "Draft_Service.php": "sha256:bc58fbcc471a4481bc1ad2e6114878d317bcd675f6a9c4f848c9bd2c5f0ccd08",
+    "Draft_Service.php": "sha256:cd8aa3896ccd13029b3a159a589b45b679d33c1ffb3b2aaf41c8a1914b722b5d",
     "Excerpt_Policy.php": "sha256:eb061a192291b68e9b25c14361ad880a8fd6e2d75cf65892137ebd1bf758f5d9",
     "Execution_Exception.php": "sha256:b2b3def11ecb5a760eb20c0bdd1dcf885677d5f97ad8508655ba85100fc293e6",
     "Markup_Contract_Validator.php": "sha256:a708a65fe8f7a10936c3aef69d74085baab81fcba8489e35ceabca7db038d3d4",

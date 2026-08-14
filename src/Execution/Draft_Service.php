@@ -5,6 +5,8 @@ namespace SmartCloud\AgentComposer\Execution;
 
 final class Draft_Service {
 	private const ZERO_MODIFIED_GMT = '1970-01-01T00:00:00Z';
+	private const IDEMPOTENCY_LOCK_WAIT_SECONDS = 10;
+	private const IDEMPOTENCY_LOCK_LEASE_SECONDS = 60;
 
 	public const OWNED_META = '_wpsuite_agent_owned';
 	public const PAGE_TYPE_META = '_wpsuite_agent_page_type';
@@ -1271,20 +1273,123 @@ final class Draft_Service {
 			: wp_generate_uuid4();
 	}
 
-	private function acquire_idempotency_lock( int $user_id, string $key ): string {
+	/**
+	 * @return array{driver:string,name:string,value?:string}
+	 */
+	private function acquire_idempotency_lock( int $user_id, string $key ): array {
 		global $wpdb;
 
 		$lock_name = 'wpsuite-agent-' . substr( hash( 'sha256', get_current_blog_id() . ':' . $user_id . ':' . $key ), 0, 48 );
-		$acquired  = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_name, 10 ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- MySQL advisory locks provide cross-request idempotency and are not cacheable.
+		if ( $this->uses_sqlite_database() ) {
+			return $this->acquire_option_idempotency_lock( $lock_name );
+		}
+
+		$acquired = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_name, self::IDEMPOTENCY_LOCK_WAIT_SECONDS ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- MySQL advisory locks provide cross-request idempotency and are not cacheable.
 		if ( '1' !== (string) $acquired ) {
 			throw new Execution_Exception( 'idempotency_lock_unavailable', 'A concurrent draft creation is still in progress. Retry safely with the same idempotency key.' );
 		}
-		return $lock_name;
+		return array(
+			'driver' => 'mysql',
+			'name'   => $lock_name,
+		);
 	}
 
-	private function release_idempotency_lock( string $lock_name ): void {
+	/**
+	 * @param array{driver:string,name:string,value?:string} $lock
+	 */
+	private function release_idempotency_lock( array $lock ): void {
 		global $wpdb;
-		$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Releases the non-cacheable advisory lock acquired above.
+		if ( 'mysql' === $lock['driver'] ) {
+			$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock['name'] ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Releases the non-cacheable advisory lock acquired above.
+			return;
+		}
+
+		if ( 'option' !== $lock['driver'] || ! isset( $lock['value'] ) ) {
+			return;
+		}
+		$wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Compare-and-delete releases only this request's SQLite-compatible lease; the core table name is supplied by wpdb.
+			$wpdb->prepare(
+				"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s",
+				$lock['name'],
+				$lock['value']
+			)
+		);
+		wp_cache_delete( $lock['name'], 'options' );
+	}
+
+	private function uses_sqlite_database(): bool {
+		global $wpdb;
+
+		if ( defined( 'DB_ENGINE' ) && 'sqlite' === strtolower( (string) constant( 'DB_ENGINE' ) ) ) {
+			return true;
+		}
+		if ( defined( 'SQLITE_DB_DROPIN_VERSION' ) || defined( 'SQLITE_PLUGIN' ) ) {
+			return true;
+		}
+		if ( str_contains( strtolower( get_class( $wpdb ) ), 'sqlite' ) ) {
+			return true;
+		}
+		if ( method_exists( $wpdb, 'db_server_info' ) ) {
+			try {
+				return str_contains( strtolower( (string) $wpdb->db_server_info() ), 'sqlite' );
+			} catch ( \Throwable ) {
+				return false;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * @return array{driver:string,name:string,value:string}
+	 */
+	private function acquire_option_idempotency_lock( string $lock_name ): array {
+		global $wpdb;
+
+		$option_name = '_wpsuite_agent_lock_' . hash( 'sha256', $lock_name );
+		$deadline    = microtime( true ) + self::IDEMPOTENCY_LOCK_WAIT_SECONDS;
+		do {
+			$value = wp_json_encode(
+				array(
+					'owner'      => wp_generate_uuid4(),
+					'expires_at' => time() + self::IDEMPOTENCY_LOCK_LEASE_SECONDS,
+				)
+			);
+			if ( false === $value ) {
+				throw new Execution_Exception( 'idempotency_lock_unavailable', 'The draft creation lock could not be encoded.' );
+			}
+
+			if ( add_option( $option_name, $value, '', false ) ) {
+				return array(
+					'driver' => 'option',
+					'name'   => $option_name,
+					'value'  => $value,
+				);
+			}
+
+			$existing = get_option( $option_name, '' );
+			$decoded  = is_string( $existing ) ? json_decode( $existing, true ) : null;
+			if ( is_array( $decoded ) && (int) ( $decoded['expires_at'] ?? 0 ) < time() ) {
+				$replaced = $wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Atomic compare-and-swap takes over only the observed expired lease; the core table name is supplied by wpdb.
+					$wpdb->prepare(
+						"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+						$value,
+						$option_name,
+						$existing
+					)
+				);
+				if ( 1 === $replaced ) {
+					wp_cache_delete( $option_name, 'options' );
+					return array(
+						'driver' => 'option',
+						'name'   => $option_name,
+						'value'  => $value,
+					);
+				}
+			}
+			usleep( 100000 );
+		} while ( microtime( true ) < $deadline );
+
+		throw new Execution_Exception( 'idempotency_lock_unavailable', 'A concurrent draft creation is still in progress. Retry safely with the same idempotency key.' );
 	}
 
 	private function assert_no_forbidden_input( array $input ): void {
