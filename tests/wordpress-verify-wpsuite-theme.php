@@ -107,8 +107,8 @@ if ( empty( $query_validation['valid'] ) ) {
 }
 
 $pattern_names = $result['theme']['manifest']['patterns'] ?? array();
-if ( 49 !== count( $pattern_names ) ) {
-	throw new RuntimeException( 'Expected 49 declared WP Suite patterns, found ' . count( $pattern_names ) . '.' );
+if ( 50 !== count( $pattern_names ) ) {
+	throw new RuntimeException( 'Expected 50 declared WP Suite patterns, found ' . count( $pattern_names ) . '.' );
 }
 
 $common_css = apply_filters( 'wpsuite_scoped_css_common_files', array( 'common.css', 'wps-solutions.css' ) );

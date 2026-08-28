@@ -2,8 +2,9 @@
 /**
  * Plugin Name: SmartCloud Agent Composer
  * Description: Configures and executes governed, draft-only agent content workflows.
- * Version: 1.1.1
+ * Version: 1.1.2
  * Requires at least: 6.9
+ * Tested up to: 7.1
  * Requires PHP: 8.1
  * Author: SmartCloud
  * Text Domain: smartcloud-agent-composer
@@ -15,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'SMARTCLOUD_COMPOSER_VERSION', '1.1.1' );
+define( 'SMARTCLOUD_COMPOSER_VERSION', '1.1.2' );
 define( 'SMARTCLOUD_COMPOSER_FILE', __FILE__ );
 define( 'SMARTCLOUD_COMPOSER_DIR', plugin_dir_path( __FILE__ ) );
 define( 'SMARTCLOUD_COMPOSER_URL', plugin_dir_url( __FILE__ ) );

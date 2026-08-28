@@ -2,9 +2,9 @@
 Contributors: smartcloud
 Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
-Tested up to: 7.0
+Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.1.1
+Stable tag: 1.1.2
 License: MIT
 License URI: https://mit-license.org/
 
@@ -131,6 +131,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 
 == Changelog ==
 
+= 1.1.2 =
+* Compatibility: Declared compatibility with WordPress 7.1.
+
 = 1.1.1 =
 * Compatibility: Allow governed draft creation on SQLite-backed WordPress installations with an atomic, expiring idempotency lock.
 
@@ -159,6 +162,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.1.2 =
+Declares compatibility with WordPress 7.1.
 
 = 1.1.1 =
 Recommended for WordPress Playground and other SQLite-backed installations that use Composer draft creation.
