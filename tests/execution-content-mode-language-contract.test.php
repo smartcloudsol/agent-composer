@@ -173,6 +173,9 @@ namespace SmartCloud\AgentComposer\Execution {
 	mode_error('pattern_fallback_copy_remaining', static fn() => $slots->assert_no_registered_fallbacks('smartcloud-agent-canvas/hero-service', 'pattern'), 'Registered fallback fingerprints must block unchanged public copy.');
 
 	$language = (new \ReflectionClass(Content_Language_Validator::class))->newInstanceWithoutConstructor();
+	mode_assert(Content_Language_Validator::is_allowed_language(array('*'), 'hu-HU'), 'The wildcard must allow localized published-content proposals as well as drafts.');
+	mode_assert(Content_Language_Validator::is_allowed_language(array('hu-HU'), 'hu-hu'), 'Explicit BCP 47 allowlists must compare case-insensitively.');
+	mode_assert(! Content_Language_Validator::is_allowed_language(array('en-US'), 'hu-HU'), 'A language outside an explicit allowlist must remain denied.');
 	$strict = array(
 		'content_language' => 'hu-HU',
 		'content_language_enforcement' => 'strict',

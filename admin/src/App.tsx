@@ -26,6 +26,7 @@ import {
   IconChecks,
   IconDatabase,
   IconFileDescription,
+  IconGitMerge,
   IconHistory,
   IconPlugConnected,
   IconRefresh,
@@ -59,7 +60,7 @@ import Onboarding from "./Onboarding";
 import { SectionHeading, StatusCard } from "./AdminUi";
 import { downloadJson } from "./admin-utils";
 import type { Section, SectionProps } from "./feature-contract";
-import { ConfigSetsPanel, ConfigurationBlueprintsPanel } from "./features";
+import { ConfigSetsPanel, ConfigurationBlueprintsPanel, ContentProposalsPanel } from "./features";
 
 const TEXT_DOMAIN = "smartcloud-agent-composer";
 
@@ -140,6 +141,7 @@ export function App() {
     { id: "overview" as const, label: __("Overview", TEXT_DOMAIN), icon: IconChecks },
     { id: "configuration" as const, label: __("Config sets", TEXT_DOMAIN), icon: IconSettings },
     { id: "blueprints" as const, label: __("Configuration & blueprints", TEXT_DOMAIN), icon: IconFileDescription },
+    { id: "proposals" as const, label: __("Content proposals", TEXT_DOMAIN), icon: IconGitMerge },
     { id: "providers" as const, label: __("Theme & providers", TEXT_DOMAIN), icon: IconPlugConnected },
     { id: "audit" as const, label: __("Audit & portability", TEXT_DOMAIN), icon: IconHistory }
   ], []);
@@ -162,7 +164,7 @@ export function App() {
             <Group justify="space-between" align="flex-start" wrap="wrap">
               <div>
                 <Title order={1} c="blue.6">{__("SmartCloud Agent Composer", TEXT_DOMAIN)}</Title>
-                <Text c="dimmed" mt={6}>{__("Governed Gutenberg configuration and draft-only execution.", TEXT_DOMAIN)}</Text>
+                <Text c="dimmed" mt={6}>{__("Governed Gutenberg drafts and human-reviewed published-content proposals.", TEXT_DOMAIN)}</Text>
               </div>
               {!status && <Badge color="gray" variant="light" size="lg">{__("Checking", TEXT_DOMAIN)}</Badge>}
             </Group>
@@ -208,6 +210,7 @@ export function App() {
 function SectionContent(props: SectionProps) {
   if (props.section === "configuration") return <ConfigSetsPanel {...props} />;
   if (props.section === "blueprints") return <ConfigurationBlueprintsPanel key={props.selectedId} {...props} />;
+  if (props.section === "proposals") return <ContentProposalsPanel />;
   if (props.section === "providers") return <DiscoveryPanel {...props} />;
   if (props.section === "audit") return <AuditPanel {...props} />;
   return <OverviewPanel {...props} />;

@@ -44,6 +44,7 @@ final class Config_Repository {
 			'content_language_enforcement' => 'advisory',
 			'content_language_exceptions' => array(),
 			'content_language_mismatch_signals' => array(),
+			'localization'              => array( 'provider' => 'auto', 'allowed_content_languages' => array() ),
 			'allowed_pattern_namespaces' => array( 'wpsuite' ),
 			'post_type_contract'         => array( 'page' => 'page' ),
 			'content_access'             => array(),
@@ -100,6 +101,22 @@ final class Config_Repository {
 			: 'advisory';
 		$policy['content_language_exceptions'] = $this->bounded_string_list( $policy['content_language_exceptions'] ?? array(), 100, 200 );
 		$policy['content_language_mismatch_signals'] = $this->bounded_string_list( $policy['content_language_mismatch_signals'] ?? array(), 200, 64 );
+		$localization = is_array( $policy['localization'] ?? null ) ? $policy['localization'] : array();
+		$provider = sanitize_key( (string) ( $localization['provider'] ?? 'auto' ) );
+		$localization['provider'] = '' !== $provider ? $provider : 'auto';
+		$localization['allowed_content_languages'] = array_values(
+			array_unique(
+				array_filter(
+					array_map( fn( mixed $tag ): string => $this->normalize_language_allowlist_entry( $tag ), (array) ( $localization['allowed_content_languages'] ?? array() ) )
+				)
+			)
+		);
+		if ( '' !== $policy['content_language']
+			&& ! in_array( '*', $localization['allowed_content_languages'], true )
+			&& ! in_array( $policy['content_language'], $localization['allowed_content_languages'], true ) ) {
+			array_unshift( $localization['allowed_content_languages'], $policy['content_language'] );
+		}
+		$policy['localization'] = $localization;
 		if ( 'strict' === $policy['content_language_enforcement'] && '' === $policy['content_language'] ) {
 			throw new Execution_Exception( 'strict_content_language_missing', 'Strict content-language enforcement requires a BCP 47 content_language.' );
 		}
@@ -197,7 +214,7 @@ final class Config_Repository {
 			: array( 'page' );
 	}
 
-	/** @return array{discover:bool,read:bool,clone:bool,adopt_drafts:bool} */
+	/** @return array{discover:bool,read:bool,clone:bool,adopt_drafts:bool,propose_updates:bool} */
 	public function get_content_access( string $post_type ): array {
 		$post_type = sanitize_key( $post_type );
 		$policy = $this->get_design_policy();
@@ -207,6 +224,7 @@ final class Config_Repository {
 			'read'         => true === ( $access['read'] ?? false ),
 			'clone'        => true === ( $access['clone'] ?? false ),
 			'adopt_drafts' => true === ( $access['adopt_drafts'] ?? false ),
+			'propose_updates' => true === ( $access['propose_updates'] ?? false ),
 		);
 	}
 
@@ -314,12 +332,33 @@ final class Config_Repository {
 			throw new Execution_Exception( 'invalid_composition_mode', 'Blueprint composition_mode must be document or structured-record.' );
 		}
 		$blueprint['composition_mode'] = $composition_mode;
+		$blueprint['published_update_policy'] = 'proposal-only' === (string) ( $blueprint['published_update_policy'] ?? 'disabled' )
+			? 'proposal-only'
+			: 'disabled';
 		$site_language = (string) ( $policy['content_language'] ?? '' );
 		$blueprint_language = $this->normalize_language_tag( $blueprint['content_language'] ?? '', true );
-		if ( '' !== $blueprint_language && '' !== $site_language && strtok( strtolower( $blueprint_language ), '-' ) !== strtok( strtolower( $site_language ), '-' ) ) {
+		$allowed_site_languages = (array) ( $policy['localization']['allowed_content_languages'] ?? ( '' !== $site_language ? array( $site_language ) : array() ) );
+		if ( '' !== $blueprint_language && '' !== $site_language && ! in_array( '*', $allowed_site_languages, true ) && strtok( strtolower( $blueprint_language ), '-' ) !== strtok( strtolower( $site_language ), '-' ) ) {
 			throw new Execution_Exception( 'blueprint_content_language_conflict', 'A Blueprint may narrow but cannot override the Site Contract content language.' );
 		}
 		$blueprint['content_language'] = '' !== $blueprint_language ? $blueprint_language : $site_language;
+		$allowed_blueprint_languages = array_values(
+			array_unique(
+				array_filter(
+					array_map( fn( mixed $tag ): string => $this->normalize_language_allowlist_entry( $tag ), (array) ( $blueprint['allowed_content_languages'] ?? array() ) )
+				)
+			)
+		);
+		if ( empty( $allowed_blueprint_languages ) && '' !== $blueprint['content_language'] ) {
+			$allowed_blueprint_languages[] = $blueprint['content_language'];
+		}
+		if ( ! in_array( '*', $allowed_site_languages, true ) && array_diff( $allowed_blueprint_languages, $allowed_site_languages ) ) {
+			throw new Execution_Exception( 'blueprint_content_language_not_allowed', 'A Blueprint language must be explicitly allowed by the Site Contract localization policy.' );
+		}
+		if ( in_array( '*', $allowed_blueprint_languages, true ) && ! in_array( '*', $allowed_site_languages, true ) ) {
+			throw new Execution_Exception( 'blueprint_content_language_not_allowed', 'A Blueprint wildcard requires the Site Contract localization wildcard.' );
+		}
+		$blueprint['allowed_content_languages'] = $allowed_blueprint_languages;
 		$blueprint['content_language_enforcement'] = (string) $policy['content_language_enforcement'];
 		$blueprint['content_language_mismatch_signals'] = (array) ( $policy['content_language_mismatch_signals'] ?? array() );
 		$blueprint['content_language_exceptions'] = array_values(
@@ -658,6 +697,10 @@ final class Config_Repository {
 		return implode( '-', $parts );
 	}
 
+	private function normalize_language_allowlist_entry( mixed $value ): string {
+		return '*' === trim( (string) $value ) ? '*' : $this->normalize_language_tag( $value, true );
+	}
+
 	private function slug_list( mixed $value ): array {
 		if ( ! is_array( $value ) ) {
 			return array();
@@ -681,7 +724,12 @@ final class Config_Repository {
 				'read'         => true === ( $rules['read'] ?? false ),
 				'clone'        => true === ( $rules['clone'] ?? false ),
 				'adopt_drafts' => true === ( $rules['adopt_drafts'] ?? false ),
+				'propose_updates' => true === ( $rules['propose_updates'] ?? false ),
 			);
+			if ( $result[ $post_type ]['propose_updates'] ) {
+				$result[ $post_type ]['read'] = true;
+				$result[ $post_type ]['discover'] = true;
+			}
 			if ( $result[ $post_type ]['clone'] ) {
 				$result[ $post_type ]['read'] = true;
 				$result[ $post_type ]['discover'] = true;

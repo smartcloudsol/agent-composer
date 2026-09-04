@@ -4,6 +4,7 @@ namespace SmartCloud\AgentComposer\Integration\Mcp;
 
 use SmartCloud\AgentComposer\Execution\Abilities;
 use SmartCloud\AgentComposer\Execution\Ability_Provider_Registry;
+use SmartCloud\AgentComposer\Execution\Localization_Provider_Registry;
 use SmartCloud\AgentComposer\Integration\Abilities\ExecutionAbilityAliases;
 
 final class ComposerMcpServer {
@@ -12,7 +13,10 @@ final class ComposerMcpServer {
 
 	private array $registered_adapters = array();
 
-	public function __construct( private readonly Ability_Provider_Registry $providers ) {}
+	public function __construct(
+		private readonly Ability_Provider_Registry $providers,
+		private readonly Localization_Provider_Registry $localization
+	) {}
 
 	public function register( object $adapter ): void {
 		$id = spl_object_id( $adapter );
@@ -26,7 +30,7 @@ final class ComposerMcpServer {
 		) {
 			return;
 		}
-		$names = array_merge( Abilities::names(), ExecutionAbilityAliases::canonical_names(), $this->providers->mcp_ability_names() );
+		$names = array_merge( Abilities::names(), ExecutionAbilityAliases::canonical_names(), $this->providers->mcp_ability_names(), $this->localization->mcp_ability_names() );
 		$names = array_values( array_filter( array_unique( $names ), static fn( string $name ): bool => wp_has_ability( $name ) ) );
 		if ( empty( $names ) ) {
 			return;
@@ -42,7 +46,7 @@ final class ComposerMcpServer {
 			'mcp',
 			$id,
 			$label,
-			'Governed discovery and draft-only Gutenberg execution through active Composer configuration.',
+			'Governed discovery, draft creation, and published-content proposal execution through active Composer configuration.',
 			SMARTCLOUD_COMPOSER_VERSION,
 			array( \WP\MCP\Transport\HttpTransport::class ),
 			\WP\MCP\Infrastructure\ErrorHandling\ErrorLogMcpErrorHandler::class,

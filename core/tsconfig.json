@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["src", "tsup.config.ts"]
+  "include": ["src", "tests/**/*.ts", "tsup.config.ts"]
 }

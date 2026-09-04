@@ -23,6 +23,7 @@ import {
 import { IconHelpCircle } from "@tabler/icons-react";
 import { __ } from "@wordpress/i18n";
 import { useEffect, useState } from "react";
+import type { RegisteredLocalizationProviderManifest } from "@smart-cloud/agent-composer-core";
 import type { ConfigEntity, ProviderDiscovery } from "./api";
 import type { DocTopic } from "./DocSidebar";
 
@@ -36,11 +37,12 @@ interface EntityEditorProps {
   blocks?: ProviderDiscovery["registered_blocks"];
   postTypes?: ProviderDiscovery["registered_post_types"];
   blueprints?: ConfigEntity[];
+  localizationProviders?: RegisteredLocalizationProviderManifest[];
   onDirtyChange?: (dirty: boolean) => void;
   help?: (topic: DocTopic) => void;
 }
 
-export default function EntityEditor({ selected, immutable, save, blocks = [], postTypes = [], blueprints = [], onDirtyChange, help }: EntityEditorProps) {
+export default function EntityEditor({ selected, immutable, save, blocks = [], postTypes = [], blueprints = [], localizationProviders = [], onDirtyChange, help }: EntityEditorProps) {
   const [payload, setPayload] = useState<Payload>(selected.payload);
   const [json, setJson] = useState(JSON.stringify(selected.payload, null, 2));
   const [jsonError, setJsonError] = useState("");
@@ -75,7 +77,7 @@ export default function EntityEditor({ selected, immutable, save, blocks = [], p
       <Code>{selected.content_hash}</Code>
     </Group>
     {selected.type === "blueprint" && <BlueprintFields payload={payload} update={update} immutable={immutable} blocks={blocks} help={help} />}
-    {selected.type === "site-contract" && <SiteContractFields payload={payload} update={update} immutable={immutable} help={help} postTypes={postTypes} blueprints={blueprints} />}
+    {selected.type === "site-contract" && <SiteContractFields payload={payload} update={update} immutable={immutable} help={help} postTypes={postTypes} blueprints={blueprints} localizationProviders={localizationProviders} />}
     {selected.type === "config-set" && <ConfigSetFields payload={payload} update={update} immutable={immutable} help={help} />}
     {["component", "style-mapping", "provider-policy"].includes(selected.type) &&
       <GenericFields payload={payload} update={update} immutable={immutable} type={selected.type} />}
@@ -151,6 +153,10 @@ function BlueprintFields({ payload, update, immutable, blocks, help }: FieldsPro
 	  <Select label={__("Composition mode", TEXT_DOMAIN)} description={fieldDescription(__("Documents assemble a Gutenberg body; structured records keep the body empty and use approved fields.", TEXT_DOMAIN), "blueprint-identity", help)} value={compositionMode}
 		data={[{ value: "document", label: __("Document", TEXT_DOMAIN) }, { value: "structured-record", label: __("Structured record", TEXT_DOMAIN) }]}
 		onChange={(value) => { if (!value) return; update(["composition_mode"], value); if (value === "structured-record") { update(["allowed_patterns"], []); update(["required_sequence"], []); update(["allowed_blocks"], []); } }} readOnly={immutable} />
+      <Select label={__("Published update workflow", TEXT_DOMAIN)} description={fieldDescription(__("Allow this Blueprint to create a separate review proposal for an existing published item. Only a human reviewer can merge it.", TEXT_DOMAIN), "blueprint-safety", help)} value={stringAt(payload, ["published_update_policy"]) || "disabled"}
+        data={[{ value: "disabled", label: __("Disabled", TEXT_DOMAIN) }, { value: "proposal-only", label: __("Proposal only (human merge)", TEXT_DOMAIN) }]}
+        onChange={(value) => update(["published_update_policy"], value || "disabled")} readOnly={immutable} />
+      <TagsInput label={__("Allowed content languages", TEXT_DOMAIN)} description={fieldDescription(__("BCP 47 languages this Blueprint may author; use * only when the Site Contract also allows every configured provider language.", TEXT_DOMAIN), "site-language", help)} placeholder="en-US or *" value={stringsAt(payload, ["allowed_content_languages"])} onChange={(value) => update(["allowed_content_languages"], value)} readOnly={immutable} clearable />
       <TextInput label={__("Visual variant", TEXT_DOMAIN)} description={fieldDescription(__("Stable semantic presentation family, not a CSS class.", TEXT_DOMAIN), "blueprint-identity", help)} placeholder="service-detail" value={stringAt(payload, ["visual_variant"])} onChange={(event) => update(["visual_variant"], event.currentTarget.value)} readOnly={immutable} />
       <Select label={__("Excerpt policy", TEXT_DOMAIN)} description={fieldDescription(__("Required, optional, or empty for this page type.", TEXT_DOMAIN), "blueprint-safety", help)} value={stringAt(payload, ["excerpt_policy"]) || stringAt(payload, ["excerpt"]) || "optional"}
         data={[{ value: "required", label: __("Required", TEXT_DOMAIN) }, { value: "optional", label: __("Optional", TEXT_DOMAIN) }, { value: "disabled", label: __("Disabled", TEXT_DOMAIN) }]}
@@ -178,7 +184,7 @@ function BlueprintFields({ payload, update, immutable, blocks, help }: FieldsPro
   </Stack>;
 }
 
-function SiteContractFields({ payload, update, immutable, help, postTypes, blueprints }: FieldsProps & { postTypes: ProviderDiscovery["registered_post_types"]; blueprints: ConfigEntity[] }) {
+function SiteContractFields({ payload, update, immutable, help, postTypes, blueprints, localizationProviders }: FieldsProps & { postTypes: ProviderDiscovery["registered_post_types"]; blueprints: ConfigEntity[]; localizationProviders: RegisteredLocalizationProviderManifest[] }) {
   const constraints = [
     ["exactly_one_h1", __("Require exactly one H1", TEXT_DOMAIN)],
     ["inline_css", __("Allow inline CSS", TEXT_DOMAIN)],
@@ -186,6 +192,18 @@ function SiteContractFields({ payload, update, immutable, help, postTypes, bluep
     ["external_embeds", __("Allow external embeds", TEXT_DOMAIN)],
     ["theme_presets_only", __("Require theme presets", TEXT_DOMAIN)]
   ] as const;
+  const selectedProvider = stringAt(payload, ["design_policy", "localization", "provider"]) || "auto";
+  const providerOptions = [
+    { value: "auto", label: __("Auto-detect active provider", TEXT_DOMAIN) },
+    { value: "none", label: __("None", TEXT_DOMAIN) },
+    ...localizationProviders.map((provider) => ({
+      value: provider.id,
+      label: provider.active ? provider.label : `${provider.label} (${__("integration inactive", TEXT_DOMAIN)})`
+    }))
+  ];
+  if (!providerOptions.some((option) => option.value === selectedProvider)) {
+    providerOptions.push({ value: selectedProvider, label: `${selectedProvider} (${__("provider unavailable", TEXT_DOMAIN)})` });
+  }
   return <Stack gap="md">
     <EditorIntro title={__("Site Contract", TEXT_DOMAIN)} text={__("Sets site-wide policy and the defaults inherited by Blueprints that do not define explicit page-type values.", TEXT_DOMAIN)} />
     <SimpleGrid cols={{ base: 1, sm: 2 }}>
@@ -194,10 +212,12 @@ function SiteContractFields({ payload, update, immutable, help, postTypes, bluep
       <TextInput label={__("Policy version", TEXT_DOMAIN)} description={fieldDescription(__("Increment when policy meaning changes.", TEXT_DOMAIN), "site-identity", help)} placeholder="1.0.0" value={stringAt(payload, ["design_policy", "policy_version"])} onChange={(event) => update(["design_policy", "policy_version"], event.currentTarget.value)} readOnly={immutable} />
 	  <TextInput label={__("Content language", TEXT_DOMAIN)} description={fieldDescription(__("Authoritative BCP 47 language for public copy. Strict enforcement requires every execution request to echo it.", TEXT_DOMAIN), "site-language", help)} placeholder="en-US" value={stringAt(payload, ["design_policy", "content_language"])} onChange={(event) => update(["design_policy", "content_language"], event.currentTarget.value)} readOnly={immutable} />
 	  <Select label={__("Language enforcement", TEXT_DOMAIN)} description={fieldDescription(__("Strict blocks known fallback copy and substantial language mismatches before writing.", TEXT_DOMAIN), "site-language", help)} value={stringAt(payload, ["design_policy", "content_language_enforcement"]) || "advisory"} data={[{ value: "advisory", label: __("Advisory", TEXT_DOMAIN) }, { value: "strict", label: __("Strict", TEXT_DOMAIN) }]} onChange={(value) => { if (value) update(["design_policy", "content_language_enforcement"], value); }} readOnly={immutable} />
+      <Select label={__("Localization provider", TEXT_DOMAIN)} description={fieldDescription(__("Auto-detect one active localization bridge, disable localization integration, or require a registered provider explicitly.", TEXT_DOMAIN), "site-language", help)} value={selectedProvider} data={providerOptions} onChange={(value) => update(["design_policy", "localization", "provider"], value || "auto")} readOnly={immutable} />
       <TextInput label={__("Operator language (optional)", TEXT_DOMAIN)} description={fieldDescription(__("Advisory BCP 47 language for operator-facing instructions when the connected client supports it.", TEXT_DOMAIN), "site-language", help)} placeholder="hu-HU" value={stringAt(payload, ["design_policy", "operator_language"])} onChange={(event) => update(["design_policy", "operator_language"], event.currentTarget.value)} readOnly={immutable} />
 	  <NumberInput label={__("Default maximum words", TEXT_DOMAIN)} description={fieldDescription(__("Inherited when a Blueprint does not define its own word ceiling.", TEXT_DOMAIN), "site-language", help)} placeholder="3000" min={1} max={100000} value={numberAt(payload, ["design_policy", "constraints", "maximum_words"])} onChange={(value) => update(["design_policy", "constraints", "maximum_words"], Number(value) || 0)} readOnly={immutable} />
     </SimpleGrid>
 	<TagsInput label={__("Approved language exceptions", TEXT_DOMAIN)} description={fieldDescription(__("Brand names, technical terms, citations, or reviewed foreign-language fragments allowed by strict validation.", TEXT_DOMAIN), "site-language", help)} placeholder="SmartCloud" value={stringsAt(payload, ["design_policy", "content_language_exceptions"])} onChange={(value) => update(["design_policy", "content_language_exceptions"], value)} readOnly={immutable} clearable />
+	<TagsInput label={__("Agent-authorable content languages", TEXT_DOMAIN)} description={fieldDescription(__("Explicit BCP 47 allowlist. The * wildcard permits any language that the selected localization provider actually exposes.", TEXT_DOMAIN), "site-language", help)} placeholder="en-US or *" value={stringsAt(payload, ["design_policy", "localization", "allowed_content_languages"])} onChange={(value) => update(["design_policy", "localization", "allowed_content_languages"], value)} readOnly={immutable} clearable />
 	<TagsInput label={__("Language mismatch signals", TEXT_DOMAIN)} description={fieldDescription(__("Optional site-authored word signals for a known unwanted language. Composer contains no built-in language or language-pair vocabulary.", TEXT_DOMAIN), "site-language", help)} placeholder="the" value={stringsAt(payload, ["design_policy", "content_language_mismatch_signals"])} onChange={(value) => update(["design_policy", "content_language_mismatch_signals"], value)} readOnly={immutable} clearable />
     <TagsInput label={__("Allowed pattern namespaces", TEXT_DOMAIN)} description={fieldDescription(__("Trusted namespaces from themes, Composer, or approved plugins.", TEXT_DOMAIN), "site-pattern-scope", help)} placeholder="theme-slug" value={stringsAt(payload, ["design_policy", "allowed_pattern_namespaces"])} onChange={(value) => update(["design_policy", "allowed_pattern_namespaces"], value)} readOnly={immutable} clearable />
     <TagsInput label={__("Disallowed blocks", TEXT_DOMAIN)} description={fieldDescription(__("Site-wide denylist; it overrides Blueprint allowlists.", TEXT_DOMAIN), "site-pattern-scope", help)} placeholder="core/shortcode" value={stringsAt(payload, ["design_policy", "disallowed_blocks"])} onChange={(value) => update(["design_policy", "disallowed_blocks"], value)} readOnly={immutable} clearable />
@@ -231,7 +251,7 @@ function ContentAccessFields({ payload, update, immutable, postTypes, blueprints
     if (!known.has(name)) known.set(name, { name, label: name, builtin: false, public: false, show_ui: false, show_in_rest: false, supports_editor: false, current_user_can_edit: false, registered_taxonomies: [], registered_meta: [] });
   }
 
-  const setRule = (postType: string, rule: "discover" | "read" | "clone" | "adopt_drafts", checked: boolean, pageTypes: string[]) => {
+  const setRule = (postType: string, rule: "discover" | "read" | "clone" | "adopt_drafts" | "propose_updates", checked: boolean, pageTypes: string[]) => {
     const nextPolicy = { ...policy };
     const nextAccess = { ...access };
     const current = objectAt(access, [postType]);
@@ -240,12 +260,14 @@ function ContentAccessFields({ payload, update, immutable, postTypes, blueprints
       read: current.read === true,
       clone: current.clone === true,
       adopt_drafts: current.adopt_drafts === true,
+      propose_updates: current.propose_updates === true,
       [rule]: checked
     };
     if (rule === "clone" && checked) { nextRules.read = true; nextRules.discover = true; }
+    if (rule === "propose_updates" && checked) { nextRules.read = true; nextRules.discover = true; }
     if (rule === "read" && checked) nextRules.discover = true;
-    if (rule === "read" && !checked) nextRules.clone = false;
-    if (rule === "discover" && !checked) { nextRules.read = false; nextRules.clone = false; nextRules.adopt_drafts = false; }
+    if (rule === "read" && !checked) { nextRules.clone = false; nextRules.propose_updates = false; }
+    if (rule === "discover" && !checked) { nextRules.read = false; nextRules.clone = false; nextRules.adopt_drafts = false; nextRules.propose_updates = false; }
     if (rule === "adopt_drafts" && checked) nextRules.discover = true;
     nextAccess[postType] = nextRules;
     nextPolicy.content_access = nextAccess;
@@ -327,7 +349,7 @@ function ContentAccessFields({ payload, update, immutable, postTypes, blueprints
 
   return <Stack gap="sm">
     <div><Title order={4}>{__("Composer content access", TEXT_DOMAIN)}</Title>
-      <Text size="sm" c="dimmed" mt={4}>{__("Explicitly grant the active Composer configuration access to existing WordPress content. WordPress user capabilities are still enforced for every item. Published content can be inspected or cloned; direct write access is limited to adopting editable drafts.", TEXT_DOMAIN)}</Text></div>
+      <Text size="sm" c="dimmed" mt={4}>{__("Explicitly grant the active Composer configuration access to existing WordPress content. Published items remain immutable to the agent: enabled updates are stored in a separate review proposal and require a human merge.", TEXT_DOMAIN)}</Text></div>
     {[...known.values()].map((postType) => {
       const matching = blueprints.filter((entity) => entity.type === "blueprint" && stringAt(entity.payload, ["target_post_type"]) === postType.name);
       const pageTypes = matching.map((entity) => stringAt(entity.payload, ["page_type"]) || entity.key).filter(Boolean);
@@ -337,11 +359,12 @@ function ContentAccessFields({ payload, update, immutable, postTypes, blueprints
       return <Card key={postType.name} withBorder radius="sm" p="sm"><Stack gap="xs">
         <Group justify="space-between" align="flex-start" wrap="wrap"><div><Text fw={700}>{postType.label}</Text><Code>{postType.name}</Code></div><Text size="xs" c={enabled || immutable ? "dimmed" : "orange.8"}>{pageTypes.length ? `${__("Blueprints", TEXT_DOMAIN)}: ${pageTypes.join(", ")}` : __("Add a Blueprint targeting this post type first.", TEXT_DOMAIN)}</Text></Group>
         {!safe && <Alert color="yellow">{__("Composer requires a public, wp-admin-visible, REST/Gutenberg-enabled post type and the current user's edit capability.", TEXT_DOMAIN)}</Alert>}
-        <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
+        <SimpleGrid cols={{ base: 1, sm: 2, lg: 5 }}>
           <Checkbox label={__("Discover in lists", TEXT_DOMAIN)} description={__("Show metadata without body content.", TEXT_DOMAIN)} checked={rules.discover === true} disabled={!enabled} onChange={(event) => setRule(postType.name, "discover", event.currentTarget.checked, pageTypes)} />
           <Checkbox label={__("Read content", TEXT_DOMAIN)} description={__("Inspect body content for analysis.", TEXT_DOMAIN)} checked={rules.read === true} disabled={!enabled} onChange={(event) => setRule(postType.name, "read", event.currentTarget.checked, pageTypes)} />
           <Checkbox label={__("Clone to Composer draft", TEXT_DOMAIN)} description={__("Copy into a new agent-owned draft.", TEXT_DOMAIN)} checked={rules.clone === true} disabled={!enabled} onChange={(event) => setRule(postType.name, "clone", event.currentTarget.checked, pageTypes)} />
           <Checkbox label={__("Adopt editable drafts", TEXT_DOMAIN)} description={__("Allow explicit takeover of a draft only.", TEXT_DOMAIN)} checked={rules.adopt_drafts === true} disabled={!enabled} onChange={(event) => setRule(postType.name, "adopt_drafts", event.currentTarget.checked, pageTypes)} />
+          <Checkbox label={__("Propose published updates", TEXT_DOMAIN)} description={__("Create a separate working copy; merge stays human-only.", TEXT_DOMAIN)} checked={rules.propose_updates === true} disabled={!enabled} onChange={(event) => setRule(postType.name, "propose_updates", event.currentTarget.checked, pageTypes)} />
         </SimpleGrid>
         {postType.registered_meta.length > 0 && <Accordion variant="contained" radius="sm">
           <Accordion.Item value="registered-fields">

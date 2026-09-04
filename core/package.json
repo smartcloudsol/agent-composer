@@ -1,6 +1,6 @@
 {
   "name": "@smart-cloud/agent-composer-core",
-  "version": "0.8.0-dev.1",
+  "version": "1.1.0",
   "description": "Shared TypeScript contracts and constants for SmartCloud Agent Composer",
   "author": "SmartCloud",
   "license": "MIT",

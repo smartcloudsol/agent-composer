@@ -2,7 +2,7 @@ import { Anchor, Code, Divider, Drawer, List, Stack, Text, Title } from "@mantin
 import { __ } from "@wordpress/i18n";
 import "./doc-sidebar.css";
 
-type DocPage = "overview" | "configuration" | "blueprints" | "providers" | "audit";
+type DocPage = "overview" | "configuration" | "blueprints" | "proposals" | "providers" | "audit";
 
 export type DocTopic =
   | "config-set-metadata"
@@ -34,6 +34,7 @@ export default function DocSidebar({ opened, close, page, topic = null }: DocSid
         {page === "overview" && <OverviewDocs />}
         {page === "configuration" && <LifecycleDocs />}
         {page === "blueprints" && <EntityDocs />}
+        {page === "proposals" && <ProposalDocs />}
         {page === "providers" && <ProviderDocs />}
         {page === "audit" && <AuditDocs />}
       </>}
@@ -43,13 +44,25 @@ export default function DocSidebar({ opened, close, page, topic = null }: DocSid
   </Drawer>;
 }
 
+function ProposalDocs() {
+  return <>
+    <Title order={2}>{__("Content proposal review", TEXT_DOMAIN)}</Title>
+    <Text>{__("An agent proposal is a separate draft linked to one published source. Editing and previewing the proposal never changes the public item.", TEXT_DOMAIN)}</Text>
+    <List withPadding spacing="xs" mt="md">
+      <List.Item>{__("Only ready-for-review proposals can be merged.", TEXT_DOMAIN)}</List.Item>
+      <List.Item>{__("Merge requires a human capability and a WordPress REST nonce; it is not an agent Ability.", TEXT_DOMAIN)}</List.Item>
+      <List.Item>{__("Any source, proposal revision, Blueprint, or localization conflict stops the merge.", TEXT_DOMAIN)}</List.Item>
+    </List>
+  </>;
+}
+
 function OverviewDocs() {
   return <>
     <Title order={2}>{__("Composer overview", TEXT_DOMAIN)}</Title>
     <Text>{__("SmartCloud Agent Composer is the WordPress plugin layer of a governed, agent-assisted content production solution. It uses the active Config Set and the active theme's discovered or declared design capabilities to produce validated Gutenberg drafts that follow the configured Site Contract and page-type Blueprints.", TEXT_DOMAIN)}</Text>
     <Title order={3} mt="md">{__("Safety boundary", TEXT_DOMAIN)}</Title>
     <List withPadding spacing="xs">
-      <List.Item>{__("Agent abilities create and update drafts only.", TEXT_DOMAIN)}</List.Item>
+      <List.Item>{__("Agent abilities create and update drafts or separate working proposals; they never merge into published content.", TEXT_DOMAIN)}</List.Item>
       <List.Item>{__("Publishing, normal-content deletion, theme editing, plugin management, and media upload are not exposed.", TEXT_DOMAIN)}</List.Item>
       <List.Item>{__("Configuration mutations require an authenticated administrator, a REST nonce, and the exact Composer capability.", TEXT_DOMAIN)}</List.Item>
       <List.Item>{__("Every write is recorded in the redacted, hash-chained audit log.", TEXT_DOMAIN)}</List.Item>

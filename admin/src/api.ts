@@ -1,8 +1,19 @@
-import type { ComposerStatus } from "@smart-cloud/agent-composer-core";
+import type {
+  ComposerStatus,
+  ContentProposal,
+  ContentProposalDetail,
+  ContentProposalList,
+  ContentProposalListState,
+  ContentProposalSummary,
+  MergeContentProposalInput,
+  RegisteredLocalizationProviderManifest,
+  RejectContentProposalInput
+} from "@smart-cloud/agent-composer-core";
 import apiFetch from "@wordpress/api-fetch";
 
 export interface ComposerRuntimeStatus extends ComposerStatus {
   mcp_endpoint: string;
+  localization_providers: RegisteredLocalizationProviderManifest[];
 }
 
 export interface ConfigEntity {
@@ -157,6 +168,8 @@ export interface AuditEvent {
   event_hash: string;
 }
 
+export type { ContentProposal };
+
 const root = "/smartcloud-agent-composer/v1";
 
 export const loadComposerStatus = (): Promise<ComposerRuntimeStatus> =>
@@ -245,3 +258,55 @@ export const listPresets = (): Promise<{ items: ComposerPreset[] }> =>
 
 export const instantiatePreset = (id: ComposerPreset["id"], label: string): Promise<{ preset: string; config_set: ConfigSet; active: false }> =>
   apiFetch({ path: `${root}/presets/${encodeURIComponent(id)}/instantiate`, method: "POST", data: { label } });
+
+export type PaginatedContentProposalList = ContentProposalList & {
+  total: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
+};
+
+export const listContentProposals = (
+  states: ContentProposalListState[] = ["ready-for-review"],
+  search = "",
+  page = 1,
+  perPage = 20
+): Promise<PaginatedContentProposalList> => {
+  const query = new URLSearchParams({
+    states: states.join(","),
+    search,
+    page: String(page),
+    per_page: String(perPage)
+  });
+  return apiFetch({ path: `${root}/content-proposals?${query.toString()}` });
+};
+
+export const getContentProposal = (id: number): Promise<ContentProposalDetail> =>
+  apiFetch({ path: `${root}/content-proposals/${id}` });
+
+export const mergeContentProposal = (proposal: ContentProposalSummary): Promise<ContentProposalDetail> => {
+  const data: MergeContentProposalInput = {
+    expected_modified_gmt: proposal.modified_gmt,
+    expected_revision: proposal.revision,
+    confirmation: `merge:${proposal.proposal_id}:${proposal.source_post_id}`
+  };
+  return apiFetch({ path: `${root}/content-proposals/${proposal.proposal_id}/merge`, method: "POST", data });
+};
+
+export const rejectContentProposal = (proposal: ContentProposalSummary, reason: string): Promise<ContentProposalSummary> => {
+  const data: RejectContentProposalInput = {
+    reason,
+    expected_modified_gmt: proposal.modified_gmt,
+    expected_revision: proposal.revision
+  };
+  return apiFetch({ path: `${root}/content-proposals/${proposal.proposal_id}/reject`, method: "POST", data });
+};
+
+export const returnContentProposalForChanges = (proposal: ContentProposalSummary, reason: string): Promise<ContentProposalDetail> => {
+  const data = {
+    reason,
+    expected_modified_gmt: proposal.modified_gmt,
+    expected_revision: proposal.revision
+  };
+  return apiFetch({ path: `${root}/content-proposals/${proposal.proposal_id}/return-for-changes`, method: "POST", data });
+};

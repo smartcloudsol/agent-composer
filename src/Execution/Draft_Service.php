@@ -19,6 +19,9 @@ final class Draft_Service {
 	public const ADOPTED_GMT_META = '_wpsuite_agent_adopted_gmt';
 	public const CLONED_FROM_META = '_wpsuite_agent_cloned_from_post_id';
 	public const YOAST_METADESC_META = '_yoast_wpseo_metadesc';
+	public const CONTENT_LANGUAGE_META = '_wpsuite_agent_content_language';
+	public const LOCALIZATION_PROVIDER_META = '_wpsuite_agent_localization_provider';
+	public const LANGUAGE_CODE_META = '_wpsuite_agent_language_code';
 
 	private Pattern_Assembler $assembler;
 	private Page_Validator $validator;
@@ -26,6 +29,7 @@ final class Draft_Service {
 	private Block_Tree_Service $trees;
 	private Config_Repository $config;
 	private Content_Language_Validator $language;
+	private Localization_Provider_Registry $localization;
 
 	public function __construct(
 		Pattern_Assembler $assembler,
@@ -33,7 +37,8 @@ final class Draft_Service {
 		Target_Resolver $targets,
 		Block_Tree_Service $trees,
 		Config_Repository $config,
-		Content_Language_Validator $language
+		Content_Language_Validator $language,
+		Localization_Provider_Registry $localization
 	) {
 		$this->assembler = $assembler;
 		$this->validator = $validator;
@@ -41,6 +46,7 @@ final class Draft_Service {
 		$this->trees     = $trees;
 		$this->config    = $config;
 		$this->language  = $language;
+		$this->localization = $localization;
 	}
 
 	public function validate_request( array $input ): array {
@@ -60,7 +66,7 @@ final class Draft_Service {
 		$this->assert_no_forbidden_input( $input );
 		$user_id   = get_current_user_id();
 		$page_type = sanitize_key( (string) ( $input['page_type'] ?? '' ) );
-		$this->language->assert_request_language( $page_type, $input );
+		$content_language = $this->language->request_language( $page_type, $input );
 		$title     = $this->sanitize_title( $input['title'] ?? '' );
 		$slug      = $this->sanitize_slug( $input['slug'] ?? '' );
 		$key       = $this->sanitize_idempotency_key( $input['idempotency_key'] ?? '' );
@@ -79,6 +85,10 @@ final class Draft_Service {
 		try {
 			$existing = $this->find_idempotent_draft( $user_id, $key, $page_type, $target );
 			if ( $existing ) {
+				$existing_language = sanitize_text_field( (string) get_post_meta( $existing->ID, self::CONTENT_LANGUAGE_META, true ) );
+				if ( '' === $existing_language || 0 !== strcasecmp( $existing_language, $content_language ) ) {
+					throw new Execution_Exception( 'idempotency_key_conflict', 'The idempotency key already belongs to a draft with a different or legacy language contract.' );
+				}
 				return $this->describe( $existing, true );
 			}
 
@@ -92,6 +102,7 @@ final class Draft_Service {
 					self::TEMPLATE_META           => $this->targets->template_identity( $target ),
 					self::ASSIGNED_AGENT_META     => $user_id,
 					self::ASSIGNMENT_SOURCE_META  => 'created',
+					self::CONTENT_LANGUAGE_META   => $content_language,
 					Target_Resolver::TEMPLATE_META => $this->targets->template_meta_value( $target ),
 					self::YOAST_METADESC_META     => $editorial['meta_description'],
 				),
@@ -116,6 +127,17 @@ final class Draft_Service {
 			if ( is_wp_error( $post_id ) ) {
 				throw new Execution_Exception( 'draft_create_failed', $post_id->get_error_message() );
 			}
+			try {
+				$localization = $this->localization->assign_draft_language( (int) $post_id, (string) $target['post_type'], $content_language );
+				update_post_meta( (int) $post_id, self::LOCALIZATION_PROVIDER_META, sanitize_key( (string) ( $localization['provider'] ?? 'wordpress' ) ) );
+				$language_code = sanitize_key( (string) ( $localization['language_code'] ?? '' ) );
+				if ( '' !== $language_code ) {
+					update_post_meta( (int) $post_id, self::LANGUAGE_CODE_META, $language_code );
+				}
+			} catch ( \Throwable $error ) {
+				wp_delete_post( (int) $post_id, true );
+				throw $error;
+			}
 
 			$post = get_post( (int) $post_id );
 			if ( ! $post instanceof \WP_Post ) {
@@ -139,11 +161,16 @@ final class Draft_Service {
 		$expected = $this->normalize_expected_modified_gmt( (string) ( $input['expected_modified_gmt'] ?? '' ) );
 		$expected_revision = $this->sanitize_revision( $input['expected_revision'] ?? '' );
 		$post      = $this->get_owned_draft( $post_id );
+		$proposal_state = sanitize_key( (string) get_post_meta( $post_id, Content_Proposal_Service::STATE_META, true ) );
 		$page_type = sanitize_key( (string) get_post_meta( $post_id, self::PAGE_TYPE_META, true ) );
 		if ( isset( $input['page_type'] ) && $page_type !== sanitize_key( (string) $input['page_type'] ) ) {
 			throw new Execution_Exception( 'page_type_immutable', 'The page type cannot be changed after draft creation.' );
 		}
-		$this->language->assert_request_language( $page_type, $input );
+		$content_language = $this->language->request_language( $page_type, $input );
+		$stored_language = sanitize_text_field( (string) get_post_meta( $post_id, self::CONTENT_LANGUAGE_META, true ) );
+		if ( '' !== $stored_language && 0 !== strcasecmp( $stored_language, $content_language ) ) {
+			throw new Execution_Exception( 'draft_content_language_immutable', 'The draft content language cannot be changed after creation.' );
+		}
 		$editorial = $this->sanitize_editorial_fields( $input, $page_type );
 		$target = $this->targets->resolve( $page_type );
 		$this->assert_post_contract( $post, $page_type, $target );
@@ -172,7 +199,12 @@ final class Draft_Service {
 			$update['post_title'] = $this->sanitize_title( $input['title'] );
 		}
 		if ( array_key_exists( 'slug', $input ) ) {
-			$update['post_name'] = $this->sanitize_slug( $input['slug'] );
+			$slug = $this->sanitize_slug( $input['slug'] );
+			if ( '' !== $proposal_state ) {
+				$update['meta_input'][ Content_Proposal_Service::TARGET_SLUG_META ] = $slug;
+			} else {
+				$update['post_name'] = $slug;
+			}
 		}
 
 		global $wpdb;
@@ -763,11 +795,11 @@ final class Draft_Service {
 			'posts_per_page'         => 200,
 			'orderby'                => $orderby,
 			'order'                  => $order,
-			's'                      => $search,
 			'ignore_sticky_posts'    => true,
 			'fields'                 => 'all',
 			'update_post_meta_cache' => true,
 			'update_post_term_cache' => false,
+			'suppress_filters'       => true,
 		);
 
 		$items            = array();
@@ -776,11 +808,12 @@ final class Draft_Service {
 		do {
 			$query_args['offset'] = $candidate_offset;
 			$query = new \WP_Query( $query_args );
-			foreach ( $query->posts as $post ) {
-				if ( ! $post instanceof \WP_Post || ! $this->can_list_post( $post ) ) {
+			foreach ( $query->posts as $candidate ) {
+				$post = $candidate instanceof \WP_Post ? $this->fresh_post( $candidate->ID ) : null;
+				if ( ! $post instanceof \WP_Post || ! $this->can_list_post( $post ) || ! $this->matches_search_filter( $post, $search ) ) {
 					continue;
 				}
-				$item = $this->summarize_list_item( $post );
+				$item = $this->summarize_list_item( $post, $page_type );
 				if ( ! $this->matches_page_type_filter( $item, $page_type ) || ! $this->matches_assignment_filter( $item, $assignment ) ) {
 					continue;
 				}
@@ -820,33 +853,36 @@ final class Draft_Service {
 		$post_id = absint( $input['post_id'] ?? 0 );
 		$page_type = sanitize_key( (string) ( $input['page_type'] ?? '' ) );
 		$target = $this->targets->resolve( $page_type );
-		$post = get_post( $post_id );
+		$post = $this->fresh_post( $post_id );
 		if ( ! $post instanceof \WP_Post || $post->post_type !== (string) $target['post_type'] ) {
 			throw new Execution_Exception( 'content_item_not_found', 'The requested content item does not match the selected blueprint.' );
 		}
 		$access = $this->config->get_content_access( $post->post_type );
-		$composer_owned = '1' === (string) get_post_meta( $post_id, self::OWNED_META, true );
+		$composer_owned = 'draft' === $post->post_status && '1' === (string) get_post_meta( $post_id, self::OWNED_META, true );
 		if ( ! $composer_owned && ! $access['read'] ) {
 			throw new Execution_Exception( 'content_read_not_allowed', 'The active Site Contract does not allow Composer to read this post type.' );
 		}
-		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+		if ( ! current_user_can( 'read_post', $post_id ) ) {
 			throw new Execution_Exception( 'content_read_forbidden', 'The current user cannot read this content through Composer.' );
 		}
 		$content = (string) $post->post_content;
+		$localization = $this->localization->resolve( $post_id, $post->post_type );
 		return array(
 			'post_id'       => $post_id,
 			'post_type'     => $post->post_type,
 			'page_type'     => $page_type,
 			'status'        => $post->post_status,
 			'title'         => get_the_title( $post ),
-			'slug'          => $post->post_name,
+			'slug'          => $this->governed_slug( $post ),
 			'modified_gmt'  => $this->modified_gmt_token( $post->post_modified_gmt ),
 			'content_hash'  => hash( 'sha256', $content ),
+			'localization'  => $localization,
 			'content'       => $content,
 			'excerpt'       => (string) $post->post_excerpt,
 			'meta_description' => (string) get_post_meta( $post_id, self::YOAST_METADESC_META, true ),
 			'composer_owned' => $composer_owned,
 			'cloneable'     => ! $composer_owned && $access['clone'],
+			'proposable'    => 'publish' === $post->post_status && ! empty( $access['propose_updates'] ),
 			'validation'    => $this->validator->validate( $page_type, $content ),
 		);
 	}
@@ -873,6 +909,7 @@ final class Draft_Service {
 		$key = $this->sanitize_idempotency_key( $input['idempotency_key'] ?? '' );
 		$title = isset( $input['title'] ) ? $this->sanitize_title( $input['title'] ) : $this->sanitize_title( 'Copy of ' . (string) $source['title'] );
 		$slug = isset( $input['slug'] ) ? $this->sanitize_slug( $input['slug'] ) : '';
+		$content_language = trim( (string) ( $source['localization']['content_language'] ?? '' ) );
 		$lock_name = $this->acquire_idempotency_lock( $user_id, $key );
 		try {
 			$existing = $this->find_idempotent_draft( $user_id, $key, $page_type, $target );
@@ -899,6 +936,7 @@ final class Draft_Service {
 							self::ASSIGNED_AGENT_META     => $user_id,
 							self::ASSIGNMENT_SOURCE_META  => 'cloned',
 							self::CLONED_FROM_META        => (int) $source['post_id'],
+							self::CONTENT_LANGUAGE_META   => $content_language,
 							Target_Resolver::TEMPLATE_META => $this->targets->template_meta_value( $target ),
 							self::YOAST_METADESC_META     => (string) $source['meta_description'],
 						),
@@ -908,6 +946,17 @@ final class Draft_Service {
 			);
 			if ( $post_id instanceof \WP_Error ) {
 				throw new Execution_Exception( 'content_clone_failed', $post_id->get_error_message() );
+			}
+			try {
+				$localization = $this->localization->assign_draft_language( (int) $post_id, (string) $target['post_type'], $content_language );
+				update_post_meta( (int) $post_id, self::LOCALIZATION_PROVIDER_META, sanitize_key( (string) ( $localization['provider'] ?? 'wordpress' ) ) );
+				$language_code = sanitize_key( (string) ( $localization['language_code'] ?? '' ) );
+				if ( '' !== $language_code ) {
+					update_post_meta( (int) $post_id, self::LANGUAGE_CODE_META, $language_code );
+				}
+			} catch ( \Throwable $error ) {
+				wp_delete_post( (int) $post_id, true );
+				throw $error;
 			}
 			$post = get_post( (int) $post_id );
 			if ( ! $post instanceof \WP_Post ) {
@@ -953,8 +1002,7 @@ final class Draft_Service {
 	}
 
 	public function get_owned_draft( int $post_id ): \WP_Post {
-		clean_post_cache( $post_id );
-		$post = get_post( $post_id );
+		$post = $this->fresh_post( $post_id );
 		if ( ! $post instanceof \WP_Post ) {
 			throw new Execution_Exception( 'draft_not_found', 'The requested content draft does not exist.' );
 		}
@@ -963,6 +1011,10 @@ final class Draft_Service {
 		}
 		if ( '1' !== (string) get_post_meta( $post_id, self::OWNED_META, true ) ) {
 			throw new Execution_Exception( 'not_agent_owned', 'The draft was not created by SmartCloud Agent Composer.' );
+		}
+		$proposal_state = sanitize_key( (string) get_post_meta( $post_id, Content_Proposal_Service::STATE_META, true ) );
+		if ( '' !== $proposal_state && 'working' !== $proposal_state ) {
+			throw new Execution_Exception( 'proposal_not_editable', 'A submitted or closed content proposal is read-only.' );
 		}
 		$assigned_agent_id = absint( get_post_meta( $post_id, self::ASSIGNED_AGENT_META, true ) );
 		if ( 0 === $assigned_agent_id && get_current_user_id() === (int) $post->post_author ) {
@@ -983,19 +1035,25 @@ final class Draft_Service {
 	private function describe( \WP_Post $post, bool $idempotent_replay = false ): array {
 		$page_type = (string) get_post_meta( $post->ID, self::PAGE_TYPE_META, true );
 		$target    = $this->targets->resolve( $page_type );
+		$proposal_state = sanitize_key( (string) get_post_meta( $post->ID, Content_Proposal_Service::STATE_META, true ) );
 		return array(
 			'post_id'           => $post->ID,
 			'title'             => get_the_title( $post ),
-			'slug'              => $post->post_name,
+			'slug'              => $this->governed_slug( $post ),
 			'status'            => $post->post_status,
 			'page_type'         => $page_type,
 			'post_type'         => $post->post_type,
 			'post_author_id'    => (int) $post->post_author,
 			'assigned_agent_user_id' => absint( get_post_meta( $post->ID, self::ASSIGNED_AGENT_META, true ) ),
 			'assignment_source' => sanitize_key( (string) get_post_meta( $post->ID, self::ASSIGNMENT_SOURCE_META, true ) ),
+			'proposal_state'    => $proposal_state,
+			'change_request_reason' => 'working' === $proposal_state ? sanitize_textarea_field( (string) get_post_meta( $post->ID, Content_Proposal_Service::CHANGE_REQUEST_REASON_META, true ) ) : '',
 			'template'          => $this->targets->public_contract( $target )['template'],
 			'modified_gmt'      => $this->modified_gmt_token( $post->post_modified_gmt ),
 			'revision'          => (string) get_post_meta( $post->ID, self::REVISION_META, true ),
+			'content_language'  => sanitize_text_field( (string) get_post_meta( $post->ID, self::CONTENT_LANGUAGE_META, true ) ),
+			'localization_provider' => sanitize_key( (string) get_post_meta( $post->ID, self::LOCALIZATION_PROVIDER_META, true ) ),
+			'language_code'     => sanitize_key( (string) get_post_meta( $post->ID, self::LANGUAGE_CODE_META, true ) ),
 			'excerpt'           => wp_strip_all_tags( (string) $post->post_excerpt ),
 			'meta_description'  => wp_strip_all_tags( (string) get_post_meta( $post->ID, self::YOAST_METADESC_META, true ) ),
 			'edit_url'          => get_edit_post_link( $post->ID, 'raw' ) ?: '',
@@ -1004,13 +1062,25 @@ final class Draft_Service {
 		);
 	}
 
-	private function summarize_list_item( \WP_Post $post ): array {
+	private function summarize_list_item( \WP_Post $post, string $requested_page_type = '' ): array {
 		$assigned_agent_id = absint( get_post_meta( $post->ID, self::ASSIGNED_AGENT_META, true ) );
 		$current_user_id   = get_current_user_id();
-		$composer_owned      = '1' === (string) get_post_meta( $post->ID, self::OWNED_META, true );
+		$composer_owned      = 'draft' === $post->post_status && '1' === (string) get_post_meta( $post->ID, self::OWNED_META, true );
 		$content_access      = $this->config->get_content_access( $post->post_type );
 		$page_type         = sanitize_key( (string) get_post_meta( $post->ID, self::PAGE_TYPE_META, true ) );
+		if ( '' === $page_type && '' !== $requested_page_type ) {
+			try {
+				$requested_target = $this->targets->resolve( $requested_page_type );
+				if ( $post->post_type === (string) $requested_target['post_type']
+					&& hash_equals( $this->targets->template_meta_value( $requested_target ), $this->targets->normalized_stored_template( $post->ID ) ) ) {
+					$page_type = $requested_page_type;
+				}
+			} catch ( Execution_Exception ) {
+				$page_type = '';
+			}
+		}
 		$template_identity = sanitize_text_field( (string) get_post_meta( $post->ID, self::TEMPLATE_META, true ) );
+		$proposal_state = sanitize_key( (string) get_post_meta( $post->ID, Content_Proposal_Service::STATE_META, true ) );
 		$assignment_state  = 'not-composer-owned';
 		if ( $composer_owned && $assigned_agent_id === $current_user_id ) {
 			$assignment_state = 'current-agent';
@@ -1023,7 +1093,7 @@ final class Draft_Service {
 		return array(
 			'post_id'                  => $post->ID,
 			'title'                    => get_the_title( $post ),
-			'slug'                     => $post->post_name,
+			'slug'                     => $this->governed_slug( $post ),
 			'status'                   => $post->post_status,
 			'post_type'                => $post->post_type,
 			'post_author_id'           => (int) $post->post_author,
@@ -1034,6 +1104,8 @@ final class Draft_Service {
 			'assignment_state'         => $assignment_state,
 			'assigned_agent_user_id'   => $assigned_agent_id,
 			'assigned_to_current_agent' => $assigned_agent_id === $current_user_id,
+			'proposal_state'           => $proposal_state,
+			'change_request_reason'    => 'working' === $proposal_state ? sanitize_textarea_field( (string) get_post_meta( $post->ID, Content_Proposal_Service::CHANGE_REQUEST_REASON_META, true ) ) : '',
 			'adoptable_by_current_agent' => 'draft' === $post->post_status
 				&& ( $composer_owned || $content_access['adopt_drafts'] )
 				&& ( 0 === $assigned_agent_id || $assigned_agent_id === $current_user_id ),
@@ -1051,12 +1123,16 @@ final class Draft_Service {
 		if ( ! in_array( $post->post_type, $this->targets->registered_allowed_post_types(), true ) ) {
 			return false;
 		}
-		$composer_owned = '1' === (string) get_post_meta( $post->ID, self::OWNED_META, true );
+		$composer_owned = 'draft' === $post->post_status && '1' === (string) get_post_meta( $post->ID, self::OWNED_META, true );
 		if ( ! $composer_owned ) {
 			return $this->config->get_content_access( $post->post_type )['discover']
-				&& current_user_can( 'edit_post', $post->ID );
+				&& current_user_can( 'read_post', $post->ID );
 		}
 		if ( 'draft' !== $post->post_status ) {
+			return false;
+		}
+		$proposal_state = sanitize_key( (string) get_post_meta( $post->ID, Content_Proposal_Service::STATE_META, true ) );
+		if ( '' !== $proposal_state && 'working' !== $proposal_state ) {
 			return false;
 		}
 		$assigned_agent_id = absint( get_post_meta( $post->ID, self::ASSIGNED_AGENT_META, true ) );
@@ -1080,6 +1156,24 @@ final class Draft_Service {
 
 	private function matches_page_type_filter( array $item, string $page_type ): bool {
 		return '' === $page_type || $page_type === (string) ( $item['page_type'] ?? '' );
+	}
+
+	private function matches_search_filter( \WP_Post $post, string $search ): bool {
+		if ( '' === $search ) {
+			return true;
+		}
+		foreach ( array( $post->post_title, $this->governed_slug( $post ), $post->post_name, wp_strip_all_tags( $post->post_content ) ) as $candidate ) {
+			if ( false !== stripos( (string) $candidate, $search ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private function governed_slug( \WP_Post $post ): string {
+		$proposal_state = sanitize_key( (string) get_post_meta( $post->ID, Content_Proposal_Service::STATE_META, true ) );
+		$target_slug    = sanitize_title( (string) get_post_meta( $post->ID, Content_Proposal_Service::TARGET_SLUG_META, true ) );
+		return '' !== $proposal_state && '' !== $target_slug ? $target_slug : $post->post_name;
 	}
 
 	private function matches_assignment_filter( array $item, string $assignment ): bool {
@@ -1212,8 +1306,7 @@ final class Draft_Service {
 	}
 
 	private function get_adoptable_draft( int $post_id, string $page_type, array $target ): \WP_Post {
-		clean_post_cache( $post_id );
-		$post = get_post( $post_id );
+		$post = $this->fresh_post( $post_id );
 		if ( ! $post instanceof \WP_Post ) {
 			throw new Execution_Exception( 'draft_not_found', 'The requested content draft does not exist.' );
 		}
@@ -1551,6 +1644,23 @@ final class Draft_Service {
 		clean_post_cache( $post->ID );
 		$refreshed = get_post( $post->ID );
 		return $refreshed instanceof \WP_Post ? $refreshed : $post;
+	}
+
+	/**
+	 * Read the committed post row instead of trusting a long-running MCP
+	 * worker's in-memory WordPress object cache.
+	 */
+	private function fresh_post( int $post_id ): ?\WP_Post {
+		if ( $post_id < 1 ) {
+			return null;
+		}
+
+		global $wpdb;
+		clean_post_cache( $post_id );
+		$row = $wpdb->get_row( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Content concurrency requires the committed posts row, not a long-running process cache.
+			$wpdb->prepare( "SELECT * FROM {$wpdb->posts} WHERE ID = %d LIMIT 1", $post_id ) // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		);
+		return is_object( $row ) ? new \WP_Post( $row ) : null;
 	}
 
 	/**

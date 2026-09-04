@@ -19,6 +19,9 @@ use SmartCloud\AgentComposer\Execution\Query_Loop_Materializer;
 use SmartCloud\AgentComposer\Execution\Remote_Media_Ingestor;
 use SmartCloud\AgentComposer\Execution\Semantic_Slot_Materializer;
 use SmartCloud\AgentComposer\Execution\Content_Language_Validator;
+use SmartCloud\AgentComposer\Execution\Content_Proposal_Service;
+use SmartCloud\AgentComposer\Execution\Localization_Provider_Registry;
+use SmartCloud\AgentComposer\Execution\Localized_Draft_Service;
 use SmartCloud\AgentComposer\Execution\Target_Resolver;
 use SmartCloud\AgentComposer\Execution\Taxonomy_Term_Service;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\ActiveConfigurationSource;
@@ -35,12 +38,15 @@ final class ExecutionRuntime {
 	private readonly ExecutionAbilityAliases $aliases;
 	private readonly PreviewDraftService $previews;
 	private readonly ComposerMcpServer $mcp;
+	private readonly Localization_Provider_Registry $localization;
+	private readonly Content_Proposal_Service $proposals;
 
 	public function __construct() {
 		$repository         = new WordPressConfigurationRepository();
 		$active_source      = new ActiveConfigurationSource( $repository );
 		$config             = new Config_Repository( $active_source );
 		$this->providers    = new Ability_Provider_Registry();
+		$this->localization = new Localization_Provider_Registry( $config );
 		$targets            = new Target_Resolver( $config );
 		$markup             = new Markup_Contract_Validator( $config );
 		$this->patterns     = new Pattern_Repository( $config, $markup );
@@ -50,17 +56,19 @@ final class ExecutionRuntime {
 		$language           = new Content_Language_Validator( $config );
 		$validator          = new Page_Validator( $config, $catalog, $trees, $slots, $language );
 		$assembler          = new Pattern_Assembler( $config, $this->patterns, $slots );
-		$this->drafts       = new Draft_Service( $assembler, $validator, $targets, $trees, $config, $language );
+		$this->drafts       = new Draft_Service( $assembler, $validator, $targets, $trees, $config, $language, $this->localization );
+		$localized_drafts   = new Localized_Draft_Service( $config, $this->drafts, $this->localization );
 		$audit_table        = new AuditTable();
 		$audit              = new Audit_Logger( $audit_table );
+		$this->proposals    = new Content_Proposal_Service( $config, $targets, $validator, $this->localization, $audit_table );
 		$query_loops        = new Query_Loop_Materializer( $config );
 		$content_fields     = new Content_Field_Materializer( $config, $this->drafts, $language );
 		$taxonomy_terms     = new Taxonomy_Term_Service( $config, $this->drafts, $language );
 		$remote_media       = new Remote_Media_Ingestor( $config, $this->drafts );
-		$this->abilities    = new Abilities( $config, $this->drafts, $audit, $this->patterns, $this->providers, $query_loops, $content_fields, $taxonomy_terms, $slots, $remote_media );
+		$this->abilities    = new Abilities( $config, $this->drafts, $audit, $this->patterns, $this->providers, $query_loops, $content_fields, $taxonomy_terms, $slots, $remote_media, $this->proposals, $this->localization, $localized_drafts );
 		$this->aliases      = new ExecutionAbilityAliases( $this->abilities );
 		$this->previews     = new PreviewDraftService( $this->abilities );
-		$this->mcp          = new ComposerMcpServer( $this->providers );
+		$this->mcp          = new ComposerMcpServer( $this->providers, $this->localization );
 	}
 
 	public function hooks(): void {
@@ -69,8 +77,17 @@ final class ExecutionRuntime {
 		add_action( 'wp_abilities_api_init', array( $this->aliases, 'register' ), 30 );
 		add_action( 'wp_abilities_api_init', array( $this->previews, 'register_ability' ), 30 );
 		add_action( 'wp_abilities_api_init', array( $this->providers, 'reset' ), 999 );
+		add_action( 'wp_abilities_api_init', array( $this->localization, 'reset' ), 999 );
 		add_action( 'mcp_adapter_init', array( $this->mcp, 'register' ) );
 		add_action( 'post_updated', array( $this->drafts, 'rotate_revision' ), 10, 3 );
 		add_action( PreviewDraftService::CLEANUP_HOOK, array( $this->previews, 'cleanup' ) );
+	}
+
+	public function proposals(): Content_Proposal_Service {
+		return $this->proposals;
+	}
+
+	public function localization(): Localization_Provider_Registry {
+		return $this->localization;
 	}
 }

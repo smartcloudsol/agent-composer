@@ -288,6 +288,8 @@ try {
 	}
 	$assert( $agent_role->has_cap( Activation::CAP_EXECUTE_DRAFTS ), 'The agent role must have the draft execution capability.' );
 	$assert( $agent_role->has_cap( Activation::CAP_INGEST_MEDIA ), 'The agent role must have only the governed Composer media-ingest capability.' );
+	$assert( $agent_role->has_cap( Activation::CAP_PROPOSE_UPDATES ), 'The agent role must be able to create governed published-content proposals.' );
+	$assert( ! $agent_role->has_cap( Activation::CAP_MERGE_PROPOSALS ), 'The agent role must never merge a proposal into published content.' );
 	$assert( ! $agent_role->has_cap( Activation::CAP_ACTIVATE_CONFIG ), 'The agent role must not activate configuration.' );
 
 	$runtime_ability = wp_get_ability( 'smartcloud-agent-composer/get-runtime-capabilities' );

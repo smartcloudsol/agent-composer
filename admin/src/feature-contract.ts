@@ -5,7 +5,7 @@ import type {
 } from "./api";
 import type { DocTopic } from "./DocSidebar";
 
-export type Section = "overview" | "configuration" | "blueprints" | "providers" | "audit";
+export type Section = "overview" | "configuration" | "blueprints" | "proposals" | "providers" | "audit";
 
 export interface SectionProps {
   section: Section;

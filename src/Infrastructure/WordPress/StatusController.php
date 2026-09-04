@@ -3,11 +3,14 @@
 namespace SmartCloud\AgentComposer\Infrastructure\WordPress;
 
 use SmartCloud\AgentComposer\Domain\Configuration\EntityType;
+use SmartCloud\AgentComposer\Execution\Localization_Provider_Registry;
 use WP_REST_Request;
 use WP_REST_Response;
 
 final class StatusController {
 	public const NAMESPACE = 'smartcloud-agent-composer/v1';
+
+	public function __construct( private readonly Localization_Provider_Registry $localization ) {}
 
 	public function register_routes(): void {
 		register_rest_route(
@@ -32,6 +35,9 @@ final class StatusController {
 				'php_minimum'        => '8.1',
 				'multisite_scope'    => 'per-site',
 				'execution_boundary' => 'agent-owned-drafts-only',
+				'published_content_writable' => false,
+				'proposal_merge_human_only'  => true,
+				'localization_providers'     => $this->localization->public_manifests(),
 				'mcp_endpoint'       => '/wp-json/mcp/smartcloud-agent-composer',
 			),
 			200

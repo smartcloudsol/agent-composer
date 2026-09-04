@@ -65,6 +65,17 @@ test("WordPress admin build exposes the complete public feature source and exter
   assert.match(webpack, /"@mantine\/core": "WpSuiteMantine"/);
   assert.match(read("admin/php/admin.php"), /add_submenu_page/);
   assert.doesNotMatch(read("admin/php/admin.php"), /add_menu_page/);
+  const proposals = read("admin/src/features/ContentProposalsPanel.tsx");
+  assert.match(proposals, /<Modal opened=\{mergeConfirmOpened\}/);
+  assert.match(proposals, /<Modal opened=\{rejectOpened\}/);
+  assert.match(proposals, /<Modal opened=\{returnOpened\}/);
+  assert.match(proposals, /returnContentProposalForChanges/);
+  assert.match(proposals, /Showing ready for review/);
+  assert.match(proposals, /Show rejected/);
+  assert.match(proposals, /Proposal ID/);
+  assert.match(proposals, /<Pagination/);
+  assert.match(proposals, /languageFlag/);
+  assert.doesNotMatch(proposals, /window\.(?:confirm|prompt)/);
   assert.match(read("smartcloud-agent-composer.php"), /hub-loader\.php/);
   assert.match(read("admin/php/admin.php"), /smartcloud-wpsuite\//);
   const hubLoader = read("hub-loader.php");
@@ -73,6 +84,33 @@ test("WordPress admin build exposes the complete public feature source and exter
   assert.match(hubLoader, /SMARTCLOUD_WPSUITE_LEGACY_SLUG/);
   assert.match(hubLoader, /smartcloud-wpsuite/);
   assert.match(hubLoader, /hub-for-wpsuiteio/);
+});
+
+test("WP Suite table-heavy blueprints preserve passive responsive tables without enabling Custom HTML", () => {
+  const blueprintIds = ["architecture", "comparison", "product", "product-ai-kit", "product-flow", "product-gatey", "product-publisher"];
+  for (const id of blueprintIds) {
+    const blueprint = JSON.parse(read(`presets/wpsuite/blueprints/${id}.json`));
+    assert.ok(blueprint.allowed_blocks.includes("core/freeform"), `${id} must allow the constrained Text Editor block`);
+    assert.ok(!blueprint.allowed_blocks.includes("core/html"), `${id} must keep Custom HTML forbidden`);
+    assert.equal(blueprint.block_extensions.passive_text_editor_html, true);
+    const contract = blueprint.content_contract.join("\n");
+    assert.match(contract, /Preserve existing passive responsive comparison or data tables losslessly/);
+    assert.match(contract, /reproduce the same inner markup as core\/freeform/);
+    assert.match(contract, /Use core\/table for an ordinary newly authored table/);
+  }
+});
+
+test("ordinary content lists distinguish drafts and hide proposals behind an explicit filter", () => {
+  const adminList = read("src/Infrastructure/WordPress/ContentProposalAdminList.php");
+  const plugin = read("src/Plugin.php");
+  assert.match(plugin, /new ContentProposalAdminList\(\)/);
+  assert.match(adminList, /display_post_states/);
+  assert.match(adminList, /Composer new-content draft/);
+  assert.match(adminList, /Update proposal - ready for review/);
+  assert.match(adminList, /Show update proposals/);
+  assert.match(adminList, /restrict_manage_posts/);
+  assert.match(adminList, /Drafts total can include Composer update proposals/);
+  assert.match(adminList, /'compare' => 'NOT EXISTS'/);
 });
 
 test("guided admin exposes the existing-content access gate without requiring JSON editing", () => {
@@ -173,7 +211,7 @@ test("Composer execution contract is checksum-pinned and canonical names are fro
   const surface = JSON.parse(read("tests/fixtures/execution-ability-surface.json"));
   assert.equal(surface.contract, manifest.contract);
   const aliases = read("src/Integration/Abilities/ExecutionAbilityAliases.php");
-  assert.equal(surface.operations.length, 32);
+  assert.equal(surface.operations.length, 37);
   for (const alias of surface.preferred_aliases) {
     assert.match(aliases, new RegExp(alias.replaceAll("-", "\\-")));
   }
@@ -241,8 +279,19 @@ test("release copy contains no internal milestone or retired theme-contract narr
   assert.doesNotMatch(read("readme.txt"), /development milestone|not yet (?:the )?final/i);
   assert.match(read("smartcloud-agent-composer.php"), /License:\s+MIT/);
   assert.equal(fs.existsSync(path.join(root, "LICENSE")), true);
-  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.1\.2/);
-  assert.match(read("readme.txt"), /Stable tag:\s+1\.1\.2/);
+  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.2\.0/);
+  assert.match(read("readme.txt"), /Stable tag:\s+1\.2\.0/);
+});
+
+test("localization selection is manifest-driven and the main runtime names no concrete provider", () => {
+  const editor = read("admin/src/EntityEditor.tsx");
+  const runtime = read("src/Application/Execution/ExecutionRuntime.php");
+  const status = read("src/Infrastructure/WordPress/StatusController.php");
+  assert.match(editor, /localizationProviders\.map/);
+  assert.doesNotMatch(editor, /value:\s*"wpml"|value:\s*"polylang"/i);
+  assert.doesNotMatch(runtime, /Wpml|Polylang/i);
+  assert.match(status, /localization_providers/);
+  assert.equal(fs.existsSync(path.join(root, "src", "Integration", "Localization", "WpmlLocalizationProvider.php")), false);
 });
 
 test("draft idempotency locks support MySQL and SQLite without weakening ownership", () => {

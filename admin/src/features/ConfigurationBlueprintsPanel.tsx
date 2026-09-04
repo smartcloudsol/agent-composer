@@ -11,7 +11,7 @@ import type { SectionProps } from "../feature-contract";
 
 const TEXT_DOMAIN = "smartcloud-agent-composer";
 
-export function ConfigurationBlueprintsPanel({ selectedSet, selectedId, run, refreshSets, setNotice, setEntityChangesPending, showDocs }: SectionProps) {
+export function ConfigurationBlueprintsPanel({ status, selectedSet, selectedId, run, refreshSets, setNotice, setEntityChangesPending, showDocs }: SectionProps) {
   const baseEntities = selectedSet?.entities || [];
   const [editorEntityId, setEditorEntityId] = useState<string | null>(null);
   const [editorDirty, setEditorDirty] = useState(false);
@@ -175,6 +175,7 @@ export function ConfigurationBlueprintsPanel({ selectedSet, selectedId, run, ref
           <GuidedEntityEditor key={`${editorEntity.id}:${editorEntity.content_hash}`} selected={editorEntity} immutable={immutable}
             blocks={discovery?.registered_blocks || []} onDirtyChange={setEditorDirty}
             postTypes={discovery?.registered_post_types || []} blueprints={blueprints}
+            localizationProviders={status.localization_providers || []}
             help={showDocs}
             save={(payload) => stageEditorPayload(editorEntity, payload)} />
         </Stack>}

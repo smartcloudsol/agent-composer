@@ -79,7 +79,7 @@ namespace SmartCloud\AgentComposer\Execution {
 	}
 	taxonomy_assert(str_contains($runtime_source, 'new Taxonomy_Term_Service'), 'The runtime must construct the taxonomy service.');
 	taxonomy_assert(str_contains($runtime_source, '$taxonomy_terms'), 'The runtime must inject the taxonomy service into abilities.');
-	taxonomy_assert(str_contains($role_source, "ROLE_SCHEMA_VERSION = '3'"), 'Adding taxonomy capabilities must advance the role schema.');
+	taxonomy_assert(str_contains($role_source, "ROLE_SCHEMA_VERSION = '4'"), 'Adding governed capabilities must advance the role schema.');
 	foreach (array('CAP_ASSIGN_TERMS', 'CAP_CREATE_TERMS') as $capability) {
 		taxonomy_assert(str_contains($role_source, $capability), 'The dedicated role is missing a governed taxonomy capability: ' . $capability);
 	}

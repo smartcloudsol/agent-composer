@@ -4,15 +4,15 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.1.2
+Stable tag: 1.2.0
 License: MIT
 License URI: https://mit-license.org/
 
-Governed configuration, validation, and draft-only execution for agent-ready Gutenberg sites.
+Governed configuration, validation, drafts, and human-reviewed update proposals for agent-ready Gutenberg sites.
 
 == Description ==
 
-SmartCloud Agent Composer adds a controlled WordPress layer for agent-assisted Gutenberg workflows. Administrators define versioned Config Sets with site contracts, page-type Blueprints, approved patterns, structured fields, relations, media policy, and safety rules. Agents can create or revise only validated, Composer-owned drafts.
+SmartCloud Agent Composer adds a controlled WordPress layer for agent-assisted Gutenberg workflows. Administrators define versioned Config Sets with site contracts, page-type Blueprints, approved patterns, structured fields, relations, media policy, and safety rules. Agents can create or revise only validated, Composer-owned drafts, or prepare a separate working proposal for a human-reviewed published-content update.
 
 Composer registers its governed Abilities through the separate WordPress MCP Adapter at `/wp-json/mcp/smartcloud-agent-composer`. A compatible authenticated MCP client can connect directly; an OpenAI Connector tunnel is optional and is not bundled.
 
@@ -30,6 +30,9 @@ Core operation runs inside WordPress without requiring a WP Suite account, subsc
 * Short-lived preview drafts with ownership-checked cleanup.
 * Redacted, tamper-evident audit events in an append-only SHA-256 hash chain.
 * Checksum-protected Config Set lifecycle and active-theme/provider discovery.
+* Provider-neutral language discovery that distinguishes authored-language policy from actual site language switching.
+* Optional Polylang and WPML draft-language assignment and explicit linking of separately authored translations without publishing them.
+* Human review can return the same update proposal for changes with an audited instruction, without creating another draft.
 
 Documentation: https://wpsuite.io/docs/
 
@@ -68,6 +71,14 @@ Composer can search readable Media Library images and assign an existing image a
 = How can configuration be preserved before uninstalling? =
 
 Open **SmartCloud -> Agent Composer -> Audit & portability** and export all configuration. The checksum-protected JSON contains Config Sets but excludes credentials and site-specific audit history. Restored sets remain inactive until reviewed, validated, and activated.
+
+= What happens on multilingual and monolingual sites? =
+
+The `list-supported-content-languages` Ability reports the Site Contract's authoring policy separately from provider-backed language switching and draft linking. Without an active localization bridge, Composer does not claim that the site can switch or link languages; a wildcard Site Contract may still permit an agent to author copy in the language requested by the user. With Polylang or WPML and its matching optional Composer bridge active, newly created drafts receive a configured language. Two or more separately authored drafts can be linked explicitly, or one owned draft can be added to an empty language slot in an existing translation group without changing any existing member, regardless of its status. Composer does not translate copy and never publishes those drafts. TranslatePress is treated like an ordinary WordPress site until a stable content-translation Ability becomes available, so agents can still author drafts while editors translate them in WordPress.
+
+= What happens when a proposal needs another editing pass? =
+
+An authorized human reviewer can return a submitted or rejected proposal for changes with a required reason. Composer reopens the same agent-owned working copy with new concurrency tokens, exposes the instruction to the assigned agent, and requires the revised proposal to be validated and submitted again. Proposal working and audit copies remain available under Content proposals; ordinary post and custom-post-type lists hide them by default and provide an explicit filter to reveal them with their proposal state.
 
 == Screenshots ==
 
@@ -131,6 +142,16 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 
 == Changelog ==
 
+= 1.2.0 =
+* Proposals: Allow agents to prepare durable working copies for published content while keeping merge and rejection human-only.
+* Localization: Add a provider-neutral localization contract, a manifest-driven provider selector, and separately installable WPML and Polylang bridges for existing translations and separately authored multilingual drafts.
+* Safety: Recheck source, proposal, Blueprint, localization, metadata, and taxonomy state under a locked human merge transaction.
+* TypeScript: Use NodeNext-compatible declaration imports in the separately published core package.
+* Languages: Add generic supported-language discovery with distinct authoring, language-switching, and localized-draft-linking signals.
+* Drafts: Store an immutable BCP 47 content language on new Composer drafts and keep every translation as a separate draft.
+* Polylang and WPML: Let each optional bridge assign configured languages and explicitly link an exact set of Composer-owned drafts without publishing them.
+* Policy: Support the `*` Site Contract and Blueprint language wildcard while allowing a Blueprint to narrow it.
+
 = 1.1.2 =
 * Compatibility: Declared compatibility with WordPress 7.1.
 
@@ -162,6 +183,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.2.0 =
+Adds human-reviewed published-content proposals and optional Polylang/WPML draft linking. Review and activate a compatible Config Set, install the matching localization bridge when needed, and refresh the MCP tool catalogue.
 
 = 1.1.2 =
 Declares compatibility with WordPress 7.1.

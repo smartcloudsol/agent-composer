@@ -67,6 +67,11 @@ final class ConfigSetValidator {
 			$by_type[ EntityType::BLUEPRINT ] ?? array(),
 			$errors
 		);
+		$this->validate_proposal_policy(
+			is_array( $site_contract ) ? $site_contract : array(),
+			$by_type[ EntityType::BLUEPRINT ] ?? array(),
+			$errors
+		);
 		$this->validate_content_field_access(
 			is_array( $site_contract ) ? $site_contract : array(),
 			$by_type[ EntityType::BLUEPRINT ] ?? array(),
@@ -411,6 +416,25 @@ final class ConfigSetValidator {
 		$policy      = is_array( $site_contract['design_policy'] ?? null ) ? $site_contract['design_policy'] : array();
 		$language    = trim( (string) ( $policy['content_language'] ?? '' ) );
 		$enforcement = (string) ( $policy['content_language_enforcement'] ?? 'advisory' );
+		$localization = is_array( $policy['localization'] ?? null ) ? $policy['localization'] : array();
+		$provider = (string) ( $localization['provider'] ?? 'auto' );
+		if ( ! preg_match( '/^(?:auto|none|[a-z0-9][a-z0-9-]{0,63})$/', $provider ) ) {
+			$errors[] = $this->issue( 'localization-provider-invalid', 'Localization provider must be auto, none, or a stable provider ID.', 'site-contract:design_policy.localization.provider' );
+		}
+		$allowed_languages = $localization['allowed_content_languages'] ?? ( '' !== $language ? array( $language ) : array() );
+		if ( ! is_array( $allowed_languages ) || ! array_is_list( $allowed_languages ) || count( $allowed_languages ) > 50 ) {
+			$errors[] = $this->issue( 'localization-languages-invalid', 'Localization allowed_content_languages must be a list of at most 50 BCP 47 tags or the wildcard.', 'site-contract:design_policy.localization.allowed_content_languages' );
+			$allowed_languages = array();
+		}
+		foreach ( $allowed_languages as $index => $tag ) {
+			if ( ! is_string( $tag ) || ( '*' !== $tag && ! preg_match( '/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/', $tag ) ) ) {
+				$errors[] = $this->issue( 'localization-language-invalid', 'Every agent-authorable language must be a bounded BCP 47 tag or the wildcard.', 'site-contract:design_policy.localization.allowed_content_languages.' . $index );
+			}
+		}
+		$allowed_language_keys = array_map( static fn( mixed $tag ): string => is_string( $tag ) ? strtolower( $tag ) : '', $allowed_languages );
+		if ( '' !== $language && ! in_array( '*', $allowed_language_keys, true ) && ! in_array( strtolower( $language ), $allowed_language_keys, true ) ) {
+			$errors[] = $this->issue( 'localization-primary-language-missing', 'The primary content_language must also appear in the localization allowlist.', 'site-contract:design_policy.localization.allowed_content_languages' );
+		}
 		if ( '' !== $language && ! preg_match( '/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/', $language ) ) {
 			$errors[] = $this->issue( 'content-language-invalid', 'Site Contract content_language must be a bounded BCP 47 language tag.', 'site-contract:design_policy.content_language' );
 		}
@@ -433,6 +457,20 @@ final class ConfigSetValidator {
 		foreach ( $blueprints as $blueprint ) {
 			$payload = is_array( $blueprint['payload'] ?? null ) ? $blueprint['payload'] : array();
 			$narrowed = trim( (string) ( $payload['content_language'] ?? '' ) );
+			$blueprint_languages = $payload['allowed_content_languages'] ?? array();
+			if ( ! is_array( $blueprint_languages ) || ! array_is_list( $blueprint_languages ) || count( $blueprint_languages ) > 50 ) {
+				$errors[] = $this->issue( 'blueprint-localization-languages-invalid', 'Blueprint allowed_content_languages must be a list of at most 50 BCP 47 tags or the wildcard.', $blueprint['key'] . ':allowed_content_languages' );
+				continue;
+			}
+			$effective_blueprint_languages = empty( $blueprint_languages ) && '' !== $narrowed ? array( $narrowed ) : $blueprint_languages;
+			$blueprint_language_keys = array_map( static fn( mixed $tag ): string => is_string( $tag ) ? strtolower( $tag ) : '', $effective_blueprint_languages );
+			foreach ( $effective_blueprint_languages as $index => $tag ) {
+				$valid_tag = is_string( $tag ) && ( '*' === $tag || preg_match( '/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/', $tag ) );
+				$site_allows = in_array( '*', $allowed_language_keys, true ) || ( is_string( $tag ) && in_array( strtolower( $tag ), $allowed_language_keys, true ) );
+				if ( ! $valid_tag || ! $site_allows ) {
+					$errors[] = $this->issue( 'blueprint-localization-language-not-allowed', 'Every Blueprint language must be a Site Contract-approved BCP 47 tag.', $blueprint['key'] . ':allowed_content_languages.' . $index );
+				}
+			}
 			if ( '' === $narrowed ) {
 				continue;
 			}
@@ -440,8 +478,28 @@ final class ConfigSetValidator {
 				$errors[] = $this->issue( 'blueprint-content-language-invalid', 'Blueprint content_language must be a bounded BCP 47 language tag.', $blueprint['key'] );
 				continue;
 			}
-			if ( '' !== $language && strtok( strtolower( $narrowed ), '-' ) !== strtok( strtolower( $language ), '-' ) ) {
+			if ( '' !== $language && ! in_array( '*', $allowed_language_keys, true ) && strtok( strtolower( $narrowed ), '-' ) !== strtok( strtolower( $language ), '-' ) ) {
 				$errors[] = $this->issue( 'blueprint-content-language-conflict', 'A Blueprint may narrow but cannot override the Site Contract language.', $blueprint['key'] );
+			}
+			if ( ! in_array( '*', $blueprint_language_keys, true ) && ! in_array( strtolower( $narrowed ), $blueprint_language_keys, true ) ) {
+				$errors[] = $this->issue( 'blueprint-primary-language-missing', 'Blueprint content_language must also appear in its effective language allowlist.', $blueprint['key'] . ':allowed_content_languages' );
+			}
+		}
+	}
+
+	private function validate_proposal_policy( array $site_contract, array $blueprints, array &$errors ): void {
+		$policy = is_array( $site_contract['design_policy'] ?? null ) ? $site_contract['design_policy'] : array();
+		$access = is_array( $policy['content_access'] ?? null ) ? $policy['content_access'] : array();
+		foreach ( $blueprints as $blueprint ) {
+			$payload = is_array( $blueprint['payload'] ?? null ) ? $blueprint['payload'] : array();
+			$mode = (string) ( $payload['published_update_policy'] ?? 'disabled' );
+			if ( ! in_array( $mode, array( 'disabled', 'proposal-only' ), true ) ) {
+				$errors[] = $this->issue( 'blueprint-published-update-policy-invalid', 'Published update policy must be disabled or proposal-only.', $blueprint['key'] . ':published_update_policy' );
+				continue;
+			}
+			$post_type = sanitize_key( (string) ( $payload['target_post_type'] ?? '' ) );
+			if ( 'proposal-only' === $mode && empty( $access[ $post_type ]['propose_updates'] ) ) {
+				$errors[] = $this->issue( 'proposal-site-gate-missing', 'A proposal-enabled Blueprint also requires propose_updates for its post type in the Site Contract.', $blueprint['key'] . ':published_update_policy' );
 			}
 		}
 	}

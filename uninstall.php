@@ -74,6 +74,20 @@ function smartcloud_composer_uninstall_site(): void {
 	foreach ( $transient_options as $option ) {
 		delete_option( (string) $option );
 	}
+	$proposal_lock_like = $wpdb->esc_like( '_wpsuite_agent_proposal_lock_' ) . '%';
+	$localization_lock_like = $wpdb->esc_like( '_wpsuite_agent_localization_lock_' ) . '%';
+	$idempotency_lock_like = $wpdb->esc_like( '_wpsuite_agent_lock_' ) . '%';
+	$proposal_locks = $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Uninstall enumerates only Composer-owned locks.
+		$wpdb->prepare(
+			"SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s OR option_name LIKE %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$proposal_lock_like,
+			$localization_lock_like,
+			$idempotency_lock_like
+		)
+	);
+	foreach ( $proposal_locks as $option ) {
+		delete_option( (string) $option );
+	}
 
 	$table = esc_sql( $wpdb->prefix . 'smartcloud_composer_audit' );
 	$wpdb->query( "DROP TABLE IF EXISTS {$table}" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange -- The table is plugin-owned and uninstall is explicit.
@@ -88,6 +102,10 @@ function smartcloud_composer_uninstall_site(): void {
 		'smartcloud_composer_view_audit',
 		'smartcloud_composer_execute_drafts',
 		'smartcloud_composer_ingest_media',
+		'smartcloud_composer_assign_terms',
+		'smartcloud_composer_create_terms',
+		'smartcloud_composer_propose_published_updates',
+		'smartcloud_composer_merge_content_proposals',
 	);
 	$administrator = get_role( 'administrator' );
 	if ( $administrator ) {

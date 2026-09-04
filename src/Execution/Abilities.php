@@ -20,6 +20,9 @@ final class Abilities {
 	private Taxonomy_Term_Service $taxonomy_terms;
 	private Semantic_Slot_Materializer $semantic_slots;
 	private Remote_Media_Ingestor $remote_media;
+	private Content_Proposal_Service $proposals;
+	private Localization_Provider_Registry $localization;
+	private Localized_Draft_Service $localized_drafts;
 
 	public function __construct(
 		Config_Repository $config,
@@ -31,7 +34,10 @@ final class Abilities {
 		Content_Field_Materializer $content_fields,
 		Taxonomy_Term_Service $taxonomy_terms,
 		Semantic_Slot_Materializer $semantic_slots,
-		Remote_Media_Ingestor $remote_media
+		Remote_Media_Ingestor $remote_media,
+		Content_Proposal_Service $proposals,
+		Localization_Provider_Registry $localization,
+		Localized_Draft_Service $localized_drafts
 	) {
 		$this->config    = $config;
 		$this->drafts    = $drafts;
@@ -43,6 +49,9 @@ final class Abilities {
 		$this->taxonomy_terms = $taxonomy_terms;
 		$this->semantic_slots = $semantic_slots;
 		$this->remote_media   = $remote_media;
+		$this->proposals      = $proposals;
+		$this->localization   = $localization;
+		$this->localized_drafts = $localized_drafts;
 	}
 
 	public static function names(): array {
@@ -50,6 +59,7 @@ final class Abilities {
 			self::PREFIX . 'get-page-blueprint',
 			self::PREFIX . 'get-design-context',
 			self::PREFIX . 'get-runtime-capabilities',
+			self::PREFIX . 'list-supported-content-languages',
 			self::PREFIX . 'list-approved-patterns',
 			self::PREFIX . 'read-reference-page',
 			self::PREFIX . 'search-media',
@@ -69,6 +79,10 @@ final class Abilities {
 			self::PREFIX . 'list-content-drafts',
 			self::PREFIX . 'inspect-content-item',
 			self::PREFIX . 'clone-content-item',
+			self::PREFIX . 'link-content-draft-translations',
+			self::PREFIX . 'attach-content-draft-to-translation-group',
+			self::PREFIX . 'create-content-proposal',
+			self::PREFIX . 'submit-content-proposal',
 			self::PREFIX . 'insert-or-update-blocks',
 			self::PREFIX . 'inspect-draft-for-adoption',
 			self::PREFIX . 'adopt-content-draft',
@@ -90,7 +104,7 @@ final class Abilities {
 			self::CATEGORY,
 			array(
 				'label'       => __( 'SmartCloud Agent', 'smartcloud-agent-composer' ),
-				'description' => __( 'Controlled, draft-only Gutenberg content design abilities.', 'smartcloud-agent-composer' ),
+				'description' => __( 'Controlled Gutenberg draft and published-content proposal abilities.', 'smartcloud-agent-composer' ),
 			)
 		);
 	}
@@ -122,6 +136,14 @@ final class Abilities {
 			'Returns Composer, optional MCP transport, and registered product ability-provider availability without exposing configuration secrets.',
 			$this->empty_schema(),
 			array( $this, 'get_runtime_capabilities' ),
+			true
+		);
+		$this->register_ability(
+			'list-supported-content-languages',
+			'List supported content languages',
+			'Distinguishes unrestricted authored language from provider-backed language switching and localized-draft linking.',
+			$this->empty_schema(),
+			array( $this, 'list_supported_content_languages' ),
 			true
 		);
 		$this->register_ability(
@@ -278,7 +300,7 @@ final class Abilities {
 		$this->register_ability(
 			'list-content-drafts',
 			'List editable content',
-			'Lists only editable or adoptable content by status, post type, Blueprint, and Composer assignment state. Never use this ability to resolve relation target IDs; use search-relation-targets instead.',
+			'Lists only editable or adoptable content by status, post type, Blueprint, and Composer assignment state. A returned update proposal includes its reviewer change_request_reason and must be revised in the same working draft. Never use this ability to resolve relation target IDs; use search-relation-targets instead.',
 			$this->draft_list_schema(),
 			array( $this, 'list_content_drafts' ),
 			true,
@@ -287,7 +309,7 @@ final class Abilities {
 		$this->register_ability(
 			'inspect-content-item',
 			'Inspect existing content item',
-			'Returns content and validation details only when the active Site Contract grants read access for the post type and the current WordPress user can edit the item.',
+			'Returns content and validation details only when the active Site Contract grants read access for the post type and the current WordPress user can read the item.',
 			$this->content_inspection_schema(),
 			array( $this, 'inspect_content_item' ),
 			true
@@ -295,9 +317,41 @@ final class Abilities {
 		$this->register_ability(
 			'clone-content-item',
 			'Clone existing content to a Composer draft',
-			'Copies an explicitly readable and cloneable item to a new Composer-owned draft. The source is unchanged and optimistic-concurrency tokens are required.',
+			'Copies an explicitly readable and cloneable item to a new, independent Composer-owned draft. This is not an update proposal and MUST NOT be used to revise a published canonical item; use create-content-proposal for that workflow. The source is unchanged and optimistic-concurrency tokens are required.',
 			$this->content_clone_schema(),
 			array( $this, 'clone_content_item' ),
+			false
+		);
+		$this->register_ability(
+			'link-content-draft-translations',
+			'Link localized content drafts',
+			'Links two or more separately authored Composer-owned drafts as translations. It cannot create copy, change published content, or publish a draft.',
+			$this->localized_draft_link_schema(),
+			array( $this, 'link_content_draft_translations' ),
+			false
+		);
+		$this->register_ability(
+			'attach-content-draft-to-translation-group',
+			'Attach a localized draft to a translation group',
+			'Adds one separately authored Composer-owned draft to an unoccupied language slot in an existing provider translation group. Existing group members and their statuses are preserved, and the draft is not published.',
+			$this->localized_draft_group_attachment_schema(),
+			array( $this, 'attach_content_draft_to_translation_group' ),
+			false
+		);
+		$this->register_ability(
+			'create-content-proposal',
+			'Create published-content update proposal',
+			'Creates a separate agent-owned working copy of one published item when both the Site Contract and Blueprint opt in. The source remains unchanged and merge is not exposed to the agent. This only starts the workflow: after updating and validating the proposal, you MUST call submit-content-proposal with its freshest concurrency tokens so a human can review it. Do not report the proposal as ready while its state is working.',
+			$this->content_proposal_create_schema(),
+			array( $this, 'create_content_proposal' ),
+			false
+		);
+		$this->register_ability(
+			'submit-content-proposal',
+			'Submit content proposal for human review',
+			'Validates and freezes an assigned working proposal for a human reviewer. It cannot update published content.',
+			$this->content_proposal_submit_schema(),
+			array( $this, 'submit_content_proposal' ),
 			false
 		);
 		$this->register_ability(
@@ -327,7 +381,7 @@ final class Abilities {
 		$this->register_ability(
 			'validate-content-draft',
 			'Validate content draft',
-			'Assembles and validates content, the blueprint-specific excerpt policy, and the SEO description without saving. The blueprint fixes the target type and template.',
+			'Assembles and validates content, the blueprint-specific excerpt policy, and the SEO description without saving. The blueprint fixes the target type and template. Validation is not submission: after a published-content proposal passes validation and all updates are complete, call submit-content-proposal with its freshest concurrency tokens.',
 			$this->candidate_schema( false ),
 			array( $this, 'validate_content_draft' ),
 			true
@@ -359,7 +413,7 @@ final class Abilities {
 		$this->register_ability(
 			'update-own-draft',
 			'Update assigned content draft',
-			'Updates only a draft assigned to this agent, without changing its WordPress author, blueprint, post type, or template. Requires optimistic concurrency.',
+			'Updates only a draft assigned to this agent, without changing its WordPress author, blueprint, post type, or template. Requires optimistic concurrency. If assignment_source is published-update-proposal, updating is not the final step: validate the completed proposal, then MUST call submit-content-proposal with the freshest modified_gmt and revision. Do not leave a completed proposal in working state or report it as ready for human review before submission succeeds.',
 			$this->update_schema(),
 			array( $this, 'update_own_draft' ),
 			false
@@ -367,7 +421,7 @@ final class Abilities {
 		$this->register_ability(
 			'get-draft',
 			'Get assigned content draft',
-			'Returns one draft assigned to this agent, including content and its current modification token.',
+			'Returns one draft assigned to this agent, including content, its current modification token, proposal state, and any reviewer change_request_reason.',
 			$this->post_id_schema(),
 			array( $this, 'get_draft' ),
 			true
@@ -396,6 +450,7 @@ final class Abilities {
 			$input,
 			function (): array {
 				$providers  = $this->providers->public_manifests();
+				$localization_providers = $this->localization->public_manifests();
 				$policy     = $this->config->get_design_policy();
 				$extensions = $this->config->get_block_extensions();
 				$core       = (array) ( $extensions['allowed_core_blocks'] ?? array() );
@@ -464,6 +519,8 @@ final class Abilities {
 						'post_author_preserved_on_update'      => true,
 						'explicit_adoption_available'          => true,
 						'published_content_writable'           => false,
+						'published_update_proposals'           => true,
+						'proposal_merge_human_only'            => true,
 					),
 					'mcp'                     => array(
 						'adapter_available' => class_exists( '\\WP\\MCP\\Core\\McpAdapter' ),
@@ -473,6 +530,8 @@ final class Abilities {
 					),
 					'component_providers'     => $providers,
 					'component_provider_count' => count( $providers ),
+					'localization_providers' => $localization_providers,
+					'localization_provider_count' => count( $localization_providers ),
 					'product_fallbacks'       => false,
 				);
 			}
@@ -807,6 +866,26 @@ final class Abilities {
 		return $this->execute( 'clone-content-item', $input, fn() => $this->drafts->clone_content_item( $input ) );
 	}
 
+	public function list_supported_content_languages( array $input ): array|\WP_Error {
+		return $this->execute( 'list-supported-content-languages', $input, fn() => $this->localization->supported_languages() );
+	}
+
+	public function link_content_draft_translations( array $input ): array|\WP_Error {
+		return $this->execute( 'link-content-draft-translations', $input, fn() => $this->localized_drafts->link( $input ) );
+	}
+
+	public function attach_content_draft_to_translation_group( array $input ): array|\WP_Error {
+		return $this->execute( 'attach-content-draft-to-translation-group', $input, fn() => $this->localized_drafts->attach_to_group( $input ) );
+	}
+
+	public function create_content_proposal( array $input ): array|\WP_Error {
+		return $this->execute( 'create-content-proposal', $input, fn() => $this->proposals->create( $input ) );
+	}
+
+	public function submit_content_proposal( array $input ): array|\WP_Error {
+		return $this->execute( 'submit-content-proposal', $input, fn() => $this->proposals->submit( $input ) );
+	}
+
 	public function inspect_draft_for_adoption( array $input ): array|\WP_Error {
 		return $this->execute(
 			'inspect-draft-for-adoption',
@@ -878,6 +957,7 @@ final class Abilities {
 	public function check_permission( mixed $input = null ): bool {
 		return is_user_logged_in()
 			&& current_user_can( \SmartCloud\AgentComposer\Infrastructure\WordPress\Activation::CAP_USE )
+			&& current_user_can( \SmartCloud\AgentComposer\Infrastructure\WordPress\Activation::CAP_EXECUTE_DRAFTS )
 			&& current_user_can( 'read' )
 			&& current_user_can( 'edit_pages' )
 			&& current_user_can( 'edit_posts' );
@@ -902,7 +982,7 @@ final class Abilities {
 						'destructive' => false,
 						'idempotent'  => $read_only || in_array(
 							$slug,
-							array( 'create-page-draft', 'create-content-draft', 'adopt-content-draft', 'assign-featured-image', 'ingest-remote-media', 'create-taxonomy-term', 'assign-taxonomy-terms' ),
+							array( 'create-page-draft', 'create-content-draft', 'create-content-proposal', 'submit-content-proposal', 'adopt-content-draft', 'assign-featured-image', 'ingest-remote-media', 'create-taxonomy-term', 'assign-taxonomy-terms', 'link-content-draft-translations', 'attach-content-draft-to-translation-group' ),
 							true
 						),
 					),
@@ -931,11 +1011,11 @@ final class Abilities {
 			$post_id  = absint( $input['post_id'] ?? 0 );
 			$conflict = in_array(
 				$error->get_execution_code(),
-				array( 'edit_conflict', 'draft_assigned_to_other_agent', 'taxonomy_term_conflict' ),
+				array( 'edit_conflict', 'draft_assigned_to_other_agent', 'taxonomy_term_conflict', 'proposal_creation_conflict', 'proposal_assigned_to_other_agent', 'localization_context_conflict' ),
 				true
 			);
 			$this->audit->log( $operation, 'error', $input, $post_id, $error->get_execution_code(), array( 'conflict' => $conflict ) );
-			$denied = in_array( $error->get_execution_code(), array( 'taxonomy_term_create_denied', 'taxonomy_assignment_denied' ), true );
+			$denied = in_array( $error->get_execution_code(), array( 'taxonomy_term_create_denied', 'taxonomy_assignment_denied', 'proposal_create_denied', 'proposal_source_read_denied', 'localization_content_read_denied' ), true );
 			$status = $conflict ? 409 : ( $denied ? 403 : 400 );
 			return new \WP_Error( 'smartcloud_agent_' . $error->get_execution_code(), $error->getMessage(), array( 'status' => $status, 'request_id' => $this->audit->get_request_id() ) );
 		} catch ( \Throwable $error ) {
@@ -956,6 +1036,59 @@ final class Abilities {
 
 	private function empty_schema(): array {
 		return array( 'type' => 'object', 'properties' => array(), 'additionalProperties' => false );
+	}
+
+	public function localized_draft_link_schema(): array {
+		return array(
+			'type' => 'object',
+			'properties' => array(
+				'page_type' => $this->string_property( 'Blueprint page type shared by every draft.', 1, 64 ),
+				'drafts' => array(
+					'type' => 'array',
+					'minItems' => 2,
+					'maxItems' => 20,
+					'items' => array(
+						'type' => 'object',
+						'properties' => array(
+							'post_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+							'content_language' => $this->string_property( 'Immutable BCP 47 language returned with the Composer-owned draft.', 2, 35 ),
+							'expected_modified_gmt' => array( 'type' => 'string', 'format' => 'date-time' ),
+							'expected_revision' => array( 'type' => 'string', 'format' => 'uuid' ),
+						),
+						'required' => array( 'post_id', 'content_language', 'expected_modified_gmt', 'expected_revision' ),
+						'additionalProperties' => false,
+					),
+				),
+				'confirm_link' => array( 'type' => 'boolean', 'enum' => array( true ) ),
+			),
+			'required' => array( 'page_type', 'drafts', 'confirm_link' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	public function localized_draft_group_attachment_schema(): array {
+		return array(
+			'type' => 'object',
+			'properties' => array(
+				'page_type' => $this->string_property( 'Blueprint page type shared by the group and draft.', 1, 64 ),
+				'anchor_post_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+				'expected_localization_group' => $this->string_property( 'Exact provider group identifier returned in inspect-content-item localization data before attachment.', 1, 128 ),
+				'draft' => array(
+					'type' => 'object',
+					'properties' => array(
+						'post_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+						'content_language' => $this->string_property( 'Immutable BCP 47 language returned with the Composer-owned draft.', 2, 35 ),
+						'expected_modified_gmt' => array( 'type' => 'string', 'format' => 'date-time' ),
+						'expected_revision' => array( 'type' => 'string', 'format' => 'uuid' ),
+					),
+					'required' => array( 'post_id', 'content_language', 'expected_modified_gmt', 'expected_revision' ),
+					'additionalProperties' => false,
+				),
+				'confirm_attach' => array( 'type' => 'boolean', 'enum' => array( true ) ),
+			),
+			'required' => array( 'page_type', 'anchor_post_id', 'expected_localization_group', 'draft', 'confirm_attach' ),
+			'additionalProperties' => false,
+		);
 	}
 
 	public function post_id_schema(): array {
@@ -1171,7 +1304,7 @@ final class Abilities {
 					'enum'    => array( 'any', 'current-agent', 'unassigned', 'other-agent', 'composer-owned', 'not-composer-owned' ),
 					'default' => 'any',
 				),
-				'search'     => $this->string_property( 'Optional title/content search terms.', 0, 200 ),
+				'search'     => $this->string_property( 'Optional title, slug, or content search terms.', 0, 200 ),
 				'orderby'    => array(
 					'type'    => 'string',
 					'enum'    => array( 'modified', 'date', 'title', 'ID' ),
@@ -1565,6 +1698,30 @@ final class Abilities {
 		$schema['properties']['confirm_clone'] = array( 'type' => 'boolean', 'enum' => array( true ) );
 		$schema['required'] = array( 'post_id', 'page_type', 'expected_modified_gmt', 'expected_content_hash', 'idempotency_key', 'confirm_clone' );
 		return $schema;
+	}
+
+	public function content_proposal_create_schema(): array {
+		$schema = $this->content_inspection_schema();
+		$schema['properties']['content_language'] = $this->string_property( 'Exact approved BCP 47 language of the localized source.', 2, 35 );
+		$schema['properties']['expected_modified_gmt'] = array( 'type' => 'string', 'format' => 'date-time' );
+		$schema['properties']['expected_content_hash'] = array( 'type' => 'string', 'pattern' => '^[a-f0-9]{64}$' );
+		$schema['properties']['idempotency_key'] = array( 'type' => 'string', 'minLength' => 8, 'maxLength' => 128, 'pattern' => '^[A-Za-z0-9._:-]+$' );
+		$schema['properties']['confirm_proposal'] = array( 'type' => 'boolean', 'enum' => array( true ) );
+		$schema['required'] = array( 'post_id', 'page_type', 'content_language', 'expected_modified_gmt', 'expected_content_hash', 'idempotency_key', 'confirm_proposal' );
+		return $schema;
+	}
+
+	public function content_proposal_submit_schema(): array {
+		return array(
+			'type' => 'object',
+			'properties' => array(
+				'post_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+				'expected_modified_gmt' => array( 'type' => 'string', 'format' => 'date-time' ),
+				'expected_revision' => array( 'type' => 'string', 'format' => 'uuid' ),
+			),
+			'required' => array( 'post_id', 'expected_modified_gmt', 'expected_revision' ),
+			'additionalProperties' => false,
+		);
 	}
 
 	public function adoption_inspection_schema(): array {
