@@ -10,6 +10,7 @@ use SmartCloud\AgentComposer\Integration\Abilities\ExecutionAbilityAliases;
 final class ComposerMcpServer {
 	public const SERVER_ID = 'smartcloud-agent-composer';
 	public const HTTP_ENDPOINT = '/wp-json/mcp/smartcloud-agent-composer';
+	public const PREVIEW_RESOURCE_URI = 'ui://smartcloud-agent-composer/rendered-preview/v1.html';
 
 	private array $registered_adapters = array();
 
@@ -37,10 +38,11 @@ final class ComposerMcpServer {
 		}
 
 		$this->registered_adapters[ $id ] = true;
-		$this->create_server( $adapter, self::SERVER_ID, 'SmartCloud Agent Composer', $names );
+		$resources = array_values( array_filter( Abilities::resource_names(), static fn( string $name ): bool => wp_has_ability( $name ) ) );
+		$this->create_server( $adapter, self::SERVER_ID, 'SmartCloud Agent Composer', $names, $resources );
 	}
 
-	private function create_server( object $adapter, string $id, string $label, array $names ): void {
+	private function create_server( object $adapter, string $id, string $label, array $names, array $resources ): void {
 		$adapter->create_server(
 			$id,
 			'mcp',
@@ -52,7 +54,7 @@ final class ComposerMcpServer {
 			\WP\MCP\Infrastructure\ErrorHandling\ErrorLogMcpErrorHandler::class,
 			\WP\MCP\Infrastructure\Observability\NullMcpObservabilityHandler::class,
 			$names,
-			array(),
+			$resources,
 			array()
 		);
 	}

@@ -53,10 +53,13 @@ test("published declarations compile for a clean NodeNext consumer", () => {
     writeFileSync(
       join(fixtureRoot, "index.ts"),
       `import { CONTRACT_VERSION } from "@smart-cloud/agent-composer-core";\n` +
-        `import type { CreateContentProposalInput, SiteContractDesignPolicy } from "@smart-cloud/agent-composer-core";\n` +
+        `import type { CreateContentProposalInput, GetRenderedPreviewInput, RenderedPreviewDocument, RenderedPreviewResult, SiteContractDesignPolicy } from "@smart-cloud/agent-composer-core";\n` +
         `const input = {} as CreateContentProposalInput;\n` +
+        `const previewInput = { post_id: 42 } satisfies GetRenderedPreviewInput;\n` +
+        `const previewDocument = {} as RenderedPreviewDocument;\n` +
+        `const previewResult = {} as RenderedPreviewResult;\n` +
         `const policy = {} as SiteContractDesignPolicy;\n` +
-        `void [CONTRACT_VERSION, input, policy];\n`,
+        `void [CONTRACT_VERSION, input, previewInput, previewDocument, previewResult, policy];\n`,
     );
     writeFileSync(
       join(fixtureRoot, "tsconfig.json"),
@@ -82,7 +85,17 @@ test("published declarations compile for a clean NodeNext consumer", () => {
     });
 
     assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
-    assert.match(readFileSync(join(packageRoot, "dist", "index.d.ts"), "utf8"), /from "\.\/constants\.js"/);
+    const declarationIndex = readFileSync(join(packageRoot, "dist", "index.d.ts"), "utf8");
+    const declarationTypes = readFileSync(join(packageRoot, "dist", "types.d.ts"), "utf8");
+    assert.match(declarationIndex, /from "\.\/constants\.js"/);
+    assert.match(declarationIndex, /GetRenderedPreviewInput/);
+    assert.match(declarationIndex, /RenderedPreviewAsset/);
+    assert.match(declarationIndex, /RenderedPreviewWarning/);
+    assert.match(declarationIndex, /RenderedPreviewDocument/);
+    assert.match(declarationIndex, /RenderedPreviewResult/);
+    assert.match(declarationTypes, /contract_version: "1"/);
+    assert.match(declarationTypes, /fidelity: "static"/);
+    assert.match(declarationTypes, /mime_type: "text\/html"/);
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }

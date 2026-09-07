@@ -38,7 +38,8 @@
     "create-page-draft",
     "update-own-draft",
     "get-draft",
-    "get-preview"
+    "get-preview",
+    "get-rendered-preview"
   ],
   "preferred_aliases": [
     "materialize-image",

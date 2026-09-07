@@ -259,6 +259,50 @@ export interface ContentProposalValidationReport {
   content_language: Bcp47LanguageTag;
 }
 
+export interface GetRenderedPreviewInput {
+  post_id: number;
+  expected_modified_gmt?: IsoDateTime;
+  expected_revision?: Uuid;
+}
+
+export interface RenderedPreviewAsset {
+  kind: "image" | "stylesheet" | "font";
+  url: string;
+  origin: string;
+}
+
+export interface RenderedPreviewWarning {
+  code: string;
+  message: string;
+  block_name?: string;
+}
+
+export interface RenderedPreviewDocument {
+  contract_version: "1";
+  post_id: number;
+  modified_gmt: IsoDateTime;
+  revision: Uuid;
+  title: string;
+  content_language: Bcp47LanguageTag;
+  direction: "ltr" | "rtl";
+  scope: "content" | "theme-document";
+  fidelity: "static";
+  mime_type: "text/html";
+  html: string;
+  sha256: Sha256Hex;
+  byte_length: number;
+  assets: RenderedPreviewAsset[];
+  warnings: RenderedPreviewWarning[];
+}
+
+export interface RenderedPreviewResult {
+  post_id: number;
+  edit_url: string;
+  preview_url: string;
+  validation: ContentProposalValidationReport;
+  document: RenderedPreviewDocument;
+}
+
 export interface ContentProposalSummary {
   proposal_id: number;
   post_id: number;

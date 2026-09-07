@@ -23,6 +23,7 @@ final class Abilities {
 	private Content_Proposal_Service $proposals;
 	private Localization_Provider_Registry $localization;
 	private Localized_Draft_Service $localized_drafts;
+	private Rendered_Preview_Service $rendered_previews;
 
 	public function __construct(
 		Config_Repository $config,
@@ -37,7 +38,8 @@ final class Abilities {
 		Remote_Media_Ingestor $remote_media,
 		Content_Proposal_Service $proposals,
 		Localization_Provider_Registry $localization,
-		Localized_Draft_Service $localized_drafts
+		Localized_Draft_Service $localized_drafts,
+		Rendered_Preview_Service $rendered_previews
 	) {
 		$this->config    = $config;
 		$this->drafts    = $drafts;
@@ -52,6 +54,7 @@ final class Abilities {
 		$this->proposals      = $proposals;
 		$this->localization   = $localization;
 		$this->localized_drafts = $localized_drafts;
+		$this->rendered_previews = $rendered_previews;
 	}
 
 	public static function names(): array {
@@ -93,7 +96,12 @@ final class Abilities {
 			self::PREFIX . 'update-own-draft',
 			self::PREFIX . 'get-draft',
 			self::PREFIX . 'get-preview',
+			self::PREFIX . 'get-rendered-preview',
 		);
+	}
+
+	public static function resource_names(): array {
+		return array( self::PREFIX . 'rendered-preview-app' );
 	}
 
 	public function register_category(): void {
@@ -434,6 +442,24 @@ final class Abilities {
 			array( $this, 'get_preview' ),
 			true
 		);
+		$this->register_ability(
+			'get-rendered-preview',
+			'Get rendered draft preview',
+			'Renders bounded, sanitized static HTML for one Composer-owned draft and returns preview metadata for MCP Apps. It does not execute shortcodes, frontend JavaScript, forms, or site template parts.',
+			$this->rendered_preview_input_schema(),
+			array( $this, 'get_rendered_preview' ),
+			true,
+			$this->rendered_preview_output_schema(),
+			array(
+				'_meta' => array(
+					'ui' => array( 'resourceUri' => ComposerMcpServer::PREVIEW_RESOURCE_URI ),
+					'openai/outputTemplate' => ComposerMcpServer::PREVIEW_RESOURCE_URI,
+					'openai/toolInvocation/invoking' => 'Rendering draft preview…',
+					'openai/toolInvocation/invoked' => 'Draft preview ready',
+				),
+			)
+		);
+		$this->register_rendered_preview_resource();
 	}
 
 	public function get_page_blueprint( array $input ): array|\WP_Error {
@@ -526,6 +552,13 @@ final class Abilities {
 						'adapter_available' => class_exists( '\\WP\\MCP\\Core\\McpAdapter' ),
 						'server_id'         => ComposerMcpServer::SERVER_ID,
 						'endpoint'          => ComposerMcpServer::HTTP_ENDPOINT,
+						'rendered_preview'  => array(
+							'ability'        => self::PREFIX . 'get-rendered-preview',
+							'resource_uri'   => ComposerMcpServer::PREVIEW_RESOURCE_URI,
+							'scope'          => 'content',
+							'fidelity'       => 'static',
+							'max_html_bytes' => 500000,
+						),
 						'optional'          => true,
 					),
 					'component_providers'     => $providers,
@@ -954,6 +987,10 @@ final class Abilities {
 		return $this->execute( 'get-preview', $input, fn() => $this->drafts->get_preview( absint( $input['post_id'] ) ) );
 	}
 
+	public function get_rendered_preview( array $input ): array|\WP_Error {
+		return $this->execute( 'get-rendered-preview', $input, fn() => $this->rendered_previews->get( $input ) );
+	}
+
 	public function check_permission( mixed $input = null ): bool {
 		return is_user_logged_in()
 			&& current_user_can( \SmartCloud\AgentComposer\Infrastructure\WordPress\Activation::CAP_USE )
@@ -963,7 +1000,7 @@ final class Abilities {
 			&& current_user_can( 'edit_posts' );
 	}
 
-	private function register_ability( string $slug, string $label, string $description, array $input_schema, callable $callback, bool $read_only, ?array $output_schema = null ): void {
+	private function register_ability( string $slug, string $label, string $description, array $input_schema, callable $callback, bool $read_only, ?array $output_schema = null, array $mcp_meta = array() ): void {
 		wp_register_ability(
 			self::PREFIX . $slug,
 			array(
@@ -976,7 +1013,7 @@ final class Abilities {
 				'permission_callback' => array( $this, 'check_permission' ),
 				'meta'                => array(
 					'show_in_rest' => false,
-					'mcp'          => array( 'public' => false ),
+					'mcp'          => array_merge( array( 'public' => false ), $mcp_meta ),
 					'annotations' => array(
 						'readonly'    => $read_only,
 						'destructive' => false,
@@ -989,6 +1026,75 @@ final class Abilities {
 				),
 			)
 		);
+	}
+
+	private function register_rendered_preview_resource(): void {
+		$name = self::PREFIX . 'rendered-preview-app';
+		if ( function_exists( 'wp_has_ability' ) && wp_has_ability( $name ) ) {
+			return;
+		}
+		wp_register_ability(
+			$name,
+			array(
+				'label'               => 'Rendered preview app',
+				'description'         => 'MCP Apps UI resource for displaying a sanitized Composer draft preview.',
+				'category'            => self::CATEGORY,
+				'input_schema'        => $this->empty_schema(),
+				'output_schema'       => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'additionalProperties' => true ) ),
+				'execute_callback'    => array( $this, 'rendered_preview_resource' ),
+				'permission_callback' => array( $this, 'check_permission' ),
+				'meta'                => array(
+					'show_in_rest' => false,
+					'mcp'          => array(
+						'public'      => false,
+						'type'        => 'resource',
+						'uri'         => ComposerMcpServer::PREVIEW_RESOURCE_URI,
+						'name'        => 'Composer rendered preview',
+						'title'       => 'Composer rendered preview',
+						'description' => 'Displays a sanitized static HTML preview returned by get-rendered-preview.',
+						'mimeType'    => 'text/html;profile=mcp-app',
+						'_meta'       => array( 'ui' => $this->rendered_preview_ui_meta() ),
+						'annotations' => array( 'audience' => array( 'user', 'assistant' ), 'priority' => 0.9 ),
+					),
+				),
+			)
+		);
+	}
+
+	public function rendered_preview_resource( array $input = array() ): array {
+		return array(
+			array(
+				'uri'      => ComposerMcpServer::PREVIEW_RESOURCE_URI,
+				'mimeType' => 'text/html;profile=mcp-app',
+				'text'     => $this->rendered_preview_app_html(),
+				'_meta'    => array( 'ui' => $this->rendered_preview_ui_meta() ),
+			),
+		);
+	}
+
+	private function rendered_preview_ui_meta(): array {
+		return array(
+			'prefersBorder' => true,
+			'csp'           => array(
+				'connectDomains'  => array(),
+				'resourceDomains' => Rendered_Preview_Service::allowed_asset_origins(),
+				'frameDomains'    => array(),
+			),
+		);
+	}
+
+	private function rendered_preview_app_html(): string {
+		return <<<'HTML'
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+:root{color-scheme:light dark;font:14px/1.5 system-ui,sans-serif}body{margin:0;padding:16px;background:transparent;color:CanvasText}.meta{display:flex;gap:12px;align-items:center;margin:0 0 12px;color:GrayText;font-size:12px}.preview{overflow:auto;padding:clamp(16px,4vw,40px);border:1px solid color-mix(in srgb,CanvasText 16%,transparent);border-radius:12px;background:Canvas}.preview h1{font-size:clamp(1.75rem,4vw,3rem);line-height:1.1}.preview img{max-width:100%;height:auto}.preview table{display:block;max-width:100%;overflow:auto}.preview a{color:LinkText}.warnings{margin:12px 0 0;padding-left:20px;color:GrayText}.empty{padding:24px;text-align:center;color:GrayText}
+</style></head><body><div class="meta"><strong id="title">Draft preview</strong><span id="details"></span></div><main id="preview" class="preview"><p class="empty">Waiting for rendered preview data…</p></main><ul id="warnings" class="warnings" hidden></ul><script>
+const preview=document.getElementById('preview');const title=document.getElementById('title');const details=document.getElementById('details');const warnings=document.getElementById('warnings');
+function sanitize(html){const parsed=new DOMParser().parseFromString(String(html||''),'text/html');parsed.querySelectorAll('script,iframe,object,embed,base,meta,link,style,form,input,button,textarea,select').forEach((node)=>node.remove());parsed.querySelectorAll('*').forEach((node)=>{for(const attr of [...node.attributes]){const name=attr.name.toLowerCase();if(name.startsWith('on')||name==='srcdoc'||name==='style')node.removeAttribute(attr.name)}});return [...parsed.body.childNodes]}
+function render(payload){const result=payload?.structuredContent??payload;const data=result?.document?result:result?.result;const doc=data?.document;if(!doc){return}title.textContent=doc.title||'Draft preview';details.textContent=`${doc.content_language||''} · ${doc.byte_length||0} bytes`;preview.replaceChildren(...sanitize(doc.html));preview.setAttribute('dir',doc.direction==='rtl'?'rtl':'ltr');preview.setAttribute('lang',doc.content_language||'en');warnings.replaceChildren();for(const warning of doc.warnings||[]){const item=document.createElement('li');item.textContent=warning.message||warning.code||'Preview warning';warnings.append(item)}warnings.hidden=!warnings.children.length}
+preview.addEventListener('click',(event)=>{if(event.target.closest('a'))event.preventDefault()},{capture:true});
+window.addEventListener('message',(event)=>{if(event.source!==window.parent)return;const message=event.data;if(!message||message.jsonrpc!=='2.0')return;if(message.method==='ui/notifications/tool-result')render(message.params)},{passive:true});
+</script></body></html>
+HTML;
 	}
 
 	private function execute( string $slug, array $input, callable $callback ): array|\WP_Error {
@@ -1023,6 +1129,82 @@ final class Abilities {
 			do_action( 'smartcloud_composer_internal_error', $error, $operation );
 			return new \WP_Error( 'smartcloud_agent_internal_error', 'The ability failed unexpectedly.', array( 'status' => 500, 'request_id' => $this->audit->get_request_id() ) );
 		}
+	}
+
+	private function rendered_preview_input_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'post_id'               => array( 'type' => 'integer', 'minimum' => 1 ),
+				'expected_modified_gmt' => array( 'type' => 'string', 'format' => 'date-time' ),
+				'expected_revision'     => array( 'type' => 'string', 'format' => 'uuid' ),
+			),
+			'required'             => array( 'post_id' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	private function rendered_preview_output_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'post_id'     => array( 'type' => 'integer', 'minimum' => 1 ),
+				'edit_url'    => array( 'type' => 'string' ),
+				'preview_url' => array( 'type' => 'string' ),
+				'validation'  => array( 'type' => 'object', 'additionalProperties' => true ),
+				'document'    => array(
+					'type'                 => 'object',
+					'properties'           => array(
+						'contract_version' => array( 'type' => 'string', 'enum' => array( '1' ) ),
+						'post_id'          => array( 'type' => 'integer', 'minimum' => 1 ),
+						'modified_gmt'      => array( 'type' => 'string', 'format' => 'date-time' ),
+						'revision'          => array( 'type' => 'string', 'format' => 'uuid' ),
+						'title'             => array( 'type' => 'string' ),
+						'content_language'  => array( 'type' => 'string', 'minLength' => 2, 'maxLength' => 35 ),
+						'direction'         => array( 'type' => 'string', 'enum' => array( 'ltr', 'rtl' ) ),
+						'scope'             => array( 'type' => 'string', 'enum' => array( 'content', 'theme-document' ) ),
+						'fidelity'          => array( 'type' => 'string', 'enum' => array( 'static' ) ),
+						'mime_type'         => array( 'type' => 'string', 'enum' => array( 'text/html' ) ),
+						'html'              => array( 'type' => 'string', 'maxLength' => 500000 ),
+						'sha256'            => array( 'type' => 'string', 'pattern' => '^[a-f0-9]{64}$' ),
+						'byte_length'       => array( 'type' => 'integer', 'minimum' => 0, 'maximum' => 500000 ),
+						'assets'            => array(
+							'type'     => 'array',
+							'maxItems' => 250,
+							'items'    => array(
+								'type'                 => 'object',
+								'properties'           => array(
+									'kind'   => array( 'type' => 'string', 'enum' => array( 'image', 'stylesheet', 'font' ) ),
+									'url'    => array( 'type' => 'string' ),
+									'origin' => array( 'type' => 'string' ),
+								),
+								'required'             => array( 'kind', 'url', 'origin' ),
+								'additionalProperties' => false,
+							),
+						),
+						'warnings'          => array(
+							'type'     => 'array',
+							'maxItems' => 250,
+							'items'    => array(
+								'type'                 => 'object',
+								'properties'           => array(
+									'code'       => array( 'type' => 'string' ),
+									'message'    => array( 'type' => 'string' ),
+									'block_name' => array( 'type' => 'string' ),
+								),
+								'required'             => array( 'code', 'message' ),
+								'additionalProperties' => false,
+							),
+						),
+					),
+					'required'             => array( 'contract_version', 'post_id', 'modified_gmt', 'revision', 'title', 'content_language', 'direction', 'scope', 'fidelity', 'mime_type', 'html', 'sha256', 'byte_length', 'assets', 'warnings' ),
+					'additionalProperties' => false,
+				),
+				'_request_id' => array( 'type' => 'string' ),
+			),
+			'required'             => array( 'post_id', 'edit_url', 'preview_url', 'validation', 'document', '_request_id' ),
+			'additionalProperties' => false,
+		);
 	}
 
 	private function page_type_schema(): array {

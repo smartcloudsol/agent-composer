@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.2.0
+Stable tag: 1.2.1
 License: MIT
 License URI: https://mit-license.org/
 
@@ -28,6 +28,7 @@ Core operation runs inside WordPress without requiring a WP Suite account, subsc
 * Human-readable, ordered relation editing constrained by allowed target types, statuses, and cardinality.
 * Existing-image assignment and optional bounded raster ingestion from approved HTTPS hosts.
 * Short-lived preview drafts with ownership-checked cleanup.
+* Bounded, sanitized static HTML previews with optional inline MCP Apps rendering in compatible clients.
 * Redacted, tamper-evident audit events in an append-only SHA-256 hash chain.
 * Checksum-protected Config Set lifecycle and active-theme/provider discovery.
 * Provider-neutral language discovery that distinguishes authored-language policy from actual site language switching.
@@ -62,7 +63,7 @@ No. Agent-facing operations create and update drafts only. Normal content cannot
 
 = How does an agent connect? =
 
-Install the WordPress MCP Adapter, use a dedicated authenticated WordPress user, and connect a compatible MCP client to `/wp-json/mcp/smartcloud-agent-composer`. An optional Connector tunnel can expose the same endpoint without changing Composer's WordPress authorization boundary.
+Install the WordPress MCP Adapter, use a dedicated authenticated WordPress user, and connect a compatible MCP client to `/wp-json/mcp/smartcloud-agent-composer`. An optional Connector tunnel can expose the same endpoint without changing Composer's WordPress authorization boundary. The `get-rendered-preview` tool returns a sanitized content-scoped HTML snapshot. MCP Apps clients can display it inline when WordPress MCP Adapter 0.6.0 or newer is installed; other clients still receive the structured result.
 
 = How does media handling work? =
 
@@ -142,6 +143,11 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 
 == Changelog ==
 
+= 1.2.1 =
+* Preview: Return bounded and sanitized static HTML for Composer-owned drafts with validation, concurrency metadata, a digest, and approved asset origins.
+* MCP Apps: Expose an inline rendered-preview resource for compatible clients while retaining the structured tool result for every MCP client.
+* Dependencies: Refresh the Composer admin application and public core contract while retaining React 18 compatibility.
+
 = 1.2.0 =
 * Proposals: Allow agents to prepare durable working copies for published content while keeping merge and rejection human-only.
 * Localization: Add a provider-neutral localization contract, a manifest-driven provider selector, and separately installable WPML and Polylang bridges for existing translations and separately authored multilingual drafts.
@@ -183,6 +189,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.2.1 =
+Refresh the MCP tool and resource catalog after upgrading. Inline ChatGPT previews require WordPress MCP Adapter 0.6.0 or newer; structured preview data remains available without MCP Apps UI support.
 
 = 1.2.0 =
 Adds human-reviewed published-content proposals and optional Polylang/WPML draft linking. Review and activate a compatible Config Set, install the matching localization bridge when needed, and refresh the MCP tool catalogue.

@@ -1,6 +1,6 @@
 {
   "name": "smartcloud-agent-composer-source",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "workspaces": [
     "core",
@@ -17,6 +17,18 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "ajv": "^8.20.0"
+    "@eslint/js": "^9.39.0",
+    "@types/node": "^20.19.30",
+    "ajv": "^8.20.0",
+    "esbuild": "^0.28.1",
+    "picomatch": "^4.0.5",
+    "postcss-selector-parser": "^7.1.6",
+    "eslint": "^9.39.0",
+    "yaml": "^2.8.1",
+    "tsup": "^8.5.1"
+  },
+  "overrides": {
+    "esbuild": "$esbuild",
+    "yaml": "$yaml"
   }
 }

@@ -2,7 +2,7 @@
 
 SmartCloud Agent Composer is the WordPress plugin layer of a governed, agent-assisted Gutenberg content-production workflow. Administrators define an active Config Set containing a site-wide design and safety contract plus page-type Blueprints. Authenticated agents can then create and revise validated WordPress drafts that fit the active theme's discovered or declared capabilities.
 
-Composer does not publish content, delete ordinary content, edit themes or plugins, upload media, or expose a general-purpose WordPress administration API to an agent.
+Composer does not publish content, delete ordinary content, edit themes or plugins, or expose a general-purpose WordPress administration API to an agent. Media operations are limited to existing-image assignment and optional one-image ingestion from administrator-approved HTTPS hosts into Composer-owned drafts.
 
 ![WordPress](https://img.shields.io/badge/WordPress-%3E%3D6.9-21759b.svg)
 ![PHP](https://img.shields.io/badge/PHP-%3E%3D8.1-777bb4.svg)
@@ -24,8 +24,10 @@ Composer does not publish content, delete ordinary content, edit themes or plugi
 - Requires validation before activation or archived-set restoration.
 - Exposes governed WordPress Abilities through the WordPress MCP Adapter.
 - Creates and updates only agent-owned drafts, with optimistic-concurrency checks.
-- Uses existing Media Library images without granting media-upload or deletion capabilities.
+- Uses existing Media Library images and assigns featured images without granting general media-upload or deletion capabilities.
+- Optionally ingests one bounded raster image from an exact administrator-approved HTTPS host, stores it locally, and restricts assignment to a Composer-owned draft.
 - Creates short-lived preview drafts and removes only expired Composer-owned previews.
+- Returns a bounded, sanitized static HTML rendering for an owned draft and exposes an optional MCP Apps preview inside compatible clients.
 - Records redacted, tamper-evident audit events in a SHA-256 hash chain.
 - Exports and restores checksum-protected configuration packages without secrets or site-specific audit history.
 
@@ -33,7 +35,7 @@ Composer works with standard block themes and can use a compatible subset of the
 
 ## Connecting an agent
 
-Composer registers `/wp-json/mcp/smartcloud-agent-composer` after the separate WordPress MCP Adapter is installed and active. A compatible, authenticated MCP client can connect directly, or an OpenAI Connector tunnel can expose the same server to a compatible OpenAI client.
+Composer registers `/wp-json/mcp/smartcloud-agent-composer` after the separate WordPress MCP Adapter is installed and active. A compatible, authenticated MCP client can connect directly, or an OpenAI Connector tunnel can expose the same server to a compatible OpenAI client. The `get-rendered-preview` tool always returns structured preview data; WordPress MCP Adapter 0.6.0 or newer also preserves the MCP Apps resource MIME type and metadata needed for inline ChatGPT rendering.
 
 Use a dedicated WordPress user with the `smartcloud_agent` role. That role has governed draft-execution permissions and does not receive publishing, plugin-management, theme-management, user-management, media-upload, or unfiltered-HTML capabilities.
 
@@ -44,7 +46,7 @@ The basic flow is:
 3. Review Theme & providers, then configure the Site Contract and page-type Blueprints.
 4. Apply staged changes, validate the complete set, and activate it explicitly.
 5. Connect an authenticated MCP client as a dedicated `smartcloud_agent` user.
-6. Load the Blueprint and design context, validate the proposed block plan, create a draft, and inspect its preview.
+6. Load the Blueprint and design context, validate the proposed block plan, create a draft, then inspect its URL preview or request its static rendered preview.
 
 ## Repository layout
 
@@ -199,12 +201,12 @@ The assembler flattens these source inputs:
 - `admin/php/*` -> packaged `admin/*`
 - Composer runtime PHP, `readme.txt`, `LICENSE`, and `uninstall.php` -> plugin root
 
-It also assembles `hub-for-wpsuiteio/` from the separate shared workspaces:
+It also assembles `smartcloud-wpsuite/` from the separate shared workspaces:
 
-- `common/wpsuite-main/dist/*` -> `hub-for-wpsuiteio/`
-- `common/wpsuite-admin/php/*` and `common/wpsuite-admin/dist/*` -> `hub-for-wpsuiteio/`
-- `common/wpsuite-*-vendor/dist/*.js` -> `hub-for-wpsuiteio/assets/js/`
-- `common/wpsuite-*-vendor/dist/*.css` -> `hub-for-wpsuiteio/assets/css/`
+- `common/wpsuite-main/dist/*` -> `smartcloud-wpsuite/`
+- `common/wpsuite-admin/php/*` and `common/wpsuite-admin/dist/*` -> `smartcloud-wpsuite/`
+- `common/wpsuite-*-vendor/dist/*.js` -> `smartcloud-wpsuite/assets/js/`
+- `common/wpsuite-*-vendor/dist/*.css` -> `smartcloud-wpsuite/assets/css/`
 
 Do not hand-package a release directly from this source directory. The versioned ZIP recorded in `wpsuite-plugins/release-manifest.json` is the canonical development-server and release candidate artifact.
 
@@ -218,9 +220,10 @@ Reference: https://developer.wordpress.org/plugins/wordpress-org/common-issues/#
 
 ## External services
 
-Composer's configuration, validation, audit, draft ownership, concurrency, pattern assembly, media lookup, and preview handling run inside WordPress. Depending on administrator configuration, the packaged shared Hub and provider plugins may optionally use:
+Composer's configuration, validation, audit, draft ownership, concurrency, pattern assembly, local media lookup, and preview handling run inside WordPress. Depending on administrator configuration, the packaged shared Hub and provider plugins may optionally use:
 
 - provider-owned WordPress Abilities and their separately disclosed services;
+- exact administrator-approved HTTPS image hosts for bounded remote raster ingestion;
 - WPSuite.io for optional workspace linking and shared Hub functions;
 - Amazon Cognito for optional shared Hub authentication;
 - Stripe for an optional shared Hub subscription or purchase flow.

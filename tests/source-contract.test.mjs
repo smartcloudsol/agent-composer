@@ -49,6 +49,24 @@ test("workspace-only WP Suite preset contains every one of the 18 current page t
   assert.ok(preset.blueprints.every(({ excerpt }) => ["required", "optional", "disabled"].includes(excerpt)));
 });
 
+test("WP Suite docs-shell authoring enables every public documentation language", () => {
+  const expected = ["en-US", "hu-HU", "de-DE", "es-ES"];
+  const site = JSON.parse(read("presets/wpsuite/site-contract.json"));
+  const blueprint = JSON.parse(read("presets/wpsuite/blueprints/docs-shell.json"));
+  const bundle = JSON.parse(read("presets/wpsuite/wpsuite-site-contract.package.json"));
+  const bundledSite = bundle.entities.find((entity) => entity.type === "site-contract" && entity.id === "contract:site");
+  const bundledBlueprint = bundle.entities.find((entity) => entity.type === "blueprint" && entity.id === "docs-shell");
+
+  assert.deepEqual(site.design_policy.localization, {
+    provider: "auto",
+    allowed_content_languages: expected,
+  });
+  assert.equal(blueprint.content_language, "en-US");
+  assert.deepEqual(blueprint.allowed_content_languages, expected);
+  assert.deepEqual(bundledSite?.payload, site);
+  assert.deepEqual(bundledBlueprint?.payload, blueprint);
+});
+
 test("WordPress admin build exposes the complete public feature source and externalizes Mantine", () => {
   const rootPackage = JSON.parse(read("package.json"));
   const packageJson = JSON.parse(read("admin/package.json"));
@@ -211,10 +229,26 @@ test("Composer execution contract is checksum-pinned and canonical names are fro
   const surface = JSON.parse(read("tests/fixtures/execution-ability-surface.json"));
   assert.equal(surface.contract, manifest.contract);
   const aliases = read("src/Integration/Abilities/ExecutionAbilityAliases.php");
-  assert.equal(surface.operations.length, 37);
+  assert.equal(surface.operations.length, 38);
   for (const alias of surface.preferred_aliases) {
     assert.match(aliases, new RegExp(alias.replaceAll("-", "\\-")));
   }
+});
+
+test("rendered preview exposes a bounded data tool and an MCP Apps UI resource", () => {
+  const abilities = read("src/Execution/Abilities.php");
+  const server = read("src/Integration/Mcp/ComposerMcpServer.php");
+  const renderer = read("src/Execution/Rendered_Preview_Service.php");
+  assert.match(abilities, /get-rendered-preview/);
+  assert.match(abilities, /text\/html;profile=mcp-app/);
+  assert.match(abilities, /'ui'\s*=>\s*array\(\s*'resourceUri'/);
+  assert.match(abilities, /'openai\/outputTemplate'/);
+  assert.match(server, /\$resources/);
+  assert.match(renderer, /do_blocks/);
+  assert.match(renderer, /wp_kses_post/);
+  assert.match(renderer, /MAX_HTML_BYTES = 500000/);
+  assert.match(renderer, /image_origin_not_allowed/);
+  assert.doesNotMatch(renderer, /do_shortcode|apply_filters\(\s*['"]the_content/);
 });
 
 test("relation discovery is unambiguous and editable-content totals are post-filtered", () => {
@@ -279,8 +313,8 @@ test("release copy contains no internal milestone or retired theme-contract narr
   assert.doesNotMatch(read("readme.txt"), /development milestone|not yet (?:the )?final/i);
   assert.match(read("smartcloud-agent-composer.php"), /License:\s+MIT/);
   assert.equal(fs.existsSync(path.join(root, "LICENSE")), true);
-  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.2\.0/);
-  assert.match(read("readme.txt"), /Stable tag:\s+1\.2\.0/);
+  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.2\.1/);
+  assert.match(read("readme.txt"), /Stable tag:\s+1\.2\.1/);
 });
 
 test("localization selection is manifest-driven and the main runtime names no concrete provider", () => {
