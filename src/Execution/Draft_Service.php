@@ -867,6 +867,10 @@ final class Draft_Service {
 		}
 		$content = (string) $post->post_content;
 		$localization = $this->localization->resolve( $post_id, $post->post_type );
+		$validation   = $this->validator->validate( $page_type, $content );
+		if ( ! empty( $localization['content_language'] ) ) {
+			$validation['content_language'] = (string) $localization['content_language'];
+		}
 		return array(
 			'post_id'       => $post_id,
 			'post_type'     => $post->post_type,
@@ -883,7 +887,7 @@ final class Draft_Service {
 			'composer_owned' => $composer_owned,
 			'cloneable'     => ! $composer_owned && $access['clone'],
 			'proposable'    => 'publish' === $post->post_status && ! empty( $access['propose_updates'] ),
-			'validation'    => $this->validator->validate( $page_type, $content ),
+			'validation'    => $validation,
 		);
 	}
 
@@ -910,6 +914,12 @@ final class Draft_Service {
 		$title = isset( $input['title'] ) ? $this->sanitize_title( $input['title'] ) : $this->sanitize_title( 'Copy of ' . (string) $source['title'] );
 		$slug = isset( $input['slug'] ) ? $this->sanitize_slug( $input['slug'] ) : '';
 		$content_language = trim( (string) ( $source['localization']['content_language'] ?? '' ) );
+		if ( isset( $input['target_content_language'] ) ) {
+			$content_language = $this->language->request_language(
+				$page_type,
+				array( 'content_language' => (string) $input['target_content_language'] )
+			);
+		}
 		$lock_name = $this->acquire_idempotency_lock( $user_id, $key );
 		try {
 			$existing = $this->find_idempotent_draft( $user_id, $key, $page_type, $target );
@@ -960,14 +970,25 @@ final class Draft_Service {
 			}
 			$post = get_post( (int) $post_id );
 			if ( ! $post instanceof \WP_Post ) {
+				wp_delete_post( (int) $post_id, true );
 				throw new Execution_Exception( 'draft_read_after_clone_failed', 'The clone was created but could not be read back.' );
 			}
 			$post = $this->initialize_created_modified_gmt( $post );
 			$this->assert_post_contract( $post, $page_type, $target );
+			$stored_content = (string) $post->post_content;
+			$stored_hash    = hash( 'sha256', $stored_content );
+			if ( ! hash_equals( (string) $source['content_hash'], $stored_hash ) ) {
+				wp_delete_post( (int) $post_id, true );
+				throw new Execution_Exception( 'clone_content_changed', 'WordPress changed the source content while storing the clone, so the clone was rolled back.' );
+			}
+			$stored_validation = $this->validator->validate( $page_type, $stored_content );
+			if ( '' !== $content_language ) {
+				$stored_validation['content_language'] = $content_language;
+			}
 			$result = $this->describe( $post );
 			$result['cloned_from_post_id'] = (int) $source['post_id'];
-			$result['source_preserved'] = hash_equals( (string) $source['content_hash'], hash( 'sha256', (string) $source['content'] ) );
-			$result['validation'] = $source['validation'];
+			$result['source_preserved'] = true;
+			$result['validation'] = $stored_validation;
 			return $result;
 		} finally {
 			$this->release_idempotency_lock( $lock_name );

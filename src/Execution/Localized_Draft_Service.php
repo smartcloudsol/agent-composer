@@ -3,7 +3,7 @@
 
 namespace SmartCloud\AgentComposer\Execution;
 
-/** Links separately authored Composer drafts without publishing either item. */
+/** Manages governed localized-content relationships without changing publication state. */
 final class Localized_Draft_Service {
 	private const LOCK_SECONDS = 60;
 
@@ -30,7 +30,7 @@ final class Localized_Draft_Service {
 		try {
 			$candidates = $this->candidates( $requested, $page_type, $post_type );
 			$result = $this->localization->link_draft_translations( $page_type, $post_type, $candidates );
-			$returned_ids = array_values( array_unique( array_map( 'absint', array_column( (array) ( $result['items'] ?? array() ), 'post_id' ) ) ) );
+			$returned_ids = array_values( array_unique( array_map( static fn( mixed $value ): int => absint( $value ), array_column( (array) ( $result['items'] ?? array() ), 'post_id' ) ) ) );
 			$expected_ids = array_values( array_column( $candidates, 'post_id' ) );
 			sort( $returned_ids );
 			sort( $expected_ids );
@@ -70,7 +70,7 @@ final class Localized_Draft_Service {
 		$this->assert_attach_context( $context, $candidate, $expected_group );
 		$lock_ids = array_values( array_unique( array_merge(
 			array( $anchor_post_id, $candidate['post_id'] ),
-			array_map( 'absint', array_values( (array) ( $context['translations'] ?? array() ) ) )
+			array_map( static fn( mixed $value ): int => absint( $value ), array_values( (array) ( $context['translations'] ?? array() ) ) )
 		) ) );
 		$locks = $this->acquire_locks( $lock_ids );
 		try {
@@ -89,6 +89,125 @@ final class Localized_Draft_Service {
 			$result['page_type'] = $page_type;
 			$result['post_type'] = $post_type;
 			$result['localization_group'] = (string) $confirmed['localization_group'];
+			$result['idempotent_replay'] = false;
+			return $result;
+		} finally {
+			$this->release_locks( $locks );
+		}
+	}
+
+	/** Attach one inspected draft or published item to an empty slot in an existing group. */
+	public function attach_content_to_group( array $input ): array {
+		$page_type = sanitize_key( (string) ( $input['page_type'] ?? '' ) );
+		$anchor_post_id = absint( $input['anchor_post_id'] ?? 0 );
+		$expected_group = substr( sanitize_text_field( (string) ( $input['expected_localization_group'] ?? '' ) ), 0, 128 );
+		$requested = $input['content'] ?? null;
+		if ( '' === $page_type || $anchor_post_id < 1 || '' === $expected_group || ! is_array( $requested ) || true !== ( $input['confirm_attach'] ?? false ) ) {
+			throw new Execution_Exception( 'localized_content_group_confirmation_required', 'An exact Blueprint, translation-group anchor, inspected content item, expected group, and explicit confirmation are required.' );
+		}
+
+		$blueprint = $this->config->get_blueprint( $page_type );
+		$post_type = sanitize_key( (string) ( $blueprint['target_post_type'] ?? '' ) );
+		$anchor = $this->inspect_editable_content( $anchor_post_id, $page_type, $post_type );
+		$candidate = $this->content_candidate( $requested, $page_type, $post_type );
+		if ( $anchor_post_id === $candidate['post_id'] ) {
+			throw new Execution_Exception( 'localized_content_group_anchor_invalid', 'The translation-group anchor and attached content item must be different.' );
+		}
+
+		$context = (array) $anchor['localization'];
+		$already_attached = $this->assert_content_attach_context( $context, $candidate, $expected_group );
+		$source_context = $this->localization->resolve( $candidate['post_id'], $post_type );
+		if ( ! $already_attached ) {
+			$this->assert_singleton_source_group( $source_context, $candidate );
+		}
+		$lock_ids = array_values( array_unique( array_merge(
+			array( $anchor_post_id, $candidate['post_id'] ),
+			array_map( static fn( mixed $value ): int => absint( $value ), array_values( (array) ( $context['translations'] ?? array() ) ) ),
+			array_map( static fn( mixed $value ): int => absint( $value ), array_values( (array) ( $source_context['translations'] ?? array() ) ) )
+		) ) );
+		$locks = $this->acquire_locks( $lock_ids );
+		try {
+			$anchor = $this->inspect_editable_content( $anchor_post_id, $page_type, $post_type );
+			$candidate = $this->content_candidate( $requested, $page_type, $post_type );
+			$context = (array) $anchor['localization'];
+			if ( $this->assert_content_attach_context( $context, $candidate, $expected_group ) ) {
+				return $this->content_attachment_result( $page_type, $post_type, $context, $candidate, true );
+			}
+			$source_context = $this->localization->resolve( $candidate['post_id'], $post_type );
+			$this->assert_singleton_source_group( $source_context, $candidate );
+			$result = $this->localization->attach_content_to_translation_group(
+				$page_type,
+				$post_type,
+				$anchor_post_id,
+				$candidate,
+				$expected_group,
+				$this->normalize_translation_map( (array) ( $context['translations'] ?? array() ) )
+			);
+			$confirmed = $this->localization->resolve( $anchor_post_id, $post_type );
+			$language_code = (string) $candidate['language_code'];
+			$expected_translations = $this->merge_translation_maps(
+				$this->normalize_translation_map( (array) ( $context['translations'] ?? array() ) ),
+				array( $language_code => $candidate['post_id'] )
+			);
+			if ( absint( ( $confirmed['translations'] ?? array() )[ $language_code ] ?? 0 ) !== $candidate['post_id']
+				|| ! $this->same_translation_map( $expected_translations, (array) ( $confirmed['translations'] ?? array() ) ) ) {
+				throw new Execution_Exception( 'localization_content_group_attachment_failed', 'The provider did not confirm the exact target group with the content item in the requested language slot.' );
+			}
+			$result['page_type'] = $page_type;
+			$result['post_type'] = $post_type;
+			$result['localization_group'] = (string) $confirmed['localization_group'];
+			$result['idempotent_replay'] = false;
+			return $result;
+		} finally {
+			$this->release_locks( $locks );
+		}
+	}
+
+	/** Merge two exact, non-conflicting provider groups and preserve every member and status. */
+	public function merge_groups( array $input ): array {
+		$page_type = sanitize_key( (string) ( $input['page_type'] ?? '' ) );
+		$target_request = $input['target'] ?? null;
+		$source_request = $input['source'] ?? null;
+		if ( '' === $page_type || ! is_array( $target_request ) || ! is_array( $source_request ) || true !== ( $input['confirm_merge'] ?? false ) ) {
+			throw new Execution_Exception( 'localized_group_merge_confirmation_required', 'An exact Blueprint, target and source group snapshots, and explicit merge confirmation are required.' );
+		}
+
+		$blueprint = $this->config->get_blueprint( $page_type );
+		$post_type = sanitize_key( (string) ( $blueprint['target_post_type'] ?? '' ) );
+		$target = $this->group_snapshot( $target_request, $page_type, $post_type, 'target' );
+		$source = $this->group_snapshot( $source_request, $page_type, $post_type, 'source' );
+		$expected_union = $this->merge_translation_maps( $target['translations'], $source['translations'] );
+		if ( $target['anchor_post_id'] === $source['anchor_post_id'] ) {
+			throw new Execution_Exception( 'localized_group_merge_same_group', 'The target and source anchors must identify different translation groups.' );
+		}
+		$replay = $this->merged_group_replay( $target, $source, $expected_union, $post_type );
+		if ( null !== $replay ) {
+			return $this->group_merge_result( $page_type, $post_type, $replay, true );
+		}
+		$this->assert_group_snapshot_current( $target, 'target' );
+		$this->assert_group_snapshot_current( $source, 'source' );
+
+		$lock_ids = array_values( array_unique( array_merge( array_values( $target['translations'] ), array_values( $source['translations'] ) ) ) );
+		$locks = $this->acquire_locks( $lock_ids );
+		try {
+			$target = $this->group_snapshot( $target_request, $page_type, $post_type, 'target' );
+			$source = $this->group_snapshot( $source_request, $page_type, $post_type, 'source' );
+			$expected_union = $this->merge_translation_maps( $target['translations'], $source['translations'] );
+			$replay = $this->merged_group_replay( $target, $source, $expected_union, $post_type );
+			if ( null !== $replay ) {
+				return $this->group_merge_result( $page_type, $post_type, $replay, true );
+			}
+			$this->assert_group_snapshot_current( $target, 'target' );
+			$this->assert_group_snapshot_current( $source, 'source' );
+			$result = $this->localization->merge_translation_groups( $page_type, $post_type, $target, $source );
+			$confirmed = $this->localization->resolve( $target['anchor_post_id'], $post_type );
+			if ( ! $this->same_translation_map( $expected_union, (array) ( $confirmed['translations'] ?? array() ) ) ) {
+				throw new Execution_Exception( 'localization_group_merge_failed', 'The provider did not confirm the exact merged translation group.' );
+			}
+			$result['page_type'] = $page_type;
+			$result['post_type'] = $post_type;
+			$result['localization_group'] = (string) $confirmed['localization_group'];
+			$result['translations'] = $expected_union;
 			$result['idempotent_replay'] = false;
 			return $result;
 		} finally {
@@ -123,6 +242,196 @@ final class Localized_Draft_Service {
 			'localization_group' => (string) $context['localization_group'],
 			'translations' => (array) $context['translations'],
 			'item' => $candidate,
+			'idempotent_replay' => $idempotent,
+		);
+	}
+
+	private function inspect_editable_content( int $post_id, string $page_type, string $post_type ): array {
+		$inspected = $this->drafts->inspect_content_item( array( 'post_id' => $post_id, 'page_type' => $page_type ) );
+		if ( $post_type !== sanitize_key( (string) ( $inspected['post_type'] ?? '' ) )
+			|| ! in_array( (string) ( $inspected['status'] ?? '' ), array( 'draft', 'publish' ), true ) ) {
+			throw new Execution_Exception( 'localized_content_contract_mismatch', 'Every relationship member must match the Blueprint post type and be a draft or published item.' );
+		}
+		if ( '' !== sanitize_key( (string) get_post_meta( $post_id, Content_Proposal_Service::STATE_META, true ) ) ) {
+			throw new Execution_Exception( 'localized_content_proposal_forbidden', 'Published-content proposal working copies cannot be moved between translation groups.' );
+		}
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			throw new Execution_Exception( 'localized_content_edit_forbidden', 'The current user cannot change this content relationship.' );
+		}
+		return $inspected;
+	}
+
+	private function content_candidate( array $requested, string $page_type, string $post_type ): array {
+		$post_id = absint( $requested['post_id'] ?? 0 );
+		if ( $post_id < 1 ) {
+			throw new Execution_Exception( 'localized_content_item_invalid', 'The localized content ID must be positive.' );
+		}
+		$inspected = $this->inspect_editable_content( $post_id, $page_type, $post_type );
+		$expected_modified = trim( (string) ( $requested['expected_modified_gmt'] ?? '' ) );
+		$expected_hash = strtolower( trim( (string) ( $requested['expected_content_hash'] ?? '' ) ) );
+		if ( ! hash_equals( $expected_modified, (string) ( $inspected['modified_gmt'] ?? '' ) )
+			|| ! hash_equals( $expected_hash, (string) ( $inspected['content_hash'] ?? '' ) ) ) {
+			throw new Execution_Exception( 'edit_conflict', 'The localized content item changed after it was inspected.' );
+		}
+		$context = (array) ( $inspected['localization'] ?? array() );
+		$content_language = trim( (string) ( $context['content_language'] ?? '' ) );
+		$submitted_language = trim( (string) ( $requested['content_language'] ?? '' ) );
+		$language_code = sanitize_key( (string) ( $context['language_code'] ?? '' ) );
+		$provider = sanitize_key( (string) ( $context['provider'] ?? '' ) );
+		if ( '' === $content_language || 0 !== strcasecmp( $content_language, $submitted_language ) || '' === $language_code || '' === $provider || 'wordpress' === $provider ) {
+			throw new Execution_Exception( 'localized_content_language_conflict', 'The requested language must match the current provider language assigned to the content item.' );
+		}
+		return array(
+			'post_id' => $post_id,
+			'status' => (string) $inspected['status'],
+			'content_language' => $content_language,
+			'language_code' => $language_code,
+			'localization_provider' => $provider,
+			'localization_group' => (string) ( $context['localization_group'] ?? '' ),
+		);
+	}
+
+	private function assert_content_attach_context( array $context, array $candidate, string $expected_group ): bool {
+		if ( (string) ( $context['provider'] ?? '' ) !== (string) $candidate['localization_provider'] ) {
+			throw new Execution_Exception( 'localized_content_provider_conflict', 'The translation group and content item must use the same localization provider.' );
+		}
+		$language_code = (string) $candidate['language_code'];
+		$occupied_post_id = absint( ( $context['translations'] ?? array() )[ $language_code ] ?? 0 );
+		if ( $occupied_post_id === $candidate['post_id'] ) {
+			return true;
+		}
+		if ( $occupied_post_id > 0 ) {
+			throw new Execution_Exception( 'localized_content_language_slot_occupied', 'The requested translation group already contains another item in this language.' );
+		}
+		if ( ! hash_equals( $expected_group, (string) ( $context['localization_group'] ?? '' ) ) ) {
+			throw new Execution_Exception( 'localized_content_group_conflict', 'The target translation group changed after it was inspected.' );
+		}
+		return false;
+	}
+
+	private function assert_singleton_source_group( array $context, array $candidate ): void {
+		$translations = $this->normalize_translation_map( (array) ( $context['translations'] ?? array() ) );
+		if ( (string) ( $context['provider'] ?? '' ) !== (string) $candidate['localization_provider']
+			|| 1 !== count( $translations )
+			|| absint( $translations[ (string) $candidate['language_code'] ] ?? 0 ) !== $candidate['post_id'] ) {
+			throw new Execution_Exception( 'localized_content_source_group_not_singleton', 'Attach can move only an unlinked content item. Use the group merge operation for a multi-item source group.' );
+		}
+	}
+
+	private function content_attachment_result( string $page_type, string $post_type, array $context, array $candidate, bool $idempotent ): array {
+		return array(
+			'provider' => (string) $context['provider'],
+			'page_type' => $page_type,
+			'post_type' => $post_type,
+			'localization_group' => (string) $context['localization_group'],
+			'translations' => $this->normalize_translation_map( (array) $context['translations'] ),
+			'item' => $candidate,
+			'idempotent_replay' => $idempotent,
+		);
+	}
+
+	private function group_snapshot( array $requested, string $page_type, string $post_type, string $role ): array {
+		$anchor_post_id = absint( $requested['anchor_post_id'] ?? 0 );
+		$expected_group = substr( sanitize_text_field( (string) ( $requested['expected_localization_group'] ?? '' ) ), 0, 128 );
+		$translations = $this->translation_list( $requested['translations'] ?? null, $role );
+		if ( $anchor_post_id < 1 || '' === $expected_group || ! in_array( $anchor_post_id, array_values( $translations ), true ) ) {
+			throw new Execution_Exception( 'localized_group_snapshot_invalid', 'Each group snapshot must identify an anchor, exact provider group, and complete translations containing that anchor.' );
+		}
+		foreach ( $translations as $language_code => $post_id ) {
+			$inspected = $this->inspect_editable_content( $post_id, $page_type, $post_type );
+			$context = (array) ( $inspected['localization'] ?? array() );
+			if ( $language_code !== sanitize_key( (string) ( $context['language_code'] ?? '' ) ) ) {
+				throw new Execution_Exception( 'localized_group_language_conflict', 'A requested group member does not match its current provider language.' );
+			}
+		}
+		$current = $this->localization->resolve( $anchor_post_id, $post_type );
+		return array(
+			'anchor_post_id' => $anchor_post_id,
+			'expected_localization_group' => $expected_group,
+			'translations' => $translations,
+			'current_localization_group' => (string) ( $current['localization_group'] ?? '' ),
+			'current_translations' => $this->normalize_translation_map( (array) ( $current['translations'] ?? array() ) ),
+			'provider' => sanitize_key( (string) ( $current['provider'] ?? '' ) ),
+		);
+	}
+
+	private function translation_list( mixed $requested, string $role ): array {
+		if ( ! is_array( $requested ) || ! array_is_list( $requested ) || empty( $requested ) || count( $requested ) > 20 ) {
+			throw new Execution_Exception( 'localized_group_snapshot_invalid', 'The ' . $role . ' group must provide a non-empty exact translation list.' );
+		}
+		$translations = array();
+		foreach ( $requested as $item ) {
+			$language_code = is_array( $item ) ? sanitize_key( (string) ( $item['language_code'] ?? '' ) ) : '';
+			$post_id = is_array( $item ) ? absint( $item['post_id'] ?? 0 ) : 0;
+			if ( '' === $language_code || $post_id < 1 || isset( $translations[ $language_code ] ) || in_array( $post_id, $translations, true ) ) {
+				throw new Execution_Exception( 'localized_group_snapshot_invalid', 'Translation language codes and content IDs must be positive and unique within each group.' );
+			}
+			$translations[ $language_code ] = $post_id;
+		}
+		ksort( $translations );
+		return $translations;
+	}
+
+	private function merge_translation_maps( array $target, array $source ): array {
+		$merged = $target;
+		foreach ( $source as $language_code => $post_id ) {
+			if ( isset( $merged[ $language_code ] ) && $merged[ $language_code ] !== $post_id ) {
+				throw new Execution_Exception( 'localized_group_language_slot_conflict', 'The two translation groups contain different items for the same language.' );
+			}
+			if ( in_array( $post_id, $merged, true ) && ( $merged[ $language_code ] ?? 0 ) !== $post_id ) {
+				throw new Execution_Exception( 'localized_group_member_conflict', 'One content item cannot occupy two language slots.' );
+			}
+			$merged[ $language_code ] = $post_id;
+		}
+		ksort( $merged );
+		return $merged;
+	}
+
+	private function merged_group_replay( array $target, array $source, array $expected_union, string $post_type ): ?array {
+		$target_context = $this->localization->resolve( $target['anchor_post_id'], $post_type );
+		$source_context = $this->localization->resolve( $source['anchor_post_id'], $post_type );
+		if ( (string) ( $target_context['provider'] ?? '' ) !== (string) ( $source_context['provider'] ?? '' ) ) {
+			throw new Execution_Exception( 'localized_group_provider_conflict', 'Both translation groups must use the same localization provider.' );
+		}
+		if ( hash_equals( (string) ( $target_context['localization_group'] ?? '' ), (string) ( $source_context['localization_group'] ?? '' ) )
+			&& $this->same_translation_map( $expected_union, (array) ( $target_context['translations'] ?? array() ) )
+			&& $this->same_translation_map( $expected_union, (array) ( $source_context['translations'] ?? array() ) ) ) {
+			return $target_context;
+		}
+		return null;
+	}
+
+	private function assert_group_snapshot_current( array $snapshot, string $role ): void {
+		if ( ! hash_equals( (string) $snapshot['expected_localization_group'], (string) $snapshot['current_localization_group'] )
+			|| ! $this->same_translation_map( $snapshot['translations'], $snapshot['current_translations'] ) ) {
+			throw new Execution_Exception( 'localized_group_snapshot_conflict', 'The ' . $role . ' translation group changed after it was inspected.' );
+		}
+	}
+
+	private function normalize_translation_map( array $translations ): array {
+		$normalized = array();
+		foreach ( $translations as $language_code => $post_id ) {
+			$language_code = sanitize_key( (string) $language_code );
+			$post_id = absint( $post_id );
+			if ( '' !== $language_code && $post_id > 0 ) {
+				$normalized[ $language_code ] = $post_id;
+			}
+		}
+		ksort( $normalized );
+		return $normalized;
+	}
+
+	private function same_translation_map( array $expected, array $actual ): bool {
+		return $this->normalize_translation_map( $expected ) === $this->normalize_translation_map( $actual );
+	}
+
+	private function group_merge_result( string $page_type, string $post_type, array $context, bool $idempotent ): array {
+		return array(
+			'provider' => (string) $context['provider'],
+			'page_type' => $page_type,
+			'post_type' => $post_type,
+			'localization_group' => (string) $context['localization_group'],
+			'translations' => $this->normalize_translation_map( (array) $context['translations'] ),
 			'idempotent_replay' => $idempotent,
 		);
 	}

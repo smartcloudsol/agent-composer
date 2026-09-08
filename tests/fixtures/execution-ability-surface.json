@@ -27,6 +27,8 @@
     "clone-content-item",
     "link-content-draft-translations",
     "attach-content-draft-to-translation-group",
+    "attach-content-to-translation-group",
+    "merge-content-translation-groups",
     "create-content-proposal",
     "submit-content-proposal",
     "insert-or-update-blocks",

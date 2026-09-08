@@ -81,6 +81,9 @@ $assert( substr_count( $drafts, '$this->fresh_post( $post_id )' ) >= 3 && str_co
 $assert( str_contains( $drafts, 'summarize_list_item( $post, $page_type )' ) && str_contains( $drafts, 'normalized_stored_template( $post->ID )' ), 'Published items without Composer metadata must derive the requested page type only from a matching Blueprint target and template.' );
 $assert( substr_count( $drafts, '\'draft\' === $post->post_status && \'1\' === (string) get_post_meta' ) >= 3, 'Composer ownership metadata must grant draft semantics only while the item is actually a draft.' );
 $assert( str_contains( $drafts, 'self::CONTENT_LANGUAGE_META   => $content_language' ) && substr_count( $drafts, 'assign_draft_language' ) >= 2, 'Clones must inherit and persist the inspected source language.' );
+$assert( str_contains( $abilities, "'target_content_language'" ) && str_contains( $drafts, "isset( \$input['target_content_language'] )" ), 'Clones must accept an explicitly approved target language for lossless legacy-page localization.' );
+$assert( str_contains( $drafts, "hash_equals( (string) \$source['content_hash'], \$stored_hash )" ) && str_contains( $drafts, "'clone_content_changed'" ) && str_contains( $drafts, 'wp_delete_post( (int) $post_id, true )' ), 'Clone preservation must compare the stored database content and roll back a changed clone.' );
+$assert( str_contains( $drafts, "\$stored_validation['content_language'] = \$content_language" ), 'Clone validation must report the explicitly assigned target language.' );
 $assert( str_contains( $abilities, 'MUST NOT be used to revise a published canonical item; use create-content-proposal' ), 'Clone guidance must direct published canonical updates into the proposal workflow.' );
 
 $assert( str_contains( $localization, 'smartcloud_composer_localization_providers' ), 'Localization providers need a dedicated data-only registry.' );
@@ -91,6 +94,10 @@ foreach ( array( 'get-localization-capabilities', 'list-content-languages', 'res
 $assert( str_contains( $abilities, 'list-supported-content-languages' ), 'Composer must expose generic language discovery independently of a concrete provider.' );
 $assert( str_contains( $abilities, 'link-content-draft-translations' ), 'Composer must expose governed linking for separately authored drafts.' );
 $assert( str_contains( $abilities, 'attach-content-draft-to-translation-group' ), 'Composer must expose additive draft attachment to existing translation groups.' );
+$assert( str_contains( $abilities, 'attach-content-to-translation-group' ), 'Composer must expose governed draft-or-published content attachment to an empty translation slot.' );
+$assert( str_contains( $abilities, 'merge-content-translation-groups' ), 'Composer must expose exact, non-overwriting translation-group merging.' );
+$assert( str_contains( $localized_drafts, 'expected_content_hash' ) && str_contains( $localized_drafts, 'confirm_attach' ), 'Published-content attachment requires an inspected content hash and explicit confirmation.' );
+$assert( str_contains( $localized_drafts, 'confirm_merge' ) && str_contains( $localized_drafts, 'localized_group_language_slot_conflict' ), 'Translation-group merging requires explicit confirmation and rejects occupied language collisions.' );
 $assert( str_contains( $localized_drafts, 'confirm_link' ) && str_contains( $localized_drafts, 'expected_modified_gmt' ) && str_contains( $localized_drafts, 'expected_revision' ), 'Localized draft linking requires explicit confirmation and optimistic concurrency.' );
 $assert( str_contains( $localized_drafts, 'get_owned_draft' ) && str_contains( $localized_drafts, 'LOCALIZATION_PROVIDER_META' ), 'Only Composer-owned drafts assigned by one provider may be linked.' );
 $assert( str_contains( $localized_drafts, 'localized_draft_language_slot_occupied' ) && str_contains( $localized_drafts, 'inspect_content_item' ), 'Group attachment must require a readable contract-matching anchor and an empty target language slot without restricting anchor status.' );

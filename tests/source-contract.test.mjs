@@ -35,36 +35,79 @@ test("WordPress Plugin Checker conventions remain explicit", () => {
   assert.doesNotMatch(execution, /wpsuite_agent_composer_(?:design_policy|pattern_preload_error)/);
 });
 
-test("workspace-only WP Suite preset contains every one of the 18 current page types", {
+test("workspace-only WP Suite preset contains every one of the 26 current page types", {
   skip: !fs.existsSync(path.join(root, "presets/wpsuite/page-types.json"))
 }, () => {
   const preset = JSON.parse(read("presets/wpsuite/page-types.json"));
   const ids = preset.blueprints.map((blueprint) => blueprint.id).sort();
-  assert.equal(ids.length, 18);
+  assert.equal(ids.length, 26);
   assert.deepEqual(ids, [
-    "about", "agency", "ai-agents", "architecture", "case-study", "comparison", "deployment-access",
-    "docs-shell", "home", "page", "platform", "post", "product", "product-ai-kit",
-    "product-flow", "product-gatey", "product-publisher", "solution"
+    "about", "agency", "agent-playground", "ai-agents", "architecture", "blog-index", "case-study", "comparison",
+    "contact", "deployment-access", "docs-shell", "home", "page", "platform", "post", "pricing", "privacy-policy", "product",
+    "product-agent-canvas", "product-agent-composer", "product-ai-kit", "product-flow", "product-gatey",
+    "product-publisher", "solution", "terms-of-use"
   ]);
   assert.ok(preset.blueprints.every(({ excerpt }) => ["required", "optional", "disabled"].includes(excerpt)));
 });
 
-test("WP Suite docs-shell authoring enables every public documentation language", () => {
-  const expected = ["en-US", "hu-HU", "de-DE", "es-ES"];
+test("every WP Suite Blueprint enables every public content language", () => {
+  const expected = ["en-US", "hu-HU", "de-DE", "es-ES", "fr-FR"];
   const site = JSON.parse(read("presets/wpsuite/site-contract.json"));
-  const blueprint = JSON.parse(read("presets/wpsuite/blueprints/docs-shell.json"));
+  const pageTypes = JSON.parse(read("presets/wpsuite/page-types.json"));
   const bundle = JSON.parse(read("presets/wpsuite/wpsuite-site-contract.package.json"));
   const bundledSite = bundle.entities.find((entity) => entity.type === "site-contract" && entity.id === "contract:site");
-  const bundledBlueprint = bundle.entities.find((entity) => entity.type === "blueprint" && entity.id === "docs-shell");
+  const bundledConfigSet = bundle.entities.find((entity) => entity.type === "config-set");
+  const bundledBlueprints = bundle.entities.filter((entity) => entity.type === "blueprint");
+  const expectedIds = pageTypes.blueprints.map(({ id }) => id).sort();
 
   assert.deepEqual(site.design_policy.localization, {
     provider: "auto",
     allowed_content_languages: expected,
   });
-  assert.equal(blueprint.content_language, "en-US");
-  assert.deepEqual(blueprint.allowed_content_languages, expected);
   assert.deepEqual(bundledSite?.payload, site);
-  assert.deepEqual(bundledBlueprint?.payload, blueprint);
+  assert.equal(
+    `${bundledConfigSet?.payload.source_theme.slug}-${bundledConfigSet?.payload.source_theme.version}`,
+    pageTypes.theme_baseline,
+    "bundled Config Set theme identity must match the page-type baseline"
+  );
+  assert.deepEqual(bundledBlueprints.map(({ id }) => id).sort(), expectedIds);
+
+  for (const id of expectedIds) {
+    const blueprint = JSON.parse(read(`presets/wpsuite/blueprints/${id}.json`));
+    const bundledBlueprint = bundledBlueprints.find((entity) => entity.id === id);
+    assert.deepEqual(blueprint.allowed_content_languages, expected, `${id} source languages must match`);
+    assert.deepEqual(bundledBlueprint?.payload.allowed_content_languages, expected, `${id} bundled languages must match`);
+    assert.deepEqual(bundledBlueprint?.payload, blueprint, `${id} bundled payload must match its source`);
+  }
+
+  assert.equal(JSON.parse(read("presets/wpsuite/blueprints/docs-shell.json")).content_language, "en-US");
+});
+
+test("every proposal-enabled WP Suite Blueprint has its Site Contract update gate", () => {
+  const site = JSON.parse(read("presets/wpsuite/site-contract.json"));
+  const pageTypes = JSON.parse(read("presets/wpsuite/page-types.json"));
+  for (const { id } of pageTypes.blueprints) {
+    const blueprint = JSON.parse(read(`presets/wpsuite/blueprints/${id}.json`));
+    if (blueprint.published_update_policy !== "proposal-only") continue;
+    assert.equal(
+      site.design_policy.content_access?.[blueprint.target_post_type]?.propose_updates,
+      true,
+      `${id} requires propose_updates for ${blueprint.target_post_type}`
+    );
+  }
+});
+
+test("WP Suite markup roles cover every specialized card grid", () => {
+  const site = JSON.parse(read("presets/wpsuite/site-contract.json"));
+  const cards = site.design_policy.markup_contract.role_classes.card;
+  for (const className of [
+    "wps-contact-card",
+    "wps-playground-proof-card",
+    "wps-price-card",
+    "wps-info-card",
+  ]) {
+    assert.ok(cards.includes(className), `${className} must be an approved card role`);
+  }
 });
 
 test("WordPress admin build exposes the complete public feature source and externalizes Mantine", () => {
@@ -229,7 +272,7 @@ test("Composer execution contract is checksum-pinned and canonical names are fro
   const surface = JSON.parse(read("tests/fixtures/execution-ability-surface.json"));
   assert.equal(surface.contract, manifest.contract);
   const aliases = read("src/Integration/Abilities/ExecutionAbilityAliases.php");
-  assert.equal(surface.operations.length, 38);
+  assert.equal(surface.operations.length, 40);
   for (const alias of surface.preferred_aliases) {
     assert.match(aliases, new RegExp(alias.replaceAll("-", "\\-")));
   }
@@ -313,8 +356,8 @@ test("release copy contains no internal milestone or retired theme-contract narr
   assert.doesNotMatch(read("readme.txt"), /development milestone|not yet (?:the )?final/i);
   assert.match(read("smartcloud-agent-composer.php"), /License:\s+MIT/);
   assert.equal(fs.existsSync(path.join(root, "LICENSE")), true);
-  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.2\.1/);
-  assert.match(read("readme.txt"), /Stable tag:\s+1\.2\.1/);
+  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.2\.2/);
+  assert.match(read("readme.txt"), /Stable tag:\s+1\.2\.2/);
 });
 
 test("localization selection is manifest-driven and the main runtime names no concrete provider", () => {

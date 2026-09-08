@@ -106,6 +106,24 @@ namespace SmartCloud\AgentComposer\Execution {
 	mode_assert(array('core/image') === $document['block_extensions']['allowed_core_blocks'], 'An explicit Blueprint extension list must replace the inherited list completely.');
 	mode_assert(true === $document['block_extensions']['captioned_media_image_materializer'], 'An explicit Blueprint extension switch must override its inherited default.');
 	mode_assert(array('smartcloud-flow') === $document['block_extensions']['allowed_plugin_namespaces'], 'Unspecified Blueprint extension values must remain inherited.');
+	mode_assert(false === $document['block_extensions']['query_loop_materializer']['enabled'], 'A Blueprint must explicitly opt in to Query Loop materialization.');
+
+	$query_document = $normalize->invoke($repository, array(
+		'page_type' => 'article', 'composition_mode' => 'document', 'target_post_type' => 'post',
+		'allowed_patterns' => array('smartcloud-agent-canvas/page-body-starter'),
+		'required_sequence' => array('smartcloud-agent-canvas/page-body-starter'),
+		'allowed_blocks' => array('core/group', 'core/heading', 'core/paragraph', 'core/query'),
+		'target_template' => array('mode' => 'hierarchy', 'file' => 'templates/single.html'),
+		'block_extensions' => array(
+			'query_loop_materializer' => array(
+				'enabled' => true,
+				'allowed_post_types' => array('post'),
+				'allowed_template_blocks' => array('core/post-title'),
+			),
+		),
+	), 'article');
+	mode_assert(true === $query_document['block_extensions']['query_loop_materializer']['enabled'], 'A Blueprint Query Loop policy object must opt in explicitly.');
+	mode_assert(array('post') === $query_document['block_extensions']['query_loop_materializer']['allowed_post_types'], 'The Blueprint Query Loop policy must retain its explicit post-type ceiling.');
 
 	$structured = $normalize->invoke($repository, array(
 		'page_type' => 'doctor', 'composition_mode' => 'structured-record', 'target_post_type' => 'orvosok',

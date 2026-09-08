@@ -29,6 +29,8 @@ namespace SmartCloud\AgentComposerWpml {
 	$GLOBALS['wpml_test_next_trid'] = 3000;
 	$GLOBALS['wpml_test_set_calls'] = 0;
 	$GLOBALS['wpml_test_group_overrides'] = array();
+	$GLOBALS['wpml_test_fail_once_post_id'] = 0;
+	$GLOBALS['wpml_test_denied_edit_ids'] = array();
 	$GLOBALS['wpml_test_posts'] = array(
 		12 => new \WP_Post( 12 ),
 		13 => new \WP_Post( 13 ),
@@ -39,6 +41,21 @@ namespace SmartCloud\AgentComposerWpml {
 		203 => new \WP_Post( 203 ),
 		204 => new \WP_Post( 204 ),
 		205 => new \WP_Post( 205 ),
+		206 => new \WP_Post( 206 ),
+		207 => new \WP_Post( 207 ),
+		208 => new \WP_Post( 208 ),
+		301 => new \WP_Post( 301 ),
+		302 => new \WP_Post( 302 ),
+		303 => new \WP_Post( 303 ),
+		304 => new \WP_Post( 304 ),
+		311 => new \WP_Post( 311 ),
+		312 => new \WP_Post( 312 ),
+		313 => new \WP_Post( 313 ),
+		314 => new \WP_Post( 314 ),
+		321 => new \WP_Post( 321 ),
+		322 => new \WP_Post( 322 ),
+		323 => new \WP_Post( 323 ),
+		324 => new \WP_Post( 324 ),
 	);
 	$GLOBALS['wpml_test_meta'] = array(
 		201 => array( '_wpsuite_agent_owned' => '1', '_wpsuite_agent_page_type' => 'landing-page', '_wpsuite_agent_content_language' => 'hu-HU' ),
@@ -57,6 +74,21 @@ namespace SmartCloud\AgentComposerWpml {
 		203 => array( 'trid' => 2030, 'language_code' => 'en', 'source_language_code' => '', 'locale' => 'en_US' ),
 		204 => array( 'trid' => 2040, 'language_code' => 'en', 'source_language_code' => '', 'locale' => 'en_US' ),
 		205 => array( 'trid' => 2050, 'language_code' => 'fr', 'source_language_code' => '', 'locale' => 'fr_FR' ),
+		206 => array( 'trid' => 2060, 'language_code' => 'it', 'source_language_code' => '', 'locale' => 'it_IT' ),
+		207 => array( 'trid' => 2070, 'language_code' => 'it', 'source_language_code' => '', 'locale' => 'it_IT' ),
+		208 => array( 'trid' => 2080, 'language_code' => 'es', 'source_language_code' => '', 'locale' => 'es_ES' ),
+		301 => array( 'trid' => 500, 'language_code' => 'en', 'source_language_code' => '', 'locale' => 'en_US' ),
+		302 => array( 'trid' => 500, 'language_code' => 'hu', 'source_language_code' => 'en', 'locale' => 'hu_HU' ),
+		303 => array( 'trid' => 600, 'language_code' => 'de', 'source_language_code' => '', 'locale' => 'de_DE' ),
+		304 => array( 'trid' => 600, 'language_code' => 'fr', 'source_language_code' => 'de', 'locale' => 'fr_FR' ),
+		311 => array( 'trid' => 700, 'language_code' => 'en', 'source_language_code' => '', 'locale' => 'en_US' ),
+		312 => array( 'trid' => 700, 'language_code' => 'de', 'source_language_code' => 'en', 'locale' => 'de_DE' ),
+		313 => array( 'trid' => 800, 'language_code' => 'fr', 'source_language_code' => '', 'locale' => 'fr_FR' ),
+		314 => array( 'trid' => 800, 'language_code' => 'de', 'source_language_code' => 'fr', 'locale' => 'de_DE' ),
+		321 => array( 'trid' => 900, 'language_code' => 'en', 'source_language_code' => '', 'locale' => 'en_US' ),
+		322 => array( 'trid' => 900, 'language_code' => 'hu', 'source_language_code' => 'en', 'locale' => 'hu_HU' ),
+		323 => array( 'trid' => 1000, 'language_code' => 'de', 'source_language_code' => '', 'locale' => 'de_DE' ),
+		324 => array( 'trid' => 1000, 'language_code' => 'fr', 'source_language_code' => 'de', 'locale' => 'fr_FR' ),
 	);
 
 	function get_post( int $id ): ?\WP_Post { return $GLOBALS['wpml_test_posts'][ $id ] ?? null; }
@@ -64,7 +96,12 @@ namespace SmartCloud\AgentComposerWpml {
 		unset( $single );
 		return $GLOBALS['wpml_test_meta'][ $id ][ $key ] ?? '';
 	}
-	function current_user_can( string $capability, int $id = 0 ): bool { return 'read_post' !== $capability || ! in_array( $id, array( 13, 14 ), true ); }
+	function current_user_can( string $capability, int $id = 0 ): bool {
+		if ( 'read_post' === $capability ) {
+			return ! in_array( $id, array( 13, 14 ), true );
+		}
+		return 'edit_post' !== $capability || ! in_array( $id, $GLOBALS['wpml_test_denied_edit_ids'], true );
+	}
 	function sanitize_key( string $value ): string { return strtolower( (string) preg_replace( '/[^a-z0-9_-]/i', '', $value ) ); }
 	function sanitize_text_field( string $value ): string { return trim( strip_tags( $value ) ); }
 	function has_filter( string $hook ): bool { return 'wpml_element_trid' === $hook; }
@@ -114,9 +151,13 @@ namespace SmartCloud\AgentComposerWpml {
 		}
 		$input = $args[0];
 		$post_id = (int) ( $input['element_id'] ?? 0 );
+		if ( $post_id === (int) $GLOBALS['wpml_test_fail_once_post_id'] ) {
+			$GLOBALS['wpml_test_fail_once_post_id'] = 0;
+			return;
+		}
 		$language_code = sanitize_key( (string) ( $input['language_code'] ?? '' ) );
 		$trid = false === ( $input['trid'] ?? null ) ? ++$GLOBALS['wpml_test_next_trid'] : (int) $input['trid'];
-		$locales = array( 'en' => 'en_US', 'hu' => 'hu_HU', 'de' => 'de_DE', 'fr' => 'fr_FR' );
+		$locales = array( 'en' => 'en_US', 'hu' => 'hu_HU', 'de' => 'de_DE', 'fr' => 'fr_FR', 'it' => 'it_IT', 'es' => 'es_ES' );
 		$GLOBALS['wpml_test_details'][ $post_id ] = array(
 			'trid' => $trid,
 			'language_code' => $language_code,
@@ -142,10 +183,16 @@ namespace SmartCloud\AgentComposerWpml {
 	$assert( in_array( 'smartcloud-agent-composer-wpml/assign-draft-language', $manifest['wpml']['ability_names'], true ), 'WPML must expose governed draft language assignment.' );
 	$assert( in_array( 'smartcloud-agent-composer-wpml/link-draft-translations', $manifest['wpml']['ability_names'], true ), 'WPML must expose governed draft translation linking.' );
 	$assert( in_array( 'smartcloud-agent-composer-wpml/attach-draft-to-translation-group', $manifest['wpml']['ability_names'], true ), 'WPML must expose additive draft attachment to existing translation groups.' );
+	$assert( in_array( 'smartcloud-agent-composer-wpml/attach-content-to-translation-group', $manifest['wpml']['ability_names'], true ), 'WPML must expose service-governed content attachment.' );
+	$assert( in_array( 'smartcloud-agent-composer-wpml/merge-translation-groups', $manifest['wpml']['ability_names'], true ), 'WPML must expose service-governed translation-group merging.' );
 	$assert( ! in_array( 'smartcloud-agent-composer-wpml/validate-localized-proposal', $manifest['wpml']['mcp_ability_names'], true ), 'Only non-mutating discovery abilities should be exported for direct MCP discovery.' );
+	$assert( ! in_array( 'smartcloud-agent-composer-wpml/attach-content-to-translation-group', $manifest['wpml']['mcp_ability_names'], true ), 'Content attachment must not be exported as a direct provider MCP mutation.' );
+	$assert( ! in_array( 'smartcloud-agent-composer-wpml/merge-translation-groups', $manifest['wpml']['mcp_ability_names'], true ), 'Translation-group merging must not be exported as a direct provider MCP mutation.' );
 	$capabilities = $provider->capabilities();
 	$assert( true === $capabilities['links_agent_owned_drafts'], 'WPML must report support for linking separately authored Composer drafts.' );
 	$assert( true === $capabilities['attaches_agent_owned_drafts_to_groups'], 'WPML must report support for additive translation-group attachment.' );
+	$assert( true === $capabilities['attaches_verified_content_to_groups'], 'WPML must report support for service-verified content attachment.' );
+	$assert( true === $capabilities['merges_verified_translation_groups'], 'WPML must report support for verified translation-group merging.' );
 	$languages = $provider->languages();
 	$assert( 'en-US' === $languages['items'][0]['content_language'], 'WPML locales must normalize to BCP 47 syntax.' );
 	$assert( true === $languages['items'][1]['active'] && true === $languages['items'][2]['active'], 'Every language returned by wpml_active_languages must remain authorable even when it is not the current request language.' );
@@ -246,6 +293,106 @@ namespace SmartCloud\AgentComposerWpml {
 		'draft' => array( 'post_id' => 205, 'language_code' => 'fr', 'content_language' => 'fr-FR' ),
 	) );
 	$assert( true === $attached_again['idempotent_replay'] && $set_calls === $GLOBALS['wpml_test_set_calls'], 'Repeating a successful WPML attachment must be idempotent.' );
+
+	$GLOBALS['wpml_test_posts'][206]->post_status = 'publish';
+	$published_attached = $provider->attach_content_to_translation_group( array(
+		'page_type' => 'landing-page',
+		'post_type' => 'page',
+		'anchor_post_id' => 12,
+		'expected_target_localization_group' => '77',
+		'target_translations' => array( 'de' => 13, 'en' => 14, 'fr' => 205, 'hu' => 12 ),
+		'content' => array( 'post_id' => 206, 'language_code' => 'it', 'content_language' => 'it-IT' ),
+	) );
+	$assert( is_array( $published_attached ) && 206 === $published_attached['translations']['it'], 'A service-verified published item must attach from its singleton source TRID to an empty target slot.' );
+	$set_calls = $GLOBALS['wpml_test_set_calls'];
+	$published_attached_again = $provider->attach_content_to_translation_group( array(
+		'page_type' => 'landing-page',
+		'post_type' => 'page',
+		'anchor_post_id' => 12,
+		'expected_target_localization_group' => '77',
+		'target_translations' => array( 'de' => 13, 'en' => 14, 'fr' => 205, 'hu' => 12 ),
+		'content' => array( 'post_id' => 206, 'language_code' => 'it', 'content_language' => 'it-IT' ),
+	) );
+	$assert( true === $published_attached_again['idempotent_replay'] && $set_calls === $GLOBALS['wpml_test_set_calls'], 'Repeating a successful published-content attachment must be idempotent.' );
+
+	$occupied = $provider->attach_content_to_translation_group( array(
+		'page_type' => 'landing-page',
+		'post_type' => 'page',
+		'anchor_post_id' => 12,
+		'expected_target_localization_group' => '77',
+		'target_translations' => array( 'de' => 13, 'en' => 14, 'fr' => 205, 'hu' => 12 ),
+		'content' => array( 'post_id' => 207, 'language_code' => 'it', 'content_language' => 'it-IT' ),
+	) );
+	$assert( $occupied instanceof \WP_Error && 'smartcloud_wpml_language_slot_occupied' === $occupied->code, 'Content attachment must never overwrite a target language slot.' );
+	$assert( 2070 === $GLOBALS['wpml_test_details'][207]['trid'] && 206 === wpml_test_group( 77 )['it']->element_id, 'A rejected slot collision must leave both relationships unchanged.' );
+
+	$GLOBALS['wpml_test_denied_edit_ids'] = array( 208 );
+	$denied_attachment = $provider->attach_content_to_translation_group( array(
+		'page_type' => 'landing-page',
+		'post_type' => 'page',
+		'anchor_post_id' => 12,
+		'expected_target_localization_group' => '77',
+		'target_translations' => array( 'de' => 13, 'en' => 14, 'fr' => 205, 'hu' => 12 ),
+		'content' => array( 'post_id' => 208, 'language_code' => 'es', 'content_language' => 'es-ES' ),
+	) );
+	$assert( $denied_attachment instanceof \WP_Error && 'smartcloud_wpml_content_group_attachment_invalid' === $denied_attachment->code, 'Content attachment must require edit_post for the content item.' );
+	$GLOBALS['wpml_test_denied_edit_ids'] = array();
+
+	$merged = $provider->merge_translation_groups( array(
+		'page_type' => 'landing-page',
+		'post_type' => 'page',
+		'target_anchor_post_id' => 301,
+		'source_anchor_post_id' => 303,
+		'expected_target_localization_group' => '500',
+		'expected_source_localization_group' => '600',
+		'target_translations' => array( 'en' => 301, 'hu' => 302 ),
+		'source_translations' => array( 'de' => 303, 'fr' => 304 ),
+	) );
+	$assert( is_array( $merged ) && array( 'de' => 303, 'en' => 301, 'fr' => 304, 'hu' => 302 ) === $merged['translations'], 'WPML must move every source-group language into the target TRID.' );
+	$assert( 500 === $GLOBALS['wpml_test_details'][303]['trid'] && 'en' === $GLOBALS['wpml_test_details'][303]['source_language_code'], 'The source original must become a translation of the target original.' );
+	$assert( 500 === $GLOBALS['wpml_test_details'][304]['trid'] && 'en' === $GLOBALS['wpml_test_details'][304]['source_language_code'], 'Every source translation must point to the target original language.' );
+	$set_calls = $GLOBALS['wpml_test_set_calls'];
+	$merged_again = $provider->merge_translation_groups( array(
+		'page_type' => 'landing-page',
+		'post_type' => 'page',
+		'target_anchor_post_id' => 301,
+		'source_anchor_post_id' => 303,
+		'expected_target_localization_group' => '500',
+		'expected_source_localization_group' => '600',
+		'target_translations' => array( 'en' => 301, 'hu' => 302 ),
+		'source_translations' => array( 'de' => 303, 'fr' => 304 ),
+	) );
+	$assert( true === $merged_again['idempotent_replay'] && $set_calls === $GLOBALS['wpml_test_set_calls'], 'Repeating the same exact WPML group merge must be idempotent.' );
+
+	$conflict = $provider->merge_translation_groups( array(
+		'page_type' => 'landing-page',
+		'post_type' => 'page',
+		'target_anchor_post_id' => 311,
+		'source_anchor_post_id' => 313,
+		'expected_target_localization_group' => '700',
+		'expected_source_localization_group' => '800',
+		'target_translations' => array( 'de' => 312, 'en' => 311 ),
+		'source_translations' => array( 'de' => 314, 'fr' => 313 ),
+	) );
+	$assert( $conflict instanceof \WP_Error && 'smartcloud_wpml_translation_group_language_conflict' === $conflict->code, 'Different post IDs in one language slot must fail closed before a WPML group merge.' );
+	$assert( 700 === $GLOBALS['wpml_test_details'][312]['trid'] && 800 === $GLOBALS['wpml_test_details'][314]['trid'], 'A rejected language collision must not mutate either group.' );
+
+	$rollback_ids = array( 321, 322, 323, 324 );
+	$before_rollback = array_intersect_key( $GLOBALS['wpml_test_details'], array_flip( $rollback_ids ) );
+	$GLOBALS['wpml_test_fail_once_post_id'] = 324;
+	$failed_merge = $provider->merge_translation_groups( array(
+		'page_type' => 'landing-page',
+		'post_type' => 'page',
+		'target_anchor_post_id' => 321,
+		'source_anchor_post_id' => 323,
+		'expected_target_localization_group' => '900',
+		'expected_source_localization_group' => '1000',
+		'target_translations' => array( 'en' => 321, 'hu' => 322 ),
+		'source_translations' => array( 'de' => 323, 'fr' => 324 ),
+	) );
+	$assert( $failed_merge instanceof \WP_Error && 'smartcloud_wpml_translation_group_merge_verification_failed' === $failed_merge->code, 'A partial WPML merge must fail verification after attempting rollback.' );
+	$after_rollback = array_intersect_key( $GLOBALS['wpml_test_details'], array_flip( $rollback_ids ) );
+	$assert( $before_rollback === $after_rollback, 'Rollback must restore every original TRID, language, source language, and locale detail exactly.' );
 
 	echo "wpml-localization-adapter: ok\n";
 }

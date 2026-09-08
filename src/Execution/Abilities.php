@@ -84,6 +84,8 @@ final class Abilities {
 			self::PREFIX . 'clone-content-item',
 			self::PREFIX . 'link-content-draft-translations',
 			self::PREFIX . 'attach-content-draft-to-translation-group',
+			self::PREFIX . 'attach-content-to-translation-group',
+			self::PREFIX . 'merge-content-translation-groups',
 			self::PREFIX . 'create-content-proposal',
 			self::PREFIX . 'submit-content-proposal',
 			self::PREFIX . 'insert-or-update-blocks',
@@ -347,6 +349,22 @@ final class Abilities {
 			false
 		);
 		$this->register_ability(
+			'attach-content-to-translation-group',
+			'Attach localized content to a translation group',
+			'Adds one inspected draft or published content item to an unoccupied language slot in an existing provider translation group. The source item must be unlinked, every existing member and publication status is preserved, and no content is published or rewritten.',
+			$this->localized_content_group_attachment_schema(),
+			array( $this, 'attach_content_to_translation_group' ),
+			false
+		);
+		$this->register_ability(
+			'merge-content-translation-groups',
+			'Merge localized content translation groups',
+			'Merges two exact, non-conflicting translation-group snapshots without changing content or publication status. Every member must be editable, no occupied language slot is overwritten, and a stale relationship snapshot is rejected.',
+			$this->localized_group_merge_schema(),
+			array( $this, 'merge_content_translation_groups' ),
+			false
+		);
+		$this->register_ability(
 			'create-content-proposal',
 			'Create published-content update proposal',
 			'Creates a separate agent-owned working copy of one published item when both the Site Contract and Blueprint opt in. The source remains unchanged and merge is not exposed to the agent. This only starts the workflow: after updating and validating the proposal, you MUST call submit-content-proposal with its freshest concurrency tokens so a human can review it. Do not report the proposal as ready while its state is working.',
@@ -510,6 +528,7 @@ final class Abilities {
 							'allowed_taxonomies'      => array_values( (array) ( $query_loop['allowed_taxonomies'] ?? array() ) ),
 							'allowed_orderby'         => array_values( (array) ( $query_loop['allowed_orderby'] ?? array() ) ),
 							'allowed_template_blocks' => array_values( (array) ( $query_loop['allowed_template_blocks'] ?? array() ) ),
+							'allowed_sticky_modes'     => array_values( (array) ( $query_loop['allowed_sticky_modes'] ?? array() ) ),
 							'max_per_page'            => (int) ( $query_loop['max_per_page'] ?? 0 ),
 							'max_offset'              => (int) ( $query_loop['max_offset'] ?? 0 ),
 						),
@@ -911,6 +930,14 @@ final class Abilities {
 		return $this->execute( 'attach-content-draft-to-translation-group', $input, fn() => $this->localized_drafts->attach_to_group( $input ) );
 	}
 
+	public function attach_content_to_translation_group( array $input ): array|\WP_Error {
+		return $this->execute( 'attach-content-to-translation-group', $input, fn() => $this->localized_drafts->attach_content_to_group( $input ) );
+	}
+
+	public function merge_content_translation_groups( array $input ): array|\WP_Error {
+		return $this->execute( 'merge-content-translation-groups', $input, fn() => $this->localized_drafts->merge_groups( $input ) );
+	}
+
 	public function create_content_proposal( array $input ): array|\WP_Error {
 		return $this->execute( 'create-content-proposal', $input, fn() => $this->proposals->create( $input ) );
 	}
@@ -1019,7 +1046,7 @@ final class Abilities {
 						'destructive' => false,
 						'idempotent'  => $read_only || in_array(
 							$slug,
-							array( 'create-page-draft', 'create-content-draft', 'create-content-proposal', 'submit-content-proposal', 'adopt-content-draft', 'assign-featured-image', 'ingest-remote-media', 'create-taxonomy-term', 'assign-taxonomy-terms', 'link-content-draft-translations', 'attach-content-draft-to-translation-group' ),
+							array( 'create-page-draft', 'create-content-draft', 'create-content-proposal', 'submit-content-proposal', 'adopt-content-draft', 'assign-featured-image', 'ingest-remote-media', 'create-taxonomy-term', 'assign-taxonomy-terms', 'link-content-draft-translations', 'attach-content-draft-to-translation-group', 'attach-content-to-translation-group', 'merge-content-translation-groups' ),
 							true
 						),
 					),
@@ -1117,11 +1144,11 @@ HTML;
 			$post_id  = absint( $input['post_id'] ?? 0 );
 			$conflict = in_array(
 				$error->get_execution_code(),
-				array( 'edit_conflict', 'draft_assigned_to_other_agent', 'taxonomy_term_conflict', 'proposal_creation_conflict', 'proposal_assigned_to_other_agent', 'localization_context_conflict' ),
+				array( 'edit_conflict', 'draft_assigned_to_other_agent', 'taxonomy_term_conflict', 'proposal_creation_conflict', 'proposal_assigned_to_other_agent', 'localization_context_conflict', 'localized_content_group_conflict', 'localized_group_snapshot_conflict', 'localized_group_language_slot_conflict', 'localized_group_member_conflict' ),
 				true
 			);
 			$this->audit->log( $operation, 'error', $input, $post_id, $error->get_execution_code(), array( 'conflict' => $conflict ) );
-			$denied = in_array( $error->get_execution_code(), array( 'taxonomy_term_create_denied', 'taxonomy_assignment_denied', 'proposal_create_denied', 'proposal_source_read_denied', 'localization_content_read_denied' ), true );
+			$denied = in_array( $error->get_execution_code(), array( 'taxonomy_term_create_denied', 'taxonomy_assignment_denied', 'proposal_create_denied', 'proposal_source_read_denied', 'localization_content_read_denied', 'localized_content_edit_forbidden' ), true );
 			$status = $conflict ? 409 : ( $denied ? 403 : 400 );
 			return new \WP_Error( 'smartcloud_agent_' . $error->get_execution_code(), $error->getMessage(), array( 'status' => $status, 'request_id' => $this->audit->get_request_id() ) );
 		} catch ( \Throwable $error ) {
@@ -1273,6 +1300,68 @@ HTML;
 		);
 	}
 
+	public function localized_content_group_attachment_schema(): array {
+		return array(
+			'type' => 'object',
+			'properties' => array(
+				'page_type' => $this->string_property( 'Blueprint page type shared by the target group and content item.', 1, 64 ),
+				'anchor_post_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+				'expected_localization_group' => $this->string_property( 'Exact target provider group identifier returned by inspect-content-item.', 1, 128 ),
+				'content' => array(
+					'type' => 'object',
+					'properties' => array(
+						'post_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+						'content_language' => $this->string_property( 'Exact BCP 47 language returned for the inspected draft or published item.', 2, 35 ),
+						'expected_modified_gmt' => array( 'type' => 'string', 'format' => 'date-time' ),
+						'expected_content_hash' => array( 'type' => 'string', 'pattern' => '^[a-f0-9]{64}$' ),
+					),
+					'required' => array( 'post_id', 'content_language', 'expected_modified_gmt', 'expected_content_hash' ),
+					'additionalProperties' => false,
+				),
+				'confirm_attach' => array( 'type' => 'boolean', 'enum' => array( true ) ),
+			),
+			'required' => array( 'page_type', 'anchor_post_id', 'expected_localization_group', 'content', 'confirm_attach' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	public function localized_group_merge_schema(): array {
+		$group = array(
+			'type' => 'object',
+			'properties' => array(
+				'anchor_post_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+				'expected_localization_group' => $this->string_property( 'Exact provider group identifier returned by inspect-content-item.', 1, 128 ),
+				'translations' => array(
+					'type' => 'array',
+					'minItems' => 1,
+					'maxItems' => 20,
+					'items' => array(
+						'type' => 'object',
+						'properties' => array(
+							'language_code' => $this->string_property( 'Exact provider language code returned in the localization translation map.', 1, 35 ),
+							'post_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+						),
+						'required' => array( 'language_code', 'post_id' ),
+						'additionalProperties' => false,
+					),
+				),
+			),
+			'required' => array( 'anchor_post_id', 'expected_localization_group', 'translations' ),
+			'additionalProperties' => false,
+		);
+		return array(
+			'type' => 'object',
+			'properties' => array(
+				'page_type' => $this->string_property( 'Blueprint page type shared by every group member.', 1, 64 ),
+				'target' => $group,
+				'source' => $group,
+				'confirm_merge' => array( 'type' => 'boolean', 'enum' => array( true ) ),
+			),
+			'required' => array( 'page_type', 'target', 'source', 'confirm_merge' ),
+			'additionalProperties' => false,
+		);
+	}
+
 	public function post_id_schema(): array {
 		return array(
 			'type'                 => 'object',
@@ -1366,6 +1455,8 @@ HTML;
 				'show_featured_image' => array( 'type' => 'boolean', 'default' => false ),
 				'show_date'          => array( 'type' => 'boolean', 'default' => false ),
 				'show_excerpt'       => array( 'type' => 'boolean', 'default' => false ),
+				'show_author'        => array( 'type' => 'boolean', 'default' => false ),
+				'sticky_mode'        => array( 'type' => 'string', 'enum' => array( 'include', 'only', 'exclude' ), 'default' => 'include' ),
 				'pagination'         => array( 'type' => 'boolean', 'default' => true ),
 				'taxonomy_filters'   => array(
 					'type'     => 'array',
@@ -1877,6 +1968,7 @@ HTML;
 		$schema['properties']['idempotency_key'] = $this->string_property( 'Stable key for safe retry of this clone operation.', 1, 128 );
 		$schema['properties']['title'] = $this->string_property( 'Optional title for the new draft.', 1, 200 );
 		$schema['properties']['slug'] = $this->string_property( 'Optional slug for the new draft.', 0, 200 );
+		$schema['properties']['target_content_language'] = $this->string_property( 'Optional Site Contract-approved language to assign to the cloned draft before its content is localized.', 2, 35 );
 		$schema['properties']['confirm_clone'] = array( 'type' => 'boolean', 'enum' => array( true ) );
 		$schema['required'] = array( 'post_id', 'page_type', 'expected_modified_gmt', 'expected_content_hash', 'idempotency_key', 'confirm_clone' );
 		return $schema;

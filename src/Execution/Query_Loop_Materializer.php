@@ -31,9 +31,10 @@ final class Query_Loop_Materializer {
 		$page_type = sanitize_key( (string) ( $input['page_type'] ?? '' ) );
 		$blueprint = $this->config->get_blueprint( $page_type );
 		$extensions = $this->config->get_block_extensions();
-		$policy = is_array( $extensions['query_loop_materializer'] ?? null )
-			? $extensions['query_loop_materializer']
-			: array();
+		$policy     = $this->effective_policy(
+			(array) ( $extensions['query_loop_materializer'] ?? array() ),
+			(array) ( $blueprint['block_extensions']['query_loop_materializer'] ?? array() )
+		);
 		if ( true !== ( $policy['enabled'] ?? false ) ) {
 			throw new Execution_Exception( 'query_loop_materializer_disabled', 'The active Site Contract has not enabled the constrained core/query materializer.' );
 		}
@@ -66,6 +67,7 @@ final class Query_Loop_Materializer {
 		if ( ! in_array( $orderby, (array) ( $policy['allowed_orderby'] ?? array( 'date' ) ), true ) ) {
 			throw new Execution_Exception( 'query_orderby_not_allowed', 'The requested query sort key is not allowed by the active Site Contract.' );
 		}
+		$sticky_mode = $this->requested_sticky_mode( $input['sticky_mode'] ?? 'include', $policy );
 
 		$template_blocks = $this->requested_template_blocks( $input, $policy );
 		$pagination = ! array_key_exists( 'pagination', $input ) || true === $input['pagination'];
@@ -76,18 +78,7 @@ final class Query_Loop_Materializer {
 		);
 		$this->assert_blocks_allowed( array_values( array_unique( $generated_names ) ), $blueprint, $extensions );
 
-		$query = array(
-			'perPage'  => $per_page,
-			'pages'    => 0,
-			'offset'   => $offset,
-			'postType' => $post_type,
-			'order'    => strtolower( $order ),
-			'orderBy'  => $orderby,
-			'author'   => '',
-			'search'   => '',
-			'sticky'   => '',
-			'inherit'  => false,
-		);
+		$query = $this->query_attributes( $post_type, $per_page, $offset, $order, $orderby, $sticky_mode );
 		$tax_query = $this->taxonomy_query( $input['taxonomy_filters'] ?? array(), $post_type, $policy );
 		if ( ! empty( $tax_query ) ) {
 			$query['taxQuery'] = $tax_query;
@@ -122,6 +113,32 @@ final class Query_Loop_Materializer {
 		);
 	}
 
+	private function requested_sticky_mode( mixed $value, array $policy ): string {
+		if ( ! is_string( $value ) || ! in_array( $value, array( 'include', 'only', 'exclude' ), true ) ) {
+			throw new Execution_Exception( 'query_sticky_mode_not_allowed', 'Sticky-post mode must be exactly include, only, or exclude.' );
+		}
+		if ( ! in_array( $value, (array) ( $policy['allowed_sticky_modes'] ?? array( 'include' ) ), true ) ) {
+			throw new Execution_Exception( 'query_sticky_mode_not_allowed', 'The requested sticky-post mode is not allowed by the active Site Contract and Blueprint.' );
+		}
+
+		return $value;
+	}
+
+	private function query_attributes( string $post_type, int $per_page, int $offset, string $order, string $orderby, string $sticky_mode ): array {
+		return array(
+			'perPage'  => $per_page,
+			'pages'    => 0,
+			'offset'   => $offset,
+			'postType' => $post_type,
+			'order'    => strtolower( $order ),
+			'orderBy'  => $orderby,
+			'author'   => '',
+			'search'   => '',
+			'sticky'   => 'include' === $sticky_mode ? '' : $sticky_mode,
+			'inherit'  => false,
+		);
+	}
+
 	private function requested_template_blocks( array $input, array $policy ): array {
 		$allowed = (array) ( $policy['allowed_template_blocks'] ?? array( 'core/post-title' ) );
 		$result = array( 'core/post-title' );
@@ -129,6 +146,7 @@ final class Query_Loop_Materializer {
 			'show_featured_image' => 'core/post-featured-image',
 			'show_date'           => 'core/post-date',
 			'show_excerpt'        => 'core/post-excerpt',
+			'show_author'         => 'core/post-author-name',
 		);
 		foreach ( $options as $option => $block ) {
 			if ( true === ( $input[ $option ] ?? false ) ) {
@@ -140,6 +158,26 @@ final class Query_Loop_Materializer {
 		}
 
 		return $result;
+	}
+
+	/**
+	 * Intersect the site-wide ceiling with the selected Blueprint opt-in.
+	 */
+	private function effective_policy( array $global, array $blueprint ): array {
+		$intersect = static fn( string $key ): array => array_values(
+			array_intersect( (array) ( $global[ $key ] ?? array() ), (array) ( $blueprint[ $key ] ?? array() ) )
+		);
+
+		return array(
+			'enabled'                 => true === ( $global['enabled'] ?? false ) && true === ( $blueprint['enabled'] ?? false ),
+			'allowed_post_types'      => $intersect( 'allowed_post_types' ),
+			'allowed_taxonomies'      => $intersect( 'allowed_taxonomies' ),
+			'allowed_orderby'         => $intersect( 'allowed_orderby' ),
+			'allowed_template_blocks' => $intersect( 'allowed_template_blocks' ),
+			'allowed_sticky_modes'    => $intersect( 'allowed_sticky_modes' ),
+			'max_per_page'            => min( (int) ( $global['max_per_page'] ?? 12 ), (int) ( $blueprint['max_per_page'] ?? 12 ) ),
+			'max_offset'              => min( (int) ( $global['max_offset'] ?? 100 ), (int) ( $blueprint['max_offset'] ?? 100 ) ),
+		);
 	}
 
 	private function taxonomy_query( mixed $filters, string $post_type, array $policy ): array {

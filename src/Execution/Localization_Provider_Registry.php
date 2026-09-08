@@ -142,6 +142,8 @@ final class Localization_Provider_Registry {
 				'language_switching'   => false,
 				'draft_linking'        => false,
 				'draft_group_attachment' => false,
+				'content_group_attachment' => false,
+				'translation_group_merge' => false,
 				'provider'             => '',
 				'languages'            => array(),
 			);
@@ -170,6 +172,8 @@ final class Localization_Provider_Registry {
 		}
 		$linking = null !== $this->ability_with_suffix( $provider['ability_names'], '/link-draft-translations' );
 		$attachment = null !== $this->ability_with_suffix( $provider['ability_names'], '/attach-draft-to-translation-group' );
+		$content_attachment = null !== $this->ability_with_suffix( $provider['ability_names'], '/attach-content-to-translation-group' );
+		$group_merge = null !== $this->ability_with_suffix( $provider['ability_names'], '/merge-translation-groups' );
 		$active_items = array_values( array_filter( $items, static fn( array $item ): bool => true === $item['active'] ) );
 		return array(
 			'authoring_mode'       => $unrestricted ? 'provider-languages' : 'allowlist',
@@ -178,6 +182,8 @@ final class Localization_Provider_Registry {
 			'language_switching'   => ! empty( $active_items ),
 			'draft_linking'        => $linking && count( $active_items ) >= 2,
 			'draft_group_attachment' => $attachment && count( $active_items ) >= 2,
+			'content_group_attachment' => $content_attachment && count( $active_items ) >= 2,
+			'translation_group_merge' => $group_merge && count( $active_items ) >= 2,
 			'provider'             => $provider['id'],
 			'languages'            => $items,
 		);
@@ -240,6 +246,46 @@ final class Localization_Provider_Registry {
 		) );
 		if ( (string) ( $result['provider'] ?? '' ) !== $provider['id'] || ! is_array( $result['translations'] ?? null ) ) {
 			throw new Execution_Exception( 'localization_draft_group_attachment_failed', 'The localization provider returned an invalid translation group relationship.' );
+		}
+		return $result;
+	}
+
+	public function attach_content_to_translation_group( string $page_type, string $post_type, int $anchor_post_id, array $content, string $expected_group, array $expected_translations ): array {
+		$provider = $this->active_provider();
+		if ( null === $provider || null === $this->ability_with_suffix( $provider['ability_names'], '/attach-content-to-translation-group' ) ) {
+			throw new Execution_Exception( 'localization_content_group_attachment_unavailable', 'The selected localization provider cannot attach content to an existing translation group.' );
+		}
+		$result = $this->execute( $provider, '/attach-content-to-translation-group', array(
+			'page_type' => $page_type,
+			'post_type' => $post_type,
+			'anchor_post_id' => $anchor_post_id,
+			'content' => $content,
+			'expected_target_localization_group' => $expected_group,
+			'target_translations' => $expected_translations,
+		) );
+		if ( (string) ( $result['provider'] ?? '' ) !== $provider['id'] || ! is_array( $result['translations'] ?? null ) ) {
+			throw new Execution_Exception( 'localization_content_group_attachment_failed', 'The localization provider returned an invalid translation group relationship.' );
+		}
+		return $result;
+	}
+
+	public function merge_translation_groups( string $page_type, string $post_type, array $target, array $source ): array {
+		$provider = $this->active_provider();
+		if ( null === $provider || null === $this->ability_with_suffix( $provider['ability_names'], '/merge-translation-groups' ) ) {
+			throw new Execution_Exception( 'localization_group_merge_unavailable', 'The selected localization provider cannot merge translation groups.' );
+		}
+		$result = $this->execute( $provider, '/merge-translation-groups', array(
+			'page_type' => $page_type,
+			'post_type' => $post_type,
+			'target_anchor_post_id' => absint( $target['anchor_post_id'] ?? 0 ),
+			'source_anchor_post_id' => absint( $source['anchor_post_id'] ?? 0 ),
+			'expected_target_localization_group' => (string) ( $target['expected_localization_group'] ?? '' ),
+			'expected_source_localization_group' => (string) ( $source['expected_localization_group'] ?? '' ),
+			'target_translations' => (array) ( $target['translations'] ?? array() ),
+			'source_translations' => (array) ( $source['translations'] ?? array() ),
+		) );
+		if ( (string) ( $result['provider'] ?? '' ) !== $provider['id'] || ! is_array( $result['translations'] ?? null ) ) {
+			throw new Execution_Exception( 'localization_group_merge_failed', 'The localization provider returned an invalid merged translation group.' );
 		}
 		return $result;
 	}

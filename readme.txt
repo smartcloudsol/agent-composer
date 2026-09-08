@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.2.1
+Stable tag: 1.2.2
 License: MIT
 License URI: https://mit-license.org/
 
@@ -143,6 +143,13 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 
 == Changelog ==
 
+= 1.2.2 =
+* Localization: Attach an inspected draft or published item to an empty language slot, and safely merge two exact non-conflicting translation groups without changing publication state.
+* Safety: Require content concurrency tokens, complete relationship snapshots, edit permission for every member, provider-side verification, idempotent replay, and verified rollback.
+* Blueprints: Add dedicated Contact, Privacy Policy, Terms of Use, and Blog index contracts, expand Flow form and comparison preservation, and enable all five site languages.
+* Query Loops: Govern author and sticky include, exclude, or only behavior and preserve localized archive destinations.
+* Cloning: Allow an inspected source to be copied into a separately governed target content language while verifying byte-exact source preservation.
+
 = 1.2.1 =
 * Preview: Return bounded and sanitized static HTML for Composer-owned drafts with validation, concurrency metadata, a digest, and approved asset origins.
 * MCP Apps: Expose an inline rendered-preview resource for compatible clients while retaining the structured tool result for every MCP client.
@@ -189,6 +196,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.2.2 =
+Install the matching Polylang or WPML bridge update, restart the MCP runtime, refresh its tool catalogue, and activate a Config Set containing the new localized page Blueprints before authoring those pages.
 
 = 1.2.1 =
 Refresh the MCP tool and resource catalog after upgrading. Inline ChatGPT previews require WordPress MCP Adapter 0.6.0 or newer; structured preview data remains available without MCP Apps UI support.

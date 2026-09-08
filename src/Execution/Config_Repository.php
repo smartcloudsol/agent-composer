@@ -265,6 +265,7 @@ final class Config_Repository {
 					'allowed_taxonomies'      => array(),
 					'allowed_orderby'         => array( 'date' ),
 					'allowed_template_blocks' => array( 'core/post-title' ),
+					'allowed_sticky_modes'     => array( 'include' ),
 					'max_per_page'            => 12,
 					'max_offset'              => 100,
 				),
@@ -451,14 +452,18 @@ final class Config_Repository {
 				? $blueprint['seo_contract']
 				: array()
 		);
+		$blueprint_block_extensions = isset( $blueprint['block_extensions'] ) && is_array( $blueprint['block_extensions'] )
+			? $blueprint['block_extensions']
+			: array();
 		$blueprint['block_extensions'] = $this->normalize_block_extensions(
 			$this->overlay_explicit(
 				$policy['block_extensions'],
-				isset( $blueprint['block_extensions'] ) && is_array( $blueprint['block_extensions'] )
-					? $blueprint['block_extensions']
-					: array()
+				$blueprint_block_extensions
 			)
 		);
+		if ( ! array_key_exists( 'query_loop_materializer', $blueprint_block_extensions ) ) {
+			$blueprint['block_extensions']['query_loop_materializer']['enabled'] = false;
+		}
 
 		return $blueprint;
 	}
@@ -612,7 +617,7 @@ final class Config_Repository {
 		);
 		$allowed_template_blocks = array_values(
 			array_intersect(
-				array( 'core/post-title', 'core/post-excerpt', 'core/post-date', 'core/post-featured-image' ),
+				array( 'core/post-title', 'core/post-excerpt', 'core/post-date', 'core/post-featured-image', 'core/post-author-name' ),
 				$this->block_name_list( $value['allowed_template_blocks'] ?? array( 'core/post-title' ) )
 			)
 		);
@@ -623,6 +628,12 @@ final class Config_Repository {
 			'allowed_taxonomies'      => $this->slug_list( $value['allowed_taxonomies'] ?? array() ),
 			'allowed_orderby'         => ! empty( $allowed_orderby ) ? $allowed_orderby : array( 'date' ),
 			'allowed_template_blocks' => ! empty( $allowed_template_blocks ) ? $allowed_template_blocks : array( 'core/post-title' ),
+			'allowed_sticky_modes'     => array_values(
+				array_intersect(
+					array( 'include', 'only', 'exclude' ),
+					$this->slug_list( $value['allowed_sticky_modes'] ?? array( 'include' ) )
+				)
+			),
 			'max_per_page'            => min( 24, max( 1, absint( $value['max_per_page'] ?? 12 ) ) ),
 			'max_offset'              => min( 500, max( 0, absint( $value['max_offset'] ?? 100 ) ) ),
 		);
