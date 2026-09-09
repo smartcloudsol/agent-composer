@@ -28,7 +28,7 @@ if ( empty( $admins ) ) {
 }
 wp_set_current_user( (int) $admins[0]->ID );
 
-$config_set = 'wpsuite-site-contract-2';
+$config_set = 'wpsuite-site-contract-7-theme-1-0-59';
 $repository = new WordPressConfigurationRepository();
 $audit      = new AuditTable();
 $importer   = new ConfigPackageImporter( $repository, $audit );
@@ -42,7 +42,7 @@ if ( empty( $existing ) ) {
 }
 
 $validation = $validator->validate( $config_set );
-if ( ! $validation['valid'] || 18 !== $validation['page_type_count'] ) {
+if ( ! $validation['valid'] || 26 !== $validation['page_type_count'] ) {
 	throw new RuntimeException( 'The canonical WP Suite Config Set did not pass complete validation: ' . wp_json_encode( $validation ) );
 }
 

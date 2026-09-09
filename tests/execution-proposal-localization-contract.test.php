@@ -56,7 +56,9 @@ $assert( str_contains( $proposal, "wp_update_post( array( 'ID' => \$proposal_id 
 $assert( str_contains( $proposal, 'content-proposal-returned-for-changes' ) && str_contains( $proposal, "'reason' => \$reason" ), 'A human change request must retain its reason in the proposal audit trail.' );
 $assert( str_contains( $abilities, 'create-content-proposal' ) && str_contains( $abilities, 'submit-content-proposal' ), 'Agent proposal abilities are missing.' );
 $assert( substr_count( $abilities, 'MUST call submit-content-proposal' ) >= 2, 'Proposal creation and draft update metadata must require the explicit human-review submission step.' );
+$assert( substr_count( $abilities, 'MUST call smartcloud-agent-composer/get-rendered-preview' ) >= 4, 'Draft creation, legacy creation, proposal, and update metadata must require the final inline preview step.' );
 $aliases = $read( 'src/Integration/Abilities/ExecutionAbilityAliases.php' );
+$assert( str_contains( $aliases, 'MUST call smartcloud-agent-composer/get-rendered-preview' ), 'The canonical update-content-draft alias must advertise the final inline preview step.' );
 $assert( str_contains( $aliases, 'MUST call smartcloud-agent-composer/submit-content-proposal' ), 'The canonical update-content-draft alias must advertise the proposal submission step.' );
 $assert( ! str_contains( $abilities, 'merge-content-proposal' ), 'Merge must never be registered as an agent execution ability.' );
 $assert( str_contains( $activation, 'CAP_PROPOSE_UPDATES' ) && str_contains( $activation, 'CAP_MERGE_PROPOSALS' ), 'Proposal capabilities must be distinct.' );

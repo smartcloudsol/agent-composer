@@ -272,7 +272,7 @@ test("Composer execution contract is checksum-pinned and canonical names are fro
   const surface = JSON.parse(read("tests/fixtures/execution-ability-surface.json"));
   assert.equal(surface.contract, manifest.contract);
   const aliases = read("src/Integration/Abilities/ExecutionAbilityAliases.php");
-  assert.equal(surface.operations.length, 40);
+  assert.equal(surface.operations.length, 41);
   for (const alias of surface.preferred_aliases) {
     assert.match(aliases, new RegExp(alias.replaceAll("-", "\\-")));
   }
@@ -283,14 +283,29 @@ test("rendered preview exposes a bounded data tool and an MCP Apps UI resource",
   const server = read("src/Integration/Mcp/ComposerMcpServer.php");
   const renderer = read("src/Execution/Rendered_Preview_Service.php");
   assert.match(abilities, /get-rendered-preview/);
+  assert.match(abilities, /get-rendered-preview-asset/);
   assert.match(abilities, /text\/html;profile=mcp-app/);
   assert.match(abilities, /'ui'\s*=>\s*array\(\s*'resourceUri'/);
   assert.match(abilities, /'openai\/outputTemplate'/);
+  assert.match(abilities, /ui\/initialize/);
+  assert.match(abilities, /ui\/notifications\/initialized/);
+  assert.match(abilities, /window\.openai\?\.toolOutput/);
+  assert.match(abilities, /window\.openai\?\.callTool/);
+  assert.match(abilities, /attachShadow/);
+  assert.match(abilities, /openai\/widgetAccessible/);
+  const resourceRegistration = abilities.slice(
+    abilities.indexOf("private function register_rendered_preview_resource"),
+    abilities.indexOf("public function rendered_preview_resource")
+  );
+  assert.doesNotMatch(resourceRegistration, /input_schema/);
   assert.match(server, /\$resources/);
   assert.match(renderer, /do_blocks/);
   assert.match(renderer, /wp_kses_post/);
-  assert.match(renderer, /MAX_HTML_BYTES = 500000/);
-  assert.match(renderer, /image_origin_not_allowed/);
+  assert.match(renderer, /MAX_HTML_BYTES\s*=\s*500000/);
+  assert.match(renderer, /smartcloud_composer_rendered_preview_stylesheets/);
+  assert.match(renderer, /strip_external_css_references/);
+  assert.match(renderer, /data-smartcloud-preview-asset/);
+  assert.doesNotMatch(renderer, /\$assets\[ \$url \]/);
   assert.doesNotMatch(renderer, /do_shortcode|apply_filters\(\s*['"]the_content/);
 });
 
@@ -356,8 +371,8 @@ test("release copy contains no internal milestone or retired theme-contract narr
   assert.doesNotMatch(read("readme.txt"), /development milestone|not yet (?:the )?final/i);
   assert.match(read("smartcloud-agent-composer.php"), /License:\s+MIT/);
   assert.equal(fs.existsSync(path.join(root, "LICENSE")), true);
-  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.2\.2/);
-  assert.match(read("readme.txt"), /Stable tag:\s+1\.2\.2/);
+  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.2\.3/);
+  assert.match(read("readme.txt"), /Stable tag:\s+1\.2\.3/);
 });
 
 test("localization selection is manifest-driven and the main runtime names no concrete provider", () => {

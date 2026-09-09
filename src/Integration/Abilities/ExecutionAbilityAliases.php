@@ -89,7 +89,7 @@ final class ExecutionAbilityAliases {
 			return 'Lists only editable or adoptable content. A returned update proposal includes its reviewer change_request_reason and must be revised in the same working draft. Never use this ability to resolve relation target IDs; use search-relation-targets instead.';
 		}
 		if ( 'update-own-draft' === $target ) {
-			return 'Updates an assigned Composer draft. If assignment_source is published-update-proposal, updating is not the final step: validate the completed proposal, then MUST call smartcloud-agent-composer/submit-content-proposal with the freshest modified_gmt and revision. Do not leave a completed proposal in working state or report it as ready for human review before submission succeeds.';
+			return 'Updates an assigned Composer draft. After the final successful update, MUST call smartcloud-agent-composer/get-rendered-preview with the returned post_id, modified_gmt, and revision before reporting completion. If assignment_source is published-update-proposal, validate the completed proposal, render that final preview, then MUST call smartcloud-agent-composer/submit-content-proposal with the freshest modified_gmt and revision. Do not leave a completed proposal in working state or report it as ready for human review before submission succeeds.';
 		}
 		return sprintf( 'Canonical public name for the %s%s execution operation.', Abilities::PREFIX, $target );
 	}

@@ -41,7 +41,8 @@
     "update-own-draft",
     "get-draft",
     "get-preview",
-    "get-rendered-preview"
+    "get-rendered-preview",
+    "get-rendered-preview-asset"
   ],
   "preferred_aliases": [
     "materialize-image",

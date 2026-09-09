@@ -59,10 +59,17 @@ namespace {
 	foreach ( array(
 		'smartcloud-agent-composer/attach-content-to-translation-group',
 		'smartcloud-agent-composer/merge-content-translation-groups',
+		'smartcloud-agent-composer/get-rendered-preview',
+		'smartcloud-agent-composer/get-rendered-preview-asset',
 	) as $name ) {
 		if ( ! in_array( $name, $names, true ) ) {
 			throw new RuntimeException( 'Composer MCP is missing governed wrapper: ' . $name );
 		}
+	}
+
+	$resources = $adapter->arguments[10] ?? array();
+	if ( ! in_array( 'smartcloud-agent-composer/rendered-preview-app', $resources, true ) ) {
+		throw new RuntimeException( 'Composer MCP is missing the rendered preview UI resource.' );
 	}
 
 	foreach ( array(

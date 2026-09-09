@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.2.2
+Stable tag: 1.2.3
 License: MIT
 License URI: https://mit-license.org/
 
@@ -63,7 +63,7 @@ No. Agent-facing operations create and update drafts only. Normal content cannot
 
 = How does an agent connect? =
 
-Install the WordPress MCP Adapter, use a dedicated authenticated WordPress user, and connect a compatible MCP client to `/wp-json/mcp/smartcloud-agent-composer`. An optional Connector tunnel can expose the same endpoint without changing Composer's WordPress authorization boundary. The `get-rendered-preview` tool returns a sanitized content-scoped HTML snapshot. MCP Apps clients can display it inline when WordPress MCP Adapter 0.6.0 or newer is installed; other clients still receive the structured result.
+Install the WordPress MCP Adapter, use a dedicated authenticated WordPress user, and connect a compatible MCP client to `/wp-json/mcp/smartcloud-agent-composer`. An optional Connector tunnel can expose the same endpoint without changing Composer's WordPress authorization boundary. The `get-rendered-preview` tool returns a sanitized content-scoped HTML snapshot. MCP Apps clients can display it inline when WordPress MCP Adapter 0.6.1 or newer is installed; other clients still receive the structured result. The preview app privately retrieves bounded local images and sanitized local stylesheets through the authenticated MCP connection, so it does not need direct browser access to a firewalled WordPress origin.
 
 = How does media handling work? =
 
@@ -143,6 +143,13 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 
 == Changelog ==
 
+= 1.2.3 =
+* Preview: Reliably initialize the inline MCP Apps viewer, accept ChatGPT tool output, and require a rendered preview after the final draft write.
+* Preview assets: Expose bounded, allowlisted same-origin stylesheets and images through the rendered-preview asset tool so compatible clients can display previews when the WordPress site is private.
+* Blueprints: Preserve complete Contact details and normalized Flow success actions, allow authored offer actions to remain optional, and govern About page updates through proposals.
+* Config Sets: Ship a new 26-Blueprint WP Suite preset for theme 1.0.59 without overwriting an installed working set.
+* Dependencies: Update the bundled WP Suite Hub to 2.5.14 with the shared site translation catalog and corrected Amplify translations.
+
 = 1.2.2 =
 * Localization: Attach an inspected draft or published item to an empty language slot, and safely merge two exact non-conflicting translation groups without changing publication state.
 * Safety: Require content concurrency tokens, complete relationship snapshots, edit permission for every member, provider-side verification, idempotent replay, and verified rollback.
@@ -196,6 +203,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.2.3 =
+Import, validate, and explicitly activate the new WP Suite Config Set if the site uses the bundled theme 1.0.59 contract. Existing active Config Sets remain unchanged.
 
 = 1.2.2 =
 Install the matching Polylang or WPML bridge update, restart the MCP runtime, refresh its tool catalogue, and activate a Config Set containing the new localized page Blueprints before authoring those pages.

@@ -10,7 +10,7 @@ use SmartCloud\AgentComposer\Integration\Abilities\ExecutionAbilityAliases;
 final class ComposerMcpServer {
 	public const SERVER_ID = 'smartcloud-agent-composer';
 	public const HTTP_ENDPOINT = '/wp-json/mcp/smartcloud-agent-composer';
-	public const PREVIEW_RESOURCE_URI = 'ui://smartcloud-agent-composer/rendered-preview/v1.html';
+	public const PREVIEW_RESOURCE_URI = 'ui://smartcloud-agent-composer/rendered-preview/v2.html';
 
 	private array $registered_adapters = array();
 
@@ -48,7 +48,7 @@ final class ComposerMcpServer {
 			'mcp',
 			$id,
 			$label,
-			'Governed discovery, draft creation, and published-content proposal execution through active Composer configuration.',
+			'Governed discovery, draft creation, and published-content proposal execution through active Composer configuration. After the final successful draft write, call get-rendered-preview with its fresh concurrency tokens before reporting completion so the user receives the inline preview.',
 			SMARTCLOUD_COMPOSER_VERSION,
 			array( \WP\MCP\Transport\HttpTransport::class ),
 			\WP\MCP\Infrastructure\ErrorHandling\ErrorLogMcpErrorHandler::class,

@@ -1,7 +1,7 @@
 {
   "contract": "smartcloud-agent-composer-execution",
   "files": {
-    "Abilities.php": "sha256:43c9841262e262bfb4a4d7df2a3c73753287625d8c3171d001810c5193f8fdac",
+    "Abilities.php": "sha256:435347e45ab78d1271f9c86be5fe0859aeb055c03ad2b821d3a420ca1afdb960",
     "Ability_Provider_Registry.php": "sha256:ab6f8c679b614136f25e78fcf30ae386e793dbb167ecc6f7974dea62e519e7f1",
     "Audit_Logger.php": "sha256:f517fa4314ebbdd3f2004b61ba49c4d3885b05b90aab13393acbec6f49b7b163",
     "Block_Catalog.php": "sha256:1ebed7ab2988ae4809d6b8abcd9948f4137b1e529cebd73b8c28f98af012c430",
@@ -21,7 +21,7 @@
     "Pattern_Repository.php": "sha256:823a19e5a67380390a2ccf4d0bc3cb90a881fdd4f35f18cb97998622c67b2c10",
     "Query_Loop_Materializer.php": "sha256:9787a86add2626622c6f9d7daaedeec178a751ea3a4c298d3a31f68fd7ceb374",
     "Remote_Media_Ingestor.php": "sha256:b0f4843026e14c3611e562e6fc24c9adfe760cbd146171157a6c888640ae679d",
-    "Rendered_Preview_Service.php": "sha256:41b27e53be93ea42d24b64002025f5c4cd6330abbde12785158f5a3732d2306e",
+    "Rendered_Preview_Service.php": "sha256:1613fe1e1ac544c29c49c75eb3bdae6283d045b77944ceab792c9cf3874b9658",
     "Semantic_Slot_Materializer.php": "sha256:09f92b076f8b423f7650fe30bd011d0c10f692d0ac5a6691fc18644669790c3e",
     "Target_Resolver.php": "sha256:86a417c583a1276822365bce810a676b51bd8b56f8cbec61b9d58ebc79bc7657",
     "Taxonomy_Term_Service.php": "sha256:7f46bf3cfebeba21fbb4cb712a2927a7720fb5682e358fe5c1f9d6f4de0da37d"
