@@ -97,6 +97,34 @@ test("every proposal-enabled WP Suite Blueprint has its Site Contract update gat
   }
 });
 
+test("homepage and product Blueprints allow governed published-content proposals", () => {
+  const proposalBlueprints = [
+    "home",
+    "product",
+    "product-agent-canvas",
+    "product-agent-composer",
+    "product-ai-kit",
+    "product-flow",
+    "product-gatey",
+    "product-publisher",
+  ];
+
+  for (const id of proposalBlueprints) {
+    const blueprint = JSON.parse(read(`presets/wpsuite/blueprints/${id}.json`));
+    assert.equal(
+      blueprint.published_update_policy,
+      "proposal-only",
+      `${id} must permit proposals for its published source content`
+    );
+  }
+
+  const home = JSON.parse(read("presets/wpsuite/blueprints/home.json"));
+  assert.ok(
+    home.allowed_patterns.includes("wpsuite/home-playground-cta"),
+    "the homepage must accept its existing Playground CTA pattern"
+  );
+});
+
 test("WP Suite markup roles cover every specialized card grid", () => {
   const site = JSON.parse(read("presets/wpsuite/site-contract.json"));
   const cards = site.design_policy.markup_contract.role_classes.card;
@@ -286,7 +314,11 @@ test("rendered preview exposes a bounded data tool and an MCP Apps UI resource",
   assert.match(abilities, /get-rendered-preview-asset/);
   assert.match(abilities, /text\/html;profile=mcp-app/);
   assert.match(abilities, /'ui'\s*=>\s*array\(\s*'resourceUri'/);
-  assert.match(abilities, /'openai\/outputTemplate'/);
+  assert.match(abilities, /'openai\/outputTemplate'\s*=>\s*ComposerMcpServer::PREVIEW_RESOURCE_URI/);
+  assert.match(abilities, /'resourceUri'\s*=>\s*ComposerMcpServer::PREVIEW_RESOURCE_URI/);
+  assert.match(server, /rendered-preview\/v3\.html/);
+  assert.match(server, /rendered-preview\/v2\.html/);
+  assert.match(server, /rendered-preview\/v1\.html/);
   assert.match(abilities, /ui\/initialize/);
   assert.match(abilities, /ui\/notifications\/initialized/);
   assert.match(abilities, /window\.openai\?\.toolOutput/);
@@ -303,8 +335,22 @@ test("rendered preview exposes a bounded data tool and an MCP Apps UI resource",
   assert.match(renderer, /wp_kses_post/);
   assert.match(renderer, /MAX_HTML_BYTES\s*=\s*500000/);
   assert.match(renderer, /smartcloud_composer_rendered_preview_stylesheets/);
-  assert.match(renderer, /strip_external_css_references/);
+  assert.match(renderer, /prepare_stylesheet_css/);
+  assert.match(renderer, /MAX_IMPORT_DEPTH\s*=\s*4/);
+  assert.match(renderer, /MAX_IMPORTED_STYLESHEETS\s*=\s*32/);
+  assert.match(renderer, /smartcloud-preview-asset:\/\//);
+  assert.match(renderer, /'woff'\s*=>\s*'font\/woff'/);
+  assert.match(renderer, /'woff2'\s*=>\s*'font\/woff2'/);
+  assert.match(renderer, /stylesheet_escaped_identifier_neutralized/);
+  assert.match(abilities, /asset\.kind==='font'/);
+  assert.match(abilities, /audio,video,source,track,picture/);
   assert.match(renderer, /data-smartcloud-preview-asset/);
+  assert.match(renderer, /get_owned_draft_for_preview_asset/);
+  assert.match(renderer, /get_preview_for_preview_asset/);
+  assert.match(renderer, /build_document\(\s*\$post,\s*\$preview_start,\s*\$language\s*\?:\s*'und',\s*false\s*\)/);
+  const drafts = read("src/Execution/Draft_Service.php");
+  assert.match(drafts, /'ready-for-review',\s*'merged',\s*'rejected',\s*'superseded'/);
+  assert.match(drafts, /if\s*\(\s*!\s*\$preview_asset_read\s*\)/);
   assert.doesNotMatch(renderer, /\$assets\[ \$url \]/);
   assert.doesNotMatch(renderer, /do_shortcode|apply_filters\(\s*['"]the_content/);
 });
@@ -371,8 +417,8 @@ test("release copy contains no internal milestone or retired theme-contract narr
   assert.doesNotMatch(read("readme.txt"), /development milestone|not yet (?:the )?final/i);
   assert.match(read("smartcloud-agent-composer.php"), /License:\s+MIT/);
   assert.equal(fs.existsSync(path.join(root, "LICENSE")), true);
-  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.2\.3/);
-  assert.match(read("readme.txt"), /Stable tag:\s+1\.2\.3/);
+  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.2\.4/);
+  assert.match(read("readme.txt"), /Stable tag:\s+1\.2\.4/);
 });
 
 test("localization selection is manifest-driven and the main runtime names no concrete provider", () => {

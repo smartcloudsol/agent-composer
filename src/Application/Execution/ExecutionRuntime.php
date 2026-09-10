@@ -61,7 +61,7 @@ final class ExecutionRuntime {
 		$localized_drafts   = new Localized_Draft_Service( $config, $this->drafts, $this->localization );
 		$audit_table        = new AuditTable();
 		$audit              = new Audit_Logger( $audit_table );
-		$this->proposals    = new Content_Proposal_Service( $config, $targets, $validator, $this->localization, $audit_table );
+		$this->proposals    = new Content_Proposal_Service( $config, $targets, $validator, $this->localization, $audit_table, $this->drafts );
 		$query_loops        = new Query_Loop_Materializer( $config );
 		$content_fields     = new Content_Field_Materializer( $config, $this->drafts, $language );
 		$taxonomy_terms     = new Taxonomy_Term_Service( $config, $this->drafts, $language );

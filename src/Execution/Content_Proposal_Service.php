@@ -28,7 +28,8 @@ final class Content_Proposal_Service {
 		private readonly Target_Resolver $targets,
 		private readonly Page_Validator $validator,
 		private readonly Localization_Provider_Registry $localization,
-		private readonly AuditTable $audit
+		private readonly AuditTable $audit,
+		private readonly Draft_Service $drafts
 	) {}
 
 	public function create( array $input ): array {
@@ -158,6 +159,7 @@ final class Content_Proposal_Service {
 		if ( ! $post instanceof \WP_Post ) {
 			throw new Execution_Exception( 'proposal_read_failed', 'The proposal was created but could not be read.' );
 		}
+		$post = $this->drafts->initialize_created_modified_gmt( $post );
 		try {
 			$this->localization->validate_proposal( $context, $source_id, $post->ID );
 		} catch ( Execution_Exception $error ) {
@@ -187,6 +189,13 @@ final class Content_Proposal_Service {
 		if ( 'working' !== $state ) {
 			throw new Execution_Exception( 'proposal_not_editable', 'Only a working proposal can be submitted.' );
 		}
+		Rendered_Preview_Service::assert_submission_token(
+			trim( (string) ( $input['rendered_preview_token'] ?? '' ) ),
+			$proposal->ID,
+			(string) ( $input['expected_modified_gmt'] ?? '' ),
+			(string) ( $input['expected_revision'] ?? '' ),
+			get_current_user_id()
+		);
 		$validation = $this->validate_post( $proposal );
 		if ( ! $validation['valid'] ) {
 			throw new Execution_Exception( 'proposal_validation_failed', 'The proposal must pass its current Blueprint before review.' );

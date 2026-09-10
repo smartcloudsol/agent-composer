@@ -57,6 +57,7 @@ $assert( str_contains( $proposal, 'content-proposal-returned-for-changes' ) && s
 $assert( str_contains( $abilities, 'create-content-proposal' ) && str_contains( $abilities, 'submit-content-proposal' ), 'Agent proposal abilities are missing.' );
 $assert( substr_count( $abilities, 'MUST call submit-content-proposal' ) >= 2, 'Proposal creation and draft update metadata must require the explicit human-review submission step.' );
 $assert( substr_count( $abilities, 'MUST call smartcloud-agent-composer/get-rendered-preview' ) >= 4, 'Draft creation, legacy creation, proposal, and update metadata must require the final inline preview step.' );
+$assert( str_contains( $abilities, "'rendered_preview_token'" ) && str_contains( $proposal, 'Rendered_Preview_Service::assert_submission_token' ), 'Proposal submission must require a token proving that the assigned agent rendered the exact final revision.' );
 $aliases = $read( 'src/Integration/Abilities/ExecutionAbilityAliases.php' );
 $assert( str_contains( $aliases, 'MUST call smartcloud-agent-composer/get-rendered-preview' ), 'The canonical update-content-draft alias must advertise the final inline preview step.' );
 $assert( str_contains( $aliases, 'MUST call smartcloud-agent-composer/submit-content-proposal' ), 'The canonical update-content-draft alias must advertise the proposal submission step.' );

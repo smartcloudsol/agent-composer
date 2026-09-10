@@ -261,14 +261,19 @@ export interface ContentProposalValidationReport {
 
 export interface GetRenderedPreviewInput {
   post_id: number;
-  expected_modified_gmt?: IsoDateTime;
-  expected_revision?: Uuid;
+  expected_modified_gmt: IsoDateTime;
+  expected_revision: Uuid;
 }
 
 export interface RenderedPreviewAsset {
+  asset_id: string;
   kind: "image" | "stylesheet" | "font";
-  url: string;
-  origin: string;
+  mime_type: "image/jpeg" | "image/png" | "image/webp" | "image/gif" | "image/avif" | "text/css" | "font/woff" | "font/woff2";
+  byte_length: number;
+  sha256: Sha256Hex;
+  handle?: string;
+  media?: string;
+  order?: number;
 }
 
 export interface RenderedPreviewWarning {
@@ -278,7 +283,7 @@ export interface RenderedPreviewWarning {
 }
 
 export interface RenderedPreviewDocument {
-  contract_version: "1";
+  contract_version: "3";
   post_id: number;
   modified_gmt: IsoDateTime;
   revision: Uuid;
@@ -287,6 +292,7 @@ export interface RenderedPreviewDocument {
   direction: "ltr" | "rtl";
   scope: "content" | "theme-document";
   fidelity: "static";
+  source_format: "rendered-html";
   mime_type: "text/html";
   html: string;
   sha256: Sha256Hex;
@@ -300,6 +306,7 @@ export interface RenderedPreviewResult {
   edit_url: string;
   preview_url: string;
   validation: ContentProposalValidationReport;
+  rendered_preview_token: string;
   document: RenderedPreviewDocument;
 }
 
@@ -349,15 +356,16 @@ export interface SubmitContentProposalInput {
   post_id: number;
   expected_modified_gmt: IsoDateTime;
   expected_revision: Uuid;
+  rendered_preview_token: string;
 }
 
 /** Human REST-only input. Merge is deliberately not an agent Ability. */
-export interface MergeContentProposalInput extends Omit<SubmitContentProposalInput, "post_id"> {
+export interface MergeContentProposalInput extends Omit<SubmitContentProposalInput, "post_id" | "rendered_preview_token"> {
   confirmation: `merge:${number}:${number}`;
 }
 
 /** Human REST-only input. Reject is deliberately not an agent Ability. */
-export interface RejectContentProposalInput extends Omit<SubmitContentProposalInput, "post_id"> {
+export interface RejectContentProposalInput extends Omit<SubmitContentProposalInput, "post_id" | "rendered_preview_token"> {
   reason: string;
 }
 

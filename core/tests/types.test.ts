@@ -76,7 +76,8 @@ const create = {
 const submit = {
   post_id: 42,
   expected_modified_gmt: "2026-09-02T10:01:00Z",
-  expected_revision: "123e4567-e89b-12d3-a456-426614174000"
+  expected_revision: "123e4567-e89b-12d3-a456-426614174000",
+  rendered_preview_token: `pv1.${"1".repeat(10)}.${"a".repeat(43)}`
 } satisfies SubmitContentProposalInput;
 
 const merge = {
@@ -92,7 +93,7 @@ const renderedPreviewInput = {
 } satisfies GetRenderedPreviewInput;
 
 const renderedPreviewDocument = {
-  contract_version: "1",
+  contract_version: "3",
   post_id: 42,
   modified_gmt: submit.expected_modified_gmt,
   revision: submit.expected_revision,
@@ -101,15 +102,28 @@ const renderedPreviewDocument = {
   direction: "ltr",
   scope: "content",
   fidelity: "static",
+  source_format: "rendered-html",
   mime_type: "text/html",
   html: "<!doctype html><html lang=\"hu\"><body>Preview</body></html>",
   sha256: "a".repeat(64),
   byte_length: 61,
   assets: [
     {
+      asset_id: `pa_${"a".repeat(43)}`,
       kind: "stylesheet",
-      url: "https://example.com/wp-content/themes/site/style.css",
-      origin: "https://example.com"
+      mime_type: "text/css",
+      byte_length: 42,
+      sha256: "a".repeat(64),
+      handle: "site",
+      media: "all",
+      order: 0
+    },
+    {
+      asset_id: `pa_${"b".repeat(43)}`,
+      kind: "font",
+      mime_type: "font/woff2",
+      byte_length: 32,
+      sha256: "b".repeat(64)
     }
   ],
   warnings: [
@@ -139,6 +153,7 @@ const renderedPreview = {
     composition_mode: "document",
     content_language: "hu-HU"
   },
+  rendered_preview_token: submit.rendered_preview_token,
   document: renderedPreviewDocument
 } satisfies RenderedPreviewResult;
 

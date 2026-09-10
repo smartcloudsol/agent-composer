@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.2.3
+Stable tag: 1.2.4
 License: MIT
 License URI: https://mit-license.org/
 
@@ -63,7 +63,7 @@ No. Agent-facing operations create and update drafts only. Normal content cannot
 
 = How does an agent connect? =
 
-Install the WordPress MCP Adapter, use a dedicated authenticated WordPress user, and connect a compatible MCP client to `/wp-json/mcp/smartcloud-agent-composer`. An optional Connector tunnel can expose the same endpoint without changing Composer's WordPress authorization boundary. The `get-rendered-preview` tool returns a sanitized content-scoped HTML snapshot. MCP Apps clients can display it inline when WordPress MCP Adapter 0.6.1 or newer is installed; other clients still receive the structured result. The preview app privately retrieves bounded local images and sanitized local stylesheets through the authenticated MCP connection, so it does not need direct browser access to a firewalled WordPress origin.
+Install the WordPress MCP Adapter, use a dedicated authenticated WordPress user, and connect a compatible MCP client to `/wp-json/mcp/smartcloud-agent-composer`. An optional Connector tunnel can expose the same endpoint without changing Composer's WordPress authorization boundary. The `get-rendered-preview` tool returns a sanitized content-scoped HTML snapshot. MCP Apps clients can display it inline when WordPress MCP Adapter 0.6.1 or newer is installed; other clients still receive the structured result. The preview app privately retrieves bounded local images, WOFF/WOFF2 fonts, sanitized local stylesheets, and their bounded local imports through the authenticated MCP connection, so it does not need direct browser access to a firewalled WordPress origin.
 
 = How does media handling work? =
 
@@ -143,6 +143,20 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 
 == Changelog ==
 
+= 1.2.4 =
+* Rendered preview: Return sanitized frontend HTML without Gutenberg serialization comments, and publish the corrected ChatGPT viewer under a fresh MCP Apps resource URI.
+* Preview assets: Flatten bounded local CSS imports and proxy local stylesheet images plus WOFF/WOFF2 fonts through private revision-bound assets, with strict path, type, size, cycle, and count guards.
+* Preview compatibility: Serve the current viewer through the legacy v1 and v2 resource URIs, and keep exact revision-bound assets readable after proposal submission or closure.
+* Preview performance: Cache the authorized revision-bound asset map for 30 minutes, deduplicate repeated host deliveries, and limit concurrent private asset calls so each CSS, image, or font read stays lightweight.
+* Preview transport: Read valid top-level MCP resource content even when an adapter also returns an empty compatibility result, and deliver ordered preview CSS through one private resource instead of one call per input stylesheet.
+* Preview fidelity: Recreate the frontend body and WordPress content wrappers inside the isolated viewer, preserve safe Gutenberg inline styles, and prioritize explicitly selected theme CSS before fallback scanning.
+* Preview layout: Keep long rendered pages and warning lists in bounded scrolling areas instead of stretching the conversation indefinitely.
+* Preview cache compatibility: Publish the bounded viewer under a v4 resource URI and keep v1-v3 aliases serving the latest app.
+* Preview backgrounds: Let the recreated frontend body grow with long content, and publish the fix under a v5 resource URI with v1-v4 compatibility aliases.
+* Proposal review: Require the exact short-lived, agent- and revision-bound token from the final rendered preview before an update proposal can be submitted.
+* Blueprints: Enable governed update proposals for the homepage and product pages, and accept the homepage Playground CTA used by the published site.
+* Dependencies: Update Agent Composer Core to 1.2.2 and the bundled WP Suite Hub to 2.5.15 with the Amplify preview.3 Authenticator translation corrections.
+
 = 1.2.3 =
 * Preview: Reliably initialize the inline MCP Apps viewer, accept ChatGPT tool output, and require a rendered preview after the final draft write.
 * Preview assets: Expose bounded, allowlisted same-origin stylesheets and images through the rendered-preview asset tool so compatible clients can display previews when the WordPress site is private.
@@ -203,6 +217,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.2.4 =
+Restart the MCP runtime and refresh the client tool and resource catalogue so the v3 rendered-preview template and required submission token schema are loaded. Import, validate, and explicitly activate the updated WP Suite Config Set to allow homepage and product-page update proposals; existing active Config Sets remain unchanged.
 
 = 1.2.3 =
 Import, validate, and explicitly activate the new WP Suite Config Set if the site uses the bundled theme 1.0.59 contract. Existing active Config Sets remain unchanged.

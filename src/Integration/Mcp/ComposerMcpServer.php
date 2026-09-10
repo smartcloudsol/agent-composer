@@ -10,7 +10,11 @@ use SmartCloud\AgentComposer\Integration\Abilities\ExecutionAbilityAliases;
 final class ComposerMcpServer {
 	public const SERVER_ID = 'smartcloud-agent-composer';
 	public const HTTP_ENDPOINT = '/wp-json/mcp/smartcloud-agent-composer';
-	public const PREVIEW_RESOURCE_URI = 'ui://smartcloud-agent-composer/rendered-preview/v2.html';
+	public const PREVIEW_RESOURCE_URI = 'ui://smartcloud-agent-composer/rendered-preview/v5.html';
+	public const PREVIEW_RESOURCE_URI_V4 = 'ui://smartcloud-agent-composer/rendered-preview/v4.html';
+	public const PREVIEW_RESOURCE_URI_V3 = 'ui://smartcloud-agent-composer/rendered-preview/v3.html';
+	public const PREVIEW_RESOURCE_URI_V2 = 'ui://smartcloud-agent-composer/rendered-preview/v2.html';
+	public const PREVIEW_RESOURCE_URI_V1 = 'ui://smartcloud-agent-composer/rendered-preview/v1.html';
 
 	private array $registered_adapters = array();
 
@@ -48,7 +52,7 @@ final class ComposerMcpServer {
 			'mcp',
 			$id,
 			$label,
-			'Governed discovery, draft creation, and published-content proposal execution through active Composer configuration. After the final successful draft write, call get-rendered-preview with its fresh concurrency tokens before reporting completion so the user receives the inline preview.',
+			'Governed discovery, draft creation, and published-content proposal execution through active Composer configuration. After the final successful draft write, call get-rendered-preview with its fresh concurrency tokens and let the inline rendered HTML preview be delivered before reporting completion. For a published-content update proposal, the exact preview response supplies the rendered_preview_token required by submit-content-proposal, so previewing must happen after the last write and before submission.',
 			SMARTCLOUD_COMPOSER_VERSION,
 			array( \WP\MCP\Transport\HttpTransport::class ),
 			\WP\MCP\Infrastructure\ErrorHandling\ErrorLogMcpErrorHandler::class,

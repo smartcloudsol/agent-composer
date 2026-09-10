@@ -6,7 +6,7 @@ if (!defined('ABSPATH')) {
 	exit;
 }
 
-const SMARTCLOUD_WPSUITE_AGENT_COMPOSER_HUB_VERSION = '2.5.14';
+const SMARTCLOUD_WPSUITE_AGENT_COMPOSER_HUB_VERSION = '2.5.15';
 
 final class AgentComposerHubLoader
 {

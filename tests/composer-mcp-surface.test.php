@@ -68,8 +68,16 @@ namespace {
 	}
 
 	$resources = $adapter->arguments[10] ?? array();
-	if ( ! in_array( 'smartcloud-agent-composer/rendered-preview-app', $resources, true ) ) {
-		throw new RuntimeException( 'Composer MCP is missing the rendered preview UI resource.' );
+	foreach ( array(
+		'smartcloud-agent-composer/rendered-preview-app',
+		'smartcloud-agent-composer/rendered-preview-app-v4',
+		'smartcloud-agent-composer/rendered-preview-app-v3',
+		'smartcloud-agent-composer/rendered-preview-app-v2',
+		'smartcloud-agent-composer/rendered-preview-app-v1',
+	) as $resource_name ) {
+		if ( ! in_array( $resource_name, $resources, true ) ) {
+			throw new RuntimeException( 'Composer MCP is missing rendered preview UI resource: ' . $resource_name );
+		}
 	}
 
 	foreach ( array(

@@ -996,7 +996,14 @@ final class Draft_Service {
 	}
 
 	public function get_preview( int $post_id ): array {
-		$post = $this->get_owned_draft( $post_id );
+		return $this->preview_for_post( $this->get_owned_draft( $post_id ) );
+	}
+
+	public function get_preview_for_preview_asset( int $post_id ): array {
+		return $this->preview_for_post( $this->get_owned_draft_for_preview_asset( $post_id ) );
+	}
+
+	private function preview_for_post( \WP_Post $post ): array {
 		$page_type = (string) get_post_meta( $post->ID, self::PAGE_TYPE_META, true );
 		$target    = $this->targets->resolve( $page_type );
 		$validation = $this->validator->validate( $page_type, (string) $post->post_content );
@@ -1023,6 +1030,14 @@ final class Draft_Service {
 	}
 
 	public function get_owned_draft( int $post_id ): \WP_Post {
+		return $this->get_owned_draft_with_policy( $post_id, false );
+	}
+
+	public function get_owned_draft_for_preview_asset( int $post_id ): \WP_Post {
+		return $this->get_owned_draft_with_policy( $post_id, true );
+	}
+
+	private function get_owned_draft_with_policy( int $post_id, bool $preview_asset_read ): \WP_Post {
 		$post = $this->fresh_post( $post_id );
 		if ( ! $post instanceof \WP_Post ) {
 			throw new Execution_Exception( 'draft_not_found', 'The requested content draft does not exist.' );
@@ -1034,14 +1049,20 @@ final class Draft_Service {
 			throw new Execution_Exception( 'not_agent_owned', 'The draft was not created by SmartCloud Agent Composer.' );
 		}
 		$proposal_state = sanitize_key( (string) get_post_meta( $post_id, Content_Proposal_Service::STATE_META, true ) );
-		if ( '' !== $proposal_state && 'working' !== $proposal_state ) {
+		$readable_states = array( '', 'working', 'ready-for-review', 'merged', 'rejected', 'superseded' );
+		if ( $preview_asset_read && ! in_array( $proposal_state, $readable_states, true ) ) {
+			throw new Execution_Exception( 'proposal_state_invalid', 'The content proposal has an unknown state.' );
+		}
+		if ( ! $preview_asset_read && '' !== $proposal_state && 'working' !== $proposal_state ) {
 			throw new Execution_Exception( 'proposal_not_editable', 'A submitted or closed content proposal is read-only.' );
 		}
 		$assigned_agent_id = absint( get_post_meta( $post_id, self::ASSIGNED_AGENT_META, true ) );
 		if ( 0 === $assigned_agent_id && get_current_user_id() === (int) $post->post_author ) {
 			$assigned_agent_id = get_current_user_id();
-			update_post_meta( $post_id, self::ASSIGNED_AGENT_META, $assigned_agent_id );
-			update_post_meta( $post_id, self::ASSIGNMENT_SOURCE_META, 'created' );
+			if ( ! $preview_asset_read ) {
+				update_post_meta( $post_id, self::ASSIGNED_AGENT_META, $assigned_agent_id );
+				update_post_meta( $post_id, self::ASSIGNMENT_SOURCE_META, 'created' );
+			}
 		}
 		if ( get_current_user_id() !== $assigned_agent_id ) {
 			throw new Execution_Exception( 'not_draft_owner', 'The current agent is not assigned to this draft.' );
@@ -1652,7 +1673,7 @@ final class Draft_Service {
 	 * contains a real optimistic-concurrency timestamp whenever WordPress can
 	 * supply one. The zero-date token remains a safe fallback for legacy data.
 	 */
-	private function initialize_created_modified_gmt( \WP_Post $post ): \WP_Post {
+	public function initialize_created_modified_gmt( \WP_Post $post ): \WP_Post {
 		if ( self::ZERO_MODIFIED_GMT !== $this->modified_gmt_token( $post->post_modified_gmt ) ) {
 			return $post;
 		}

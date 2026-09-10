@@ -27,7 +27,7 @@ Composer does not publish content, delete ordinary content, edit themes or plugi
 - Uses existing Media Library images and assigns featured images without granting general media-upload or deletion capabilities.
 - Optionally ingests one bounded raster image from an exact administrator-approved HTTPS host, stores it locally, and restricts assignment to a Composer-owned draft.
 - Creates short-lived preview drafts and removes only expired Composer-owned previews.
-- Returns a bounded, sanitized static HTML rendering for an owned draft and exposes an optional MCP Apps preview inside compatible clients.
+- Returns a bounded, sanitized static HTML rendering for an owned draft and exposes an optional MCP Apps preview inside compatible clients. Revision-bound asset snapshots let the viewer fetch approved CSS, images, and fonts without rebuilding the page for each asset.
 - Records redacted, tamper-evident audit events in a SHA-256 hash chain.
 - Exports and restores checksum-protected configuration packages without secrets or site-specific audit history.
 
@@ -46,7 +46,7 @@ The basic flow is:
 3. Review Theme & providers, then configure the Site Contract and page-type Blueprints.
 4. Apply staged changes, validate the complete set, and activate it explicitly.
 5. Connect an authenticated MCP client as a dedicated `smartcloud_agent` user.
-6. Load the Blueprint and design context, validate the proposed block plan, create a draft, then inspect its URL preview or request its static rendered preview.
+6. Load the Blueprint and design context, validate the proposed block plan, create or update the draft, then call `get-rendered-preview` with the freshest concurrency tokens. It returns server-rendered frontend HTML without Gutenberg serialization comments. Published-content proposals require the returned `rendered_preview_token` before submission.
 
 ## Repository layout
 

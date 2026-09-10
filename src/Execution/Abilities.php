@@ -104,7 +104,13 @@ final class Abilities {
 	}
 
 	public static function resource_names(): array {
-		return array( self::PREFIX . 'rendered-preview-app' );
+		return array(
+			self::PREFIX . 'rendered-preview-app',
+			self::PREFIX . 'rendered-preview-app-v4',
+			self::PREFIX . 'rendered-preview-app-v3',
+			self::PREFIX . 'rendered-preview-app-v2',
+			self::PREFIX . 'rendered-preview-app-v1',
+		);
 	}
 
 	public function register_category(): void {
@@ -368,7 +374,7 @@ final class Abilities {
 		$this->register_ability(
 			'create-content-proposal',
 			'Create published-content update proposal',
-			'Creates a separate agent-owned working copy of one published item when both the Site Contract and Blueprint opt in. The source remains unchanged and merge is not exposed to the agent. This only starts the workflow: after all updates and validation, you MUST call smartcloud-agent-composer/get-rendered-preview with the freshest post_id, modified_gmt, and revision so the user receives the inline preview, then MUST call submit-content-proposal with those fresh concurrency tokens so a human can review it. Do not report the proposal as ready while its state is working.',
+			'Creates a separate agent-owned working copy of one published item when both the Site Contract and Blueprint opt in. The source remains unchanged and merge is not exposed to the agent. This only starts the workflow: after all updates and validation, you MUST call smartcloud-agent-composer/get-rendered-preview with the freshest post_id, modified_gmt, and revision and let the inline rendered HTML preview be delivered. After that preview, you MUST call submit-content-proposal with the same concurrency tokens and the exact rendered_preview_token returned by that preview. Do not report the proposal as ready while its state is working.',
 			$this->content_proposal_create_schema(),
 			array( $this, 'create_content_proposal' ),
 			false
@@ -376,7 +382,7 @@ final class Abilities {
 		$this->register_ability(
 			'submit-content-proposal',
 			'Submit content proposal for human review',
-			'Validates and freezes an assigned working proposal for a human reviewer. It cannot update published content.',
+			'Validates and freezes an assigned working proposal for a human reviewer. Before calling this tool, MUST call smartcloud-agent-composer/get-rendered-preview after the final proposal write and pass its exact rendered_preview_token. Submission fails when the current proposal revision has not been rendered for this agent. It cannot update published content.',
 			$this->content_proposal_submit_schema(),
 			array( $this, 'submit_content_proposal' ),
 			false
@@ -408,7 +414,7 @@ final class Abilities {
 		$this->register_ability(
 			'validate-content-draft',
 			'Validate content draft',
-			'Assembles and validates content, the blueprint-specific excerpt policy, and the SEO description without saving. The blueprint fixes the target type and template. Validation is not submission: after a published-content proposal passes validation and all updates are complete, call submit-content-proposal with its freshest concurrency tokens.',
+			'Assembles and validates content, the blueprint-specific excerpt policy, and the SEO description without saving. The blueprint fixes the target type and template. Validation is not preview or submission: after a published-content proposal passes validation and all updates are complete, call get-rendered-preview with its freshest concurrency tokens, then pass that response token to submit-content-proposal.',
 			$this->candidate_schema( false ),
 			array( $this, 'validate_content_draft' ),
 			true
@@ -440,7 +446,7 @@ final class Abilities {
 		$this->register_ability(
 			'update-own-draft',
 			'Update assigned content draft',
-			'Updates only a draft assigned to this agent, without changing its WordPress author, blueprint, post type, or template. Requires optimistic concurrency. After the final successful update, you MUST call smartcloud-agent-composer/get-rendered-preview with the returned post_id, modified_gmt, and revision before reporting completion so the user receives the inline preview. If assignment_source is published-update-proposal, validate the completed proposal, render that final preview, then MUST call submit-content-proposal with the freshest modified_gmt and revision. Do not leave a completed proposal in working state or report it as ready for human review before submission succeeds.',
+			'Updates only a draft assigned to this agent, without changing its WordPress author, blueprint, post type, or template. Requires optimistic concurrency. After the final successful update, you MUST call smartcloud-agent-composer/get-rendered-preview with the returned post_id, modified_gmt, and revision and let the inline rendered HTML preview be delivered before reporting completion. If assignment_source is published-update-proposal, validate the completed proposal, call that preview tool, then MUST call submit-content-proposal with the same concurrency tokens and the exact rendered_preview_token returned by the preview. Do not submit before previewing, leave a completed proposal in working state, or report it as ready before submission succeeds.',
 			$this->update_schema(),
 			array( $this, 'update_own_draft' ),
 			false
@@ -464,7 +470,7 @@ final class Abilities {
 		$this->register_ability(
 			'get-rendered-preview',
 			'Get rendered draft preview',
-			'Preferred final preview step after a successful draft create or update. Call it with the freshest post_id, modified_gmt, and revision to render bounded, sanitized static HTML and display the result inline in MCP Apps-capable clients. It does not execute shortcodes, frontend JavaScript, forms, or site template parts.',
+			'Required final preview step after a successful draft create or update. Call it with the freshest post_id, modified_gmt, and revision after every final write. It returns bounded, sanitized frontend HTML with Gutenberg serialization comments removed and displays that HTML inline in MCP Apps-capable clients. For a published-content proposal, pass its rendered_preview_token unchanged to submit-content-proposal; do not submit first. It does not execute shortcodes, frontend JavaScript, forms, or site template parts.',
 			$this->rendered_preview_input_schema(),
 			array( $this, 'get_rendered_preview' ),
 			true,
@@ -587,7 +593,10 @@ final class Abilities {
 								'app_only'                => true,
 								'opaque_revision_bound_ids' => true,
 								'max_image_bytes'         => 5242880,
-								'max_stylesheets'         => 16,
+								'max_font_bytes'          => 5242880,
+								'max_stylesheets'         => 32,
+								'max_import_depth'        => 4,
+								'max_imported_stylesheets' => 32,
 								'max_stylesheet_bytes'    => 524288,
 								'max_css_bytes'           => 1048576,
 							),
@@ -1082,7 +1091,7 @@ final class Abilities {
 			$name,
 			array(
 				'label'               => 'Get rendered preview asset',
-				'description'         => 'Private helper used only by the rendered-preview app. It returns one revision-bound local image or sanitized stylesheet from the exact authorized draft preview manifest. Do not call it as a standalone agent workflow.',
+				'description'         => 'Private helper used only by the rendered-preview app. It returns one revision-bound local image, WOFF/WOFF2 font, or sanitized stylesheet from the exact authorized draft preview manifest. Do not call it as a standalone agent workflow.',
 				'category'            => self::CATEGORY,
 				'input_schema'        => $this->rendered_preview_asset_input_schema(),
 				'execute_callback'    => array( $this, 'get_rendered_preview_asset' ),
@@ -1109,41 +1118,57 @@ final class Abilities {
 	}
 
 	private function register_rendered_preview_resource(): void {
-		$name = self::PREFIX . 'rendered-preview-app';
-		if ( function_exists( 'wp_has_ability' ) && wp_has_ability( $name ) ) {
-			return;
-		}
-		wp_register_ability(
-			$name,
-			array(
-				'label'               => 'Rendered preview app',
-				'description'         => 'MCP Apps UI resource for displaying a sanitized Composer draft preview.',
-				'category'            => self::CATEGORY,
-				'output_schema'       => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'additionalProperties' => true ) ),
-				'execute_callback'    => array( $this, 'rendered_preview_resource' ),
-				'permission_callback' => array( $this, 'check_permission' ),
-				'meta'                => array(
-					'show_in_rest' => false,
-					'mcp'          => array(
-						'public'      => false,
-						'type'        => 'resource',
-						'uri'         => ComposerMcpServer::PREVIEW_RESOURCE_URI,
-						'name'        => 'Composer rendered preview',
-						'title'       => 'Composer rendered preview',
-						'description' => 'Displays a sanitized static HTML preview returned by get-rendered-preview.',
-						'mimeType'    => 'text/html;profile=mcp-app',
-						'_meta'       => array( 'ui' => $this->rendered_preview_ui_meta() ),
-						'annotations' => array( 'audience' => array( 'user', 'assistant' ), 'priority' => 0.9 ),
-					),
-				),
-			)
+		$resources = array(
+			self::PREFIX . 'rendered-preview-app'    => ComposerMcpServer::PREVIEW_RESOURCE_URI,
+			self::PREFIX . 'rendered-preview-app-v4' => ComposerMcpServer::PREVIEW_RESOURCE_URI_V4,
+			self::PREFIX . 'rendered-preview-app-v3' => ComposerMcpServer::PREVIEW_RESOURCE_URI_V3,
+			self::PREFIX . 'rendered-preview-app-v2' => ComposerMcpServer::PREVIEW_RESOURCE_URI_V2,
+			self::PREFIX . 'rendered-preview-app-v1' => ComposerMcpServer::PREVIEW_RESOURCE_URI_V1,
 		);
+		foreach ( $resources as $name => $uri ) {
+			if ( function_exists( 'wp_has_ability' ) && wp_has_ability( $name ) ) {
+				continue;
+			}
+			wp_register_ability(
+				$name,
+				array(
+					'label'               => 'Rendered preview app',
+					'description'         => 'MCP Apps UI resource for displaying the latest sanitized Composer draft preview. Versioned legacy URIs remain aliases for cached clients.',
+					'category'            => self::CATEGORY,
+					'output_schema'       => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'additionalProperties' => true ) ),
+					'execute_callback'    => function ( array $input = array() ) use ( $uri ): array {
+						unset( $input );
+						return $this->rendered_preview_resource_for_uri( $uri );
+					},
+					'permission_callback' => array( $this, 'check_permission' ),
+					'meta'                => array(
+						'show_in_rest' => false,
+						'mcp'          => array(
+							'public'      => false,
+							'type'        => 'resource',
+							'uri'         => $uri,
+							'name'        => 'Composer rendered preview',
+							'title'       => 'Composer rendered preview',
+							'description' => 'Displays the latest sanitized static HTML preview returned by get-rendered-preview.',
+							'mimeType'    => 'text/html;profile=mcp-app',
+							'_meta'       => array( 'ui' => $this->rendered_preview_ui_meta() ),
+							'annotations' => array( 'audience' => array( 'user', 'assistant' ), 'priority' => 0.9 ),
+						),
+					),
+				)
+			);
+		}
 	}
 
 	public function rendered_preview_resource( array $input = array() ): array {
+		unset( $input );
+		return $this->rendered_preview_resource_for_uri( ComposerMcpServer::PREVIEW_RESOURCE_URI );
+	}
+
+	private function rendered_preview_resource_for_uri( string $uri ): array {
 		return array(
 			array(
-				'uri'      => ComposerMcpServer::PREVIEW_RESOURCE_URI,
+				'uri'      => $uri,
 				'mimeType' => 'text/html;profile=mcp-app',
 				'text'     => $this->rendered_preview_app_html(),
 				'_meta'    => array( 'ui' => $this->rendered_preview_ui_meta() ),
@@ -1165,28 +1190,29 @@ final class Abilities {
 	private function rendered_preview_app_html(): string {
 		return <<<'HTML'
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
-:root{color-scheme:light dark;font:14px/1.5 system-ui,sans-serif}body{margin:0;padding:16px;background:transparent;color:CanvasText}.meta{display:flex;gap:12px;align-items:center;margin:0 0 12px;color:GrayText;font-size:12px}.preview{contain:layout paint style;isolation:isolate;overflow:auto;min-height:120px;border:1px solid color-mix(in srgb,CanvasText 16%,transparent);border-radius:12px;background:Canvas}.warnings{margin:12px 0 0;padding-left:20px;color:GrayText}.empty{padding:24px;text-align:center;color:GrayText}
+:root{color-scheme:light dark;font:14px/1.5 system-ui,sans-serif}body{margin:0;padding:16px;background:transparent;color:CanvasText}.meta{display:flex;gap:12px;align-items:center;margin:0 0 12px;color:GrayText;font-size:12px}.preview{contain:layout paint style;isolation:isolate;overflow:auto;height:clamp(320px,65vh,640px);border:1px solid color-mix(in srgb,CanvasText 16%,transparent);border-radius:12px;background:Canvas}.warnings{box-sizing:border-box;max-height:112px;overflow:auto;margin:12px 0 0;padding-left:20px;color:GrayText}.empty{padding:24px;text-align:center;color:GrayText}
 </style></head><body><div class="meta"><strong id="title">Draft preview</strong><span id="details"></span></div><main id="preview" class="preview"></main><ul id="warnings" class="warnings" hidden></ul><script>
-const preview=document.getElementById('preview');const root=preview.attachShadow({mode:'open'});const title=document.getElementById('title');const details=document.getElementById('details');const warnings=document.getElementById('warnings');const pending=new Map();const blobUrls=new Set();let requestId=1;let generation=0;
-const chromeCss=':host{display:block;padding:clamp(16px,4vw,40px);color:CanvasText;background:Canvas}:host([dir="rtl"]){direction:rtl}img{max-width:100%;height:auto}table{display:block;max-width:100%;overflow:auto}a{color:LinkText}';
+const preview=document.getElementById('preview');const root=preview.attachShadow({mode:'open'});const title=document.getElementById('title');const details=document.getElementById('details');const warnings=document.getElementById('warnings');const pending=new Map();const blobUrls=new Set();let requestId=1;let generation=0;let lastDocumentKey='';
+const chromeCss=':host{display:block;padding:clamp(16px,4vw,40px);color:CanvasText;background:Canvas}:host([dir="rtl"]){direction:rtl}body.smartcloud-composer-preview-document{box-sizing:border-box;width:100%;height:auto!important;overflow:visible!important}img{max-width:100%;height:auto}table{display:block;max-width:100%;overflow:auto}a{color:LinkText}';
 function post(message){window.parent.postMessage(message,'*')}
 function request(method,params){const id=requestId++;post({jsonrpc:'2.0',id,method,params});return new Promise((resolve,reject)=>pending.set(id,{resolve,reject}))}
 function notify(method,params){post({jsonrpc:'2.0',method,...(params===undefined?{}:{params})})}
-function sanitize(html){const parsed=new DOMParser().parseFromString(String(html||''),'text/html');parsed.querySelectorAll('script,iframe,object,embed,base,meta,link,style,form,input,button,textarea,select').forEach((node)=>node.remove());parsed.querySelectorAll('*').forEach((node)=>{for(const attr of [...node.attributes]){const name=attr.name.toLowerCase();if(name.startsWith('on')||name==='srcdoc'||name==='style'||name==='srcset')node.removeAttribute(attr.name)}});const fragment=document.createDocumentFragment();fragment.append(...parsed.body.childNodes);return fragment}
+function safeStyle(value){const css=String(value||'');return /(?:url\s*\(|image-set\s*\(|@import|expression\s*\(|javascript\s*:|data\s*:|behavior\s*:|-moz-binding\s*:)/i.test(css)?'':css}
+function sanitize(html){const parsed=new DOMParser().parseFromString(String(html||''),'text/html');parsed.querySelectorAll('script,iframe,object,embed,base,meta,link,style,form,input,button,textarea,select,audio,video,source,track,picture').forEach((node)=>node.remove());parsed.querySelectorAll('*').forEach((node)=>{for(const attr of [...node.attributes]){const name=attr.name.toLowerCase();if(name.startsWith('on')||name==='srcdoc'||name==='srcset'||name==='poster')node.removeAttribute(attr.name);else if(name==='style'){const style=safeStyle(attr.value);if(style)node.setAttribute('style',style);else node.removeAttribute('style')}}});const fragment=document.createDocumentFragment();fragment.append(...parsed.body.childNodes);return fragment}
 function clearBlobs(){for(const url of blobUrls)URL.revokeObjectURL(url);blobUrls.clear()}
 function resultData(payload){const result=payload?.structuredContent??payload;return result?.document?result:result?.result}
-function contentBlocks(payload){const result=payload?.result??payload;return result?.content??result?.result?.content??[]}
+function contentBlocks(payload){for(const candidate of [payload,payload?.result,payload?.result?.result]){if(Array.isArray(candidate?.content))return candidate.content}return[]}
 async function callAsset(args){const name='smartcloud-agent-composer-get-rendered-preview-asset';if(window.openai?.callTool)return window.openai.callTool(name,args);return request('tools/call',{name,arguments:args})}
-function decodeImage(block){const binary=atob(String(block.data||''));const bytes=new Uint8Array(binary.length);for(let index=0;index<binary.length;index++)bytes[index]=binary.charCodeAt(index);return new Blob([bytes],{type:block.mimeType||'application/octet-stream'})}
-async function loadAsset(asset,args){const response=await callAsset({...args,asset_id:asset.asset_id});const blocks=contentBlocks(response);if(asset.kind==='stylesheet'){const block=blocks.find((item)=>item.type==='resource'&&item.resource?.mimeType==='text/css');if(!block)throw new Error('Stylesheet asset response was invalid.');return{asset,css:String(block.resource.text||'')}}const block=blocks.find((item)=>item.type==='image');if(!block)throw new Error('Image asset response was invalid.');return{asset,blob:decodeImage(block)}}
-async function loadPool(items,args,token){const results=new Array(items.length);let cursor=0;async function worker(){while(cursor<items.length){const index=cursor++;try{results[index]=await loadAsset(items[index],args)}catch(error){results[index]={asset:items[index],error}}} }await Promise.all(Array.from({length:Math.min(4,items.length)},worker));return token===generation?results:[]}
+function decodeBlob(data,mimeType){const binary=atob(String(data||''));const bytes=new Uint8Array(binary.length);for(let index=0;index<binary.length;index++)bytes[index]=binary.charCodeAt(index);return new Blob([bytes],{type:mimeType||'application/octet-stream'})}
+async function loadAsset(asset,args){const response=await callAsset({...args,asset_id:asset.asset_id});const blocks=contentBlocks(response);if(asset.kind==='stylesheet'){const block=blocks.find((item)=>item.type==='resource'&&String(item.resource?.mimeType||'').startsWith('text/css'));if(!block)throw new Error('Stylesheet asset response was invalid.');return{asset,css:String(block.resource.text||'')}}if(asset.kind==='font'){const block=blocks.find((item)=>item.type==='resource'&&item.resource?.blob);if(!block)throw new Error('Font asset response was invalid.');return{asset,blob:decodeBlob(block.resource.blob,block.resource.mimeType)}}const block=blocks.find((item)=>item.type==='image');if(!block)throw new Error('Image asset response was invalid.');return{asset,blob:decodeBlob(block.data,block.mimeType)}}
+async function loadPool(items,args,token){const results=new Array(items.length);let cursor=0;async function worker(){while(cursor<items.length){const index=cursor++;try{results[index]=await loadAsset(items[index],args)}catch(error){results[index]={asset:items[index],error}}} }await Promise.all(Array.from({length:Math.min(2,items.length)},worker));return token===generation?results:[]}
 function showWarnings(items){warnings.replaceChildren();for(const warning of items){const item=document.createElement('li');item.textContent=warning.message||warning.code||'Preview warning';warnings.append(item)}warnings.hidden=!warnings.children.length}
-async function render(payload){const data=resultData(payload);const doc=data?.document;if(!doc)return;const token=++generation;clearBlobs();title.textContent=doc.title||'Draft preview';details.textContent=(doc.content_language||'')+' · '+(doc.byte_length||0)+' bytes';root.replaceChildren();const base=document.createElement('style');base.textContent=chromeCss;root.append(base);root.append(sanitize(doc.html));root.host.setAttribute('dir',doc.direction==='rtl'?'rtl':'ltr');root.host.setAttribute('lang',doc.content_language||'en');const args={post_id:doc.post_id,expected_modified_gmt:doc.modified_gmt,expected_revision:doc.revision};const assets=[...(doc.assets||[])].sort((left,right)=>(left.order||0)-(right.order||0));const loaded=await loadPool(assets,args,token);if(token!==generation)return;const extraWarnings=[...(doc.warnings||[])];for(const result of loaded){if(!result)continue;if(result.error){extraWarnings.push({message:'A preview '+result.asset.kind+' could not be loaded.'});continue}if(result.css!==undefined){const style=document.createElement('style');style.media=result.asset.media||'all';style.textContent=result.css;root.insertBefore(style,root.querySelector('article'));continue}const selector='img[data-smartcloud-preview-asset="'+CSS.escape(result.asset.asset_id)+'"]';for(const image of root.querySelectorAll(selector)){const url=URL.createObjectURL(result.blob);blobUrls.add(url);image.src=url}}showWarnings(extraWarnings)}
+async function render(payload){const data=resultData(payload);const doc=data?.document;if(!doc)return;const documentKey=[doc.post_id,doc.revision,doc.sha256].join('|');if(documentKey===lastDocumentKey)return;lastDocumentKey=documentKey;const token=++generation;clearBlobs();title.textContent=doc.title||'Draft preview';details.textContent=(doc.content_language||'')+' · '+(doc.byte_length||0)+' bytes';root.replaceChildren();const base=document.createElement('style');base.textContent=chromeCss;root.append(base);const fragment=sanitize(doc.html);const article=fragment.querySelector('article');const shell=document.createElement('body');shell.className=article?.getAttribute('data-smartcloud-preview-body-classes')||'';shell.classList.add('smartcloud-composer-preview-document');article?.removeAttribute('data-smartcloud-preview-body-classes');const site=document.createElement('div');site.className='wp-site-blocks';const main=document.createElement('main');const content=document.createElement('div');content.className='wp-block-post-content';content.append(fragment);main.append(content);site.append(main);shell.append(site);root.append(shell);root.host.setAttribute('dir',doc.direction==='rtl'?'rtl':'ltr');root.host.setAttribute('lang',doc.content_language||'en');const args={post_id:doc.post_id,expected_revision:doc.revision};const assets=[...(doc.assets||[])].sort((left,right)=>(left.order||0)-(right.order||0));const loaded=await loadPool(assets,args,token);if(token!==generation)return;const extraWarnings=[...(doc.warnings||[])];const assetUrls=new Map();for(const result of loaded){if(!result)continue;if(result.error){extraWarnings.push({message:'A preview '+result.asset.kind+' could not be loaded.'});continue}if(result.blob){const url=URL.createObjectURL(result.blob);blobUrls.add(url);assetUrls.set(result.asset.asset_id,url);if(result.asset.kind==='image'){const selector='img[data-smartcloud-preview-asset="'+CSS.escape(result.asset.asset_id)+'"]';for(const image of root.querySelectorAll(selector))image.src=url}}}for(const result of loaded){if(!result||result.error||result.css===undefined)continue;let css=result.css;for(const [assetId,url] of assetUrls)css=css.split('smartcloud-preview-asset://'+assetId).join(url);css=css.replace(/smartcloud-preview-asset:\/\/pa_[A-Za-z0-9_-]{43}/g,'data:,');const style=document.createElement('style');style.media=result.asset.media||'all';style.textContent=css;root.insertBefore(style,shell)}showWarnings(extraWarnings)}
 root.addEventListener('click',(event)=>{if(event.target.closest('a'))event.preventDefault()},{capture:true});window.addEventListener('pagehide',clearBlobs,{passive:true});
 window.addEventListener('message',(event)=>{if(event.source!==window.parent)return;const message=event.data;if(!message||message.jsonrpc!=='2.0')return;if(message.id!==undefined&&pending.has(message.id)){const waiter=pending.get(message.id);pending.delete(message.id);if(message.error)waiter.reject(new Error(message.error.message||'MCP Apps request failed'));else waiter.resolve(message.result);return}if(message.method==='ui/notifications/tool-result')render(message.params)},{passive:true});
 if(window.openai?.toolOutput)render(window.openai.toolOutput);
 window.addEventListener('openai:set_globals',(event)=>{const output=event.detail?.globals?.toolOutput;if(output!==undefined)render(output)},{passive:true});
-(async()=>{try{await request('ui/initialize',{appInfo:{name:'Composer rendered preview',version:'2.0.0'},appCapabilities:{tools:{}},protocolVersion:'2026-01-26'});notify('ui/notifications/initialized')}catch(error){if(!window.openai?.toolOutput){root.innerHTML='<p class="empty">The preview host bridge is unavailable.</p>'}}})();
+(async()=>{try{await request('ui/initialize',{appInfo:{name:'Composer rendered preview',version:'5.0.0'},appCapabilities:{tools:{}},protocolVersion:'2026-01-26'});notify('ui/notifications/initialized')}catch(error){if(!window.openai?.toolOutput){root.innerHTML='<p class="empty">The preview host bridge is unavailable.</p>'}}})();
 </script></body></html>
 HTML;
 	}
@@ -1233,7 +1259,7 @@ HTML;
 				'expected_modified_gmt' => array( 'type' => 'string', 'format' => 'date-time' ),
 				'expected_revision'     => array( 'type' => 'string', 'format' => 'uuid' ),
 			),
-			'required'             => array( 'post_id' ),
+			'required'             => array( 'post_id', 'expected_modified_gmt', 'expected_revision' ),
 			'additionalProperties' => false,
 		);
 	}
@@ -1247,7 +1273,7 @@ HTML;
 				'expected_revision'     => array( 'type' => 'string', 'format' => 'uuid' ),
 				'asset_id'              => array( 'type' => 'string', 'pattern' => '^pa_[A-Za-z0-9_-]{43}$' ),
 			),
-			'required'             => array( 'post_id', 'expected_modified_gmt', 'expected_revision', 'asset_id' ),
+			'required'             => array( 'post_id', 'expected_revision', 'asset_id' ),
 			'additionalProperties' => false,
 		);
 	}
@@ -1260,10 +1286,11 @@ HTML;
 				'edit_url'    => array( 'type' => 'string' ),
 				'preview_url' => array( 'type' => 'string' ),
 				'validation'  => array( 'type' => 'object', 'additionalProperties' => true ),
+				'rendered_preview_token' => array( 'type' => 'string', 'pattern' => '^pv1\\.[0-9]{10}\\.[A-Za-z0-9_-]{43}$' ),
 				'document'    => array(
 					'type'                 => 'object',
 					'properties'           => array(
-						'contract_version' => array( 'type' => 'string', 'enum' => array( '2' ) ),
+						'contract_version' => array( 'type' => 'string', 'enum' => array( '3' ) ),
 						'post_id'          => array( 'type' => 'integer', 'minimum' => 1 ),
 						'modified_gmt'      => array( 'type' => 'string', 'format' => 'date-time' ),
 						'revision'          => array( 'type' => 'string', 'format' => 'uuid' ),
@@ -1272,6 +1299,7 @@ HTML;
 						'direction'         => array( 'type' => 'string', 'enum' => array( 'ltr', 'rtl' ) ),
 						'scope'             => array( 'type' => 'string', 'enum' => array( 'content', 'theme-document' ) ),
 						'fidelity'          => array( 'type' => 'string', 'enum' => array( 'static' ) ),
+						'source_format'     => array( 'type' => 'string', 'enum' => array( 'rendered-html' ) ),
 						'mime_type'         => array( 'type' => 'string', 'enum' => array( 'text/html' ) ),
 						'html'              => array( 'type' => 'string', 'maxLength' => 500000 ),
 						'sha256'            => array( 'type' => 'string', 'pattern' => '^[a-f0-9]{64}$' ),
@@ -1283,8 +1311,8 @@ HTML;
 								'type'                 => 'object',
 								'properties'           => array(
 									'asset_id'    => array( 'type' => 'string', 'pattern' => '^pa_[A-Za-z0-9_-]{43}$' ),
-									'kind'        => array( 'type' => 'string', 'enum' => array( 'image', 'stylesheet' ) ),
-									'mime_type'   => array( 'type' => 'string', 'enum' => array( 'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif', 'text/css' ) ),
+									'kind'        => array( 'type' => 'string', 'enum' => array( 'image', 'stylesheet', 'font' ) ),
+									'mime_type'   => array( 'type' => 'string', 'enum' => array( 'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif', 'text/css', 'font/woff', 'font/woff2' ) ),
 									'byte_length' => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 5242880 ),
 									'sha256'      => array( 'type' => 'string', 'pattern' => '^[a-f0-9]{64}$' ),
 									'handle'      => array( 'type' => 'string' ),
@@ -1310,12 +1338,12 @@ HTML;
 							),
 						),
 					),
-					'required'             => array( 'contract_version', 'post_id', 'modified_gmt', 'revision', 'title', 'content_language', 'direction', 'scope', 'fidelity', 'mime_type', 'html', 'sha256', 'byte_length', 'assets', 'warnings' ),
+					'required'             => array( 'contract_version', 'post_id', 'modified_gmt', 'revision', 'title', 'content_language', 'direction', 'scope', 'fidelity', 'source_format', 'mime_type', 'html', 'sha256', 'byte_length', 'assets', 'warnings' ),
 					'additionalProperties' => false,
 				),
 				'_request_id' => array( 'type' => 'string' ),
 			),
-			'required'             => array( 'post_id', 'edit_url', 'preview_url', 'validation', 'document', '_request_id' ),
+			'required'             => array( 'post_id', 'edit_url', 'preview_url', 'validation', 'rendered_preview_token', 'document', '_request_id' ),
 			'additionalProperties' => false,
 		);
 	}
@@ -2078,8 +2106,9 @@ HTML;
 				'post_id' => array( 'type' => 'integer', 'minimum' => 1 ),
 				'expected_modified_gmt' => array( 'type' => 'string', 'format' => 'date-time' ),
 				'expected_revision' => array( 'type' => 'string', 'format' => 'uuid' ),
+				'rendered_preview_token' => $this->string_property( 'Exact token returned by get-rendered-preview for this final proposal revision.', 58, 58 ),
 			),
-			'required' => array( 'post_id', 'expected_modified_gmt', 'expected_revision' ),
+			'required' => array( 'post_id', 'expected_modified_gmt', 'expected_revision', 'rendered_preview_token' ),
 			'additionalProperties' => false,
 		);
 	}

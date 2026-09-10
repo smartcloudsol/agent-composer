@@ -55,7 +55,7 @@ test("published declarations compile for a clean NodeNext consumer", () => {
       `import { CONTRACT_VERSION } from "@smart-cloud/agent-composer-core";\n` +
         `import type { CreateContentProposalInput, GetRenderedPreviewInput, RenderedPreviewDocument, RenderedPreviewResult, SiteContractDesignPolicy } from "@smart-cloud/agent-composer-core";\n` +
         `const input = {} as CreateContentProposalInput;\n` +
-        `const previewInput = { post_id: 42 } satisfies GetRenderedPreviewInput;\n` +
+        `const previewInput = { post_id: 42, expected_modified_gmt: "2026-09-10T10:00:00Z", expected_revision: "123e4567-e89b-12d3-a456-426614174000" } satisfies GetRenderedPreviewInput;\n` +
         `const previewDocument = {} as RenderedPreviewDocument;\n` +
         `const previewResult = {} as RenderedPreviewResult;\n` +
         `const policy = {} as SiteContractDesignPolicy;\n` +
@@ -93,8 +93,10 @@ test("published declarations compile for a clean NodeNext consumer", () => {
     assert.match(declarationIndex, /RenderedPreviewWarning/);
     assert.match(declarationIndex, /RenderedPreviewDocument/);
     assert.match(declarationIndex, /RenderedPreviewResult/);
-    assert.match(declarationTypes, /contract_version: "1"/);
+    assert.match(declarationTypes, /contract_version: "3"/);
     assert.match(declarationTypes, /fidelity: "static"/);
+    assert.match(declarationTypes, /source_format: "rendered-html"/);
+    assert.match(declarationTypes, /rendered_preview_token: string/);
     assert.match(declarationTypes, /mime_type: "text\/html"/);
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
