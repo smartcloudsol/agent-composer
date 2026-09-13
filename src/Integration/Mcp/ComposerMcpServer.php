@@ -4,6 +4,7 @@ namespace SmartCloud\AgentComposer\Integration\Mcp;
 
 use SmartCloud\AgentComposer\Execution\Abilities;
 use SmartCloud\AgentComposer\Execution\Ability_Provider_Registry;
+use SmartCloud\AgentComposer\Execution\Config_Repository;
 use SmartCloud\AgentComposer\Execution\Localization_Provider_Registry;
 use SmartCloud\AgentComposer\Integration\Abilities\ExecutionAbilityAliases;
 
@@ -20,7 +21,8 @@ final class ComposerMcpServer {
 
 	public function __construct(
 		private readonly Ability_Provider_Registry $providers,
-		private readonly Localization_Provider_Registry $localization
+		private readonly Localization_Provider_Registry $localization,
+		private readonly ?Config_Repository $config = null
 	) {}
 
 	public function register( object $adapter ): void {
@@ -47,12 +49,16 @@ final class ComposerMcpServer {
 	}
 
 	private function create_server( object $adapter, string $id, string $label, array $names, array $resources ): void {
+		$rendered_preview_required = null === $this->config || 'required' === $this->config->get_rendered_preview_policy();
+		$description = $rendered_preview_required
+			? 'Governed discovery, draft creation, and published-content proposal execution through active Composer configuration. After the final successful draft write, call get-rendered-preview with its fresh concurrency tokens and let the inline rendered HTML preview be delivered before reporting completion. For a published-content update proposal, the exact preview response supplies the rendered_preview_token required by submit-content-proposal, so previewing must happen after the last write and before submission.'
+			: 'Governed discovery, draft creation, and published-content proposal execution through active Composer configuration. Rendered HTML preview after the final successful draft write remains the recommended default. If the user explicitly asks to skip HTML preview, complete a normal draft without it or validate and submit a published-content update proposal with fresh concurrency tokens and no rendered_preview_token.';
 		$adapter->create_server(
 			$id,
 			'mcp',
 			$id,
 			$label,
-			'Governed discovery, draft creation, and published-content proposal execution through active Composer configuration. After the final successful draft write, call get-rendered-preview with its fresh concurrency tokens and let the inline rendered HTML preview be delivered before reporting completion. For a published-content update proposal, the exact preview response supplies the rendered_preview_token required by submit-content-proposal, so previewing must happen after the last write and before submission.',
+			$description,
 			SMARTCLOUD_COMPOSER_VERSION,
 			array( \WP\MCP\Transport\HttpTransport::class ),
 			\WP\MCP\Infrastructure\ErrorHandling\ErrorLogMcpErrorHandler::class,

@@ -40,6 +40,7 @@ final class Config_Repository {
 
 		$defaults = array(
 			'schema_version'            => 1,
+			'rendered_preview_policy'   => 'required',
 			'content_language'          => '',
 			'content_language_enforcement' => 'advisory',
 			'content_language_exceptions' => array(),
@@ -95,6 +96,7 @@ final class Config_Repository {
 		);
 
 		$policy = array_replace_recursive( $defaults, $policy );
+		$policy['rendered_preview_policy'] = 'optional' === (string) ( $policy['rendered_preview_policy'] ?? '' ) ? 'optional' : 'required';
 		$policy['content_language'] = $this->normalize_language_tag( $policy['content_language'] ?? '', true );
 		$policy['content_language_enforcement'] = in_array( (string) ( $policy['content_language_enforcement'] ?? '' ), array( 'advisory', 'strict' ), true )
 			? (string) $policy['content_language_enforcement']
@@ -172,6 +174,10 @@ final class Config_Repository {
 	/** @return array{enabled:bool,allowed_hosts:list<string>,allowed_mime_types:list<string>,max_bytes:int} */
 	public function get_remote_media_ingest_policy(): array {
 		return $this->get_design_policy()['remote_media_ingest'];
+	}
+
+	public function get_rendered_preview_policy(): string {
+		return (string) $this->get_design_policy()['rendered_preview_policy'];
 	}
 
 	private function normalize_remote_media_ingest( mixed $value ): array {

@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.2.4
+Stable tag: 1.2.5
 License: MIT
 License URI: https://mit-license.org/
 
@@ -143,6 +143,15 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 
 == Changelog ==
 
+= 1.2.5 =
+* Rendered preview localization: Make the draft's authored content language available to frontend render integrations so localized links are not rewritten using the MCP request locale.
+* Preview policy: Add a Site Contract switch that keeps rendered HTML preview required by default for existing configurations and allows administrators to make it optional.
+* Draft workflow: Keep rendered preview as the recommended default while allowing an explicit user request to skip it.
+* Proposal review: Allow an optional-policy update proposal to be submitted with fresh concurrency tokens and no preview token; continue validating any supplied token against the exact current revision.
+* MCP discovery: Expose the effective policy through descriptions, input schemas, and runtime capabilities so clients do not repeatedly request a preview when the user opted out.
+* WP Suite preset: Set rendered preview to optional and allow existing category/tag assignment for posts plus the four content CPTs in policy 1.0.45.
+* Preview backgrounds: Let the recreated frontend body grow with long content, and publish the fix under a v5 resource URI with v1-v4 compatibility aliases.
+
 = 1.2.4 =
 * Rendered preview: Return sanitized frontend HTML without Gutenberg serialization comments, and publish the corrected ChatGPT viewer under a fresh MCP Apps resource URI.
 * Preview assets: Flatten bounded local CSS imports and proxy local stylesheet images plus WOFF/WOFF2 fonts through private revision-bound assets, with strict path, type, size, cycle, and count guards.
@@ -217,6 +226,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.2.5 =
+Restart the MCP runtime and refresh the client tool catalogue after upgrading. Existing Config Sets remain fail-closed and require rendered preview; to make it optional, clone and activate a validated Config Set with design_policy.rendered_preview_policy set to optional. A supplied token is still validated against the exact proposal revision. Sites that localize links during block rendering should consume the request-scoped smartcloud_composer_rendered_preview_content_language filter; the WP Suite theme 1.0.68 includes this integration.
 
 = 1.2.4 =
 Restart the MCP runtime and refresh the client tool and resource catalogue so the v3 rendered-preview template and required submission token schema are loaded. Import, validate, and explicitly activate the updated WP Suite Config Set to allow homepage and product-page update proposals; existing active Config Sets remain unchanged.

@@ -86,5 +86,17 @@ namespace SmartCloud\AgentComposer\Execution {
 	taxonomy_assert_true(is_string($discovery) && str_contains($discovery, 'registered_taxonomies'), 'Discovery must expose registered taxonomies per post type.');
 	taxonomy_assert_true(str_contains((string) $discovery, 'current_user_can_assign') && str_contains((string) $discovery, 'current_user_can_create'), 'Discovery must expose distinct assignment and creation capabilities.');
 
+	$preset = json_decode( (string) file_get_contents( dirname( __DIR__ ) . '/presets/wpsuite/site-contract.json' ), true, 512, JSON_THROW_ON_ERROR );
+	$access = $preset['design_policy']['content_taxonomy_access'] ?? array();
+	foreach ( array( 'post', 'wps_solution', 'wps_architecture', 'wps_comparison', 'wps_case_study' ) as $post_type ) {
+		foreach ( array( 'category', 'post_tag' ) as $taxonomy ) {
+			$rule = $access[ $post_type ][ $taxonomy ] ?? array();
+			taxonomy_assert_true( true === ( $rule['search'] ?? false ) && true === ( $rule['assign'] ?? false ), 'WP Suite must allow existing category and tag assignment for ' . $post_type . '.' );
+			taxonomy_assert_true( false === ( $rule['create'] ?? true ), 'WP Suite taxonomy assignment must not implicitly permit public term creation for ' . $post_type . '.' );
+			taxonomy_assert_same( 'replace', $rule['assignment_mode'] ?? '', 'WP Suite localized drafts must receive an exact taxonomy replacement.' );
+		}
+		taxonomy_assert_true( ! isset( $access[ $post_type ]['language'] ) && ! isset( $access[ $post_type ]['post_translations'] ), 'Polylang internal taxonomies must remain outside the Composer taxonomy contract.' );
+	}
+
 	echo "taxonomy-policy-contract: ok\n";
 }

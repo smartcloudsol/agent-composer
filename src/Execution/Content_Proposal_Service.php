@@ -189,13 +189,17 @@ final class Content_Proposal_Service {
 		if ( 'working' !== $state ) {
 			throw new Execution_Exception( 'proposal_not_editable', 'Only a working proposal can be submitted.' );
 		}
-		Rendered_Preview_Service::assert_submission_token(
-			trim( (string) ( $input['rendered_preview_token'] ?? '' ) ),
-			$proposal->ID,
-			(string) ( $input['expected_modified_gmt'] ?? '' ),
-			(string) ( $input['expected_revision'] ?? '' ),
-			get_current_user_id()
-		);
+		$rendered_preview_token = trim( (string) ( $input['rendered_preview_token'] ?? '' ) );
+		$rendered_preview_policy = $this->config->get_rendered_preview_policy();
+		if ( 'required' === $rendered_preview_policy || '' !== $rendered_preview_token ) {
+			Rendered_Preview_Service::assert_submission_token(
+				$rendered_preview_token,
+				$proposal->ID,
+				(string) ( $input['expected_modified_gmt'] ?? '' ),
+				(string) ( $input['expected_revision'] ?? '' ),
+				get_current_user_id()
+			);
+		}
 		$validation = $this->validate_post( $proposal );
 		if ( ! $validation['valid'] ) {
 			throw new Execution_Exception( 'proposal_validation_failed', 'The proposal must pass its current Blueprint before review.' );
@@ -203,7 +207,17 @@ final class Content_Proposal_Service {
 		if ( false === update_post_meta( $proposal->ID, self::STATE_META, 'ready-for-review', 'working' ) ) {
 			throw new Execution_Exception( 'proposal_state_conflict', 'The proposal state changed before review submission could be recorded.' );
 		}
-		$this->audit->record( 'content-proposal-submitted', 'success', array( 'source_post_id' => absint( get_post_meta( $proposal->ID, self::SOURCE_META, true ) ) ), 0, $proposal->ID );
+		$this->audit->record(
+			'content-proposal-submitted',
+			'success',
+			array(
+				'source_post_id'           => absint( get_post_meta( $proposal->ID, self::SOURCE_META, true ) ),
+				'rendered_preview_policy'  => $rendered_preview_policy,
+				'rendered_preview_attested' => '' !== $rendered_preview_token,
+			),
+			0,
+			$proposal->ID
+		);
 		return $this->describe( $proposal );
 	}
 

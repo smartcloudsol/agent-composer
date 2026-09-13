@@ -70,7 +70,7 @@ final class ExecutionRuntime {
 		$this->abilities    = new Abilities( $config, $this->drafts, $audit, $this->patterns, $this->providers, $query_loops, $content_fields, $taxonomy_terms, $slots, $remote_media, $this->proposals, $this->localization, $localized_drafts, $rendered_previews );
 		$this->aliases      = new ExecutionAbilityAliases( $this->abilities );
 		$this->previews     = new PreviewDraftService( $this->abilities );
-		$this->mcp          = new ComposerMcpServer( $this->providers, $this->localization );
+		$this->mcp          = new ComposerMcpServer( $this->providers, $this->localization, $config );
 	}
 
 	public function hooks(): void {

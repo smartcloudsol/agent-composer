@@ -113,7 +113,7 @@ final class Rendered_Preview_Service {
 		$this->asset_sources = array();
 		$this->imported_stylesheet_count = 0;
 		$direction = self::language_direction( $content_language );
-		$rendered  = self::strip_gutenberg_serialization( do_blocks( (string) $post->post_content ) );
+		$rendered  = self::strip_gutenberg_serialization( $this->render_saved_blocks( $post, $content_language ) );
 		$sanitized = wp_kses_post( $rendered );
 		$warnings  = array(
 			array(
@@ -172,6 +172,23 @@ final class Rendered_Preview_Service {
 			$result['rendered_preview_token'] = self::issue_submission_token( $post->ID, $modified_gmt, $revision, self::current_user_id() );
 		}
 		return $result;
+	}
+
+	/**
+	 * Render saved blocks with the draft language available to integrations.
+	 *
+	 * The MCP request locale is not necessarily the authored content locale.
+	 * Limit the override to this render so it cannot leak into later WordPress
+	 * rendering in the same request.
+	 */
+	private function render_saved_blocks( \WP_Post $post, string $content_language ): string {
+		$language_filter = static fn( string $current_language = '' ): string => $content_language;
+		add_filter( 'smartcloud_composer_rendered_preview_content_language', $language_filter, PHP_INT_MAX );
+		try {
+			return do_blocks( (string) $post->post_content );
+		} finally {
+			remove_filter( 'smartcloud_composer_rendered_preview_content_language', $language_filter, PHP_INT_MAX );
+		}
 	}
 
 	/**

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: SmartCloud Agent Composer
  * Description: Configures governed agent drafts and human-reviewed published-content proposals.
- * Version: 1.2.4
+ * Version: 1.2.5
  * Requires at least: 6.9
  * Tested up to: 7.1
  * Requires PHP: 8.1
@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'SMARTCLOUD_COMPOSER_VERSION', '1.2.4' );
+define( 'SMARTCLOUD_COMPOSER_VERSION', '1.2.5' );
 define( 'SMARTCLOUD_COMPOSER_FILE', __FILE__ );
 define( 'SMARTCLOUD_COMPOSER_DIR', plugin_dir_path( __FILE__ ) );
 define( 'SMARTCLOUD_COMPOSER_URL', plugin_dir_url( __FILE__ ) );

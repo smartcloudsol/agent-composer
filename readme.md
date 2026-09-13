@@ -46,7 +46,7 @@ The basic flow is:
 3. Review Theme & providers, then configure the Site Contract and page-type Blueprints.
 4. Apply staged changes, validate the complete set, and activate it explicitly.
 5. Connect an authenticated MCP client as a dedicated `smartcloud_agent` user.
-6. Load the Blueprint and design context, validate the proposed block plan, create or update the draft, then call `get-rendered-preview` with the freshest concurrency tokens. It returns server-rendered frontend HTML without Gutenberg serialization comments. Published-content proposals require the returned `rendered_preview_token` before submission.
+6. Load the Blueprint and design context, validate the proposed block plan, create or update the draft, then call `get-rendered-preview` with the freshest concurrency tokens by default. It returns server-rendered frontend HTML without Gutenberg serialization comments. Existing and omitted Site Contract policy stays fail-closed; `design_policy.rendered_preview_policy: optional` lets an explicit user request skip preview and submit a proposal without a token, while every supplied token is still validated against the exact current revision.
 
 ## Repository layout
 

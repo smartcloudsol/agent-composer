@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace {
 	$registered_abilities = array();
 	$preview_transients = array();
+	$composer_preview_filters = array();
+	$rendered_preview_language_seen = '';
 	$preview_fixture_root = sys_get_temp_dir() . '/smartcloud-preview-' . getmypid();
 	@mkdir($preview_fixture_root . '/assets', 0777, true);
 	define('WP_CONTENT_DIR', $preview_fixture_root);
@@ -82,7 +84,28 @@ namespace SmartCloud\AgentComposer\Execution {
 	use RuntimeException;
 
 	function do_blocks(string $content): string {
+		$GLOBALS['rendered_preview_language_seen'] = apply_filters('smartcloud_composer_rendered_preview_content_language', '');
 		return str_replace(array('<!-- wp:paragraph -->', '<!-- /wp:paragraph -->'), '', $content);
+	}
+
+	function add_filter(string $hook, callable $callback, int $priority = 10, int $accepted_args = 1): bool {
+		unset($accepted_args);
+		$GLOBALS['composer_preview_filters'][$hook][$priority][] = $callback;
+		return true;
+	}
+
+	function remove_filter(string $hook, callable $callback, int $priority = 10): bool {
+		$callbacks = &$GLOBALS['composer_preview_filters'][$hook][$priority];
+		if (!is_array($callbacks)) {
+			return false;
+		}
+		foreach ($callbacks as $index => $registered_callback) {
+			if ($registered_callback === $callback) {
+				unset($callbacks[$index]);
+				return true;
+			}
+		}
+		return false;
 	}
 
 	function wp_kses_post(string $html): string {
@@ -102,7 +125,13 @@ namespace SmartCloud\AgentComposer\Execution {
 	}
 
 	function apply_filters(string $hook, mixed $value, mixed ...$arguments): mixed {
-		unset($hook, $arguments);
+		$filters = $GLOBALS['composer_preview_filters'][$hook] ?? array();
+		ksort($filters);
+		foreach ($filters as $callbacks) {
+			foreach ($callbacks as $callback) {
+				$value = $callback($value, ...$arguments);
+			}
+		}
 		return $value;
 	}
 
@@ -175,6 +204,8 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(!str_contains((string) ($document['html'] ?? ''), '<!-- wp:'), 'Gutenberg serialization comments must not reach the rendered HTML preview.');
 	$assert(!str_contains((string) ($document['html'] ?? ''), '<script'), 'Active script markup must not reach the preview document.');
 	$assert(str_contains((string) ($document['html'] ?? ''), 'Hello preview.'), 'Rendered block content must reach the preview document.');
+	$assert('ar-SA' === $GLOBALS['rendered_preview_language_seen'], 'Block rendering integrations must receive the authored draft language instead of the MCP request locale.');
+	$assert('fallback' === apply_filters('smartcloud_composer_rendered_preview_content_language', 'fallback'), 'The draft-language render context must be removed after preview generation.');
 	$assert(!str_contains((string) ($document['html'] ?? ''), '<header><h1>'), 'The preview body must not repeat the title already shown by the preview app chrome.');
 	$assert(str_contains((string) ($document['html'] ?? ''), 'page-gatey'), 'The rendered document must carry frontend-compatible body context classes.');
 	$assert(hash_equals(hash('sha256', (string) $document['html']), (string) ($document['sha256'] ?? '')), 'The preview hash must cover the exact returned HTML.');

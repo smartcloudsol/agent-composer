@@ -113,6 +113,10 @@ final class Abilities {
 		);
 	}
 
+	public function is_rendered_preview_required(): bool {
+		return 'required' === $this->config->get_rendered_preview_policy();
+	}
+
 	public function register_category(): void {
 		if ( ! function_exists( 'wp_register_ability_category' ) ) {
 			return;
@@ -130,6 +134,7 @@ final class Abilities {
 		if ( ! function_exists( 'wp_register_ability' ) ) {
 			return;
 		}
+		$rendered_preview_required = $this->is_rendered_preview_required();
 
 		$this->register_ability(
 			'get-page-blueprint',
@@ -374,7 +379,9 @@ final class Abilities {
 		$this->register_ability(
 			'create-content-proposal',
 			'Create published-content update proposal',
-			'Creates a separate agent-owned working copy of one published item when both the Site Contract and Blueprint opt in. The source remains unchanged and merge is not exposed to the agent. This only starts the workflow: after all updates and validation, you MUST call smartcloud-agent-composer/get-rendered-preview with the freshest post_id, modified_gmt, and revision and let the inline rendered HTML preview be delivered. After that preview, you MUST call submit-content-proposal with the same concurrency tokens and the exact rendered_preview_token returned by that preview. Do not report the proposal as ready while its state is working.',
+			$rendered_preview_required
+				? 'Creates a separate agent-owned working copy of one published item when both the Site Contract and Blueprint opt in. The source remains unchanged and merge is not exposed to the agent. This only starts the workflow: after all updates and validation, you MUST call smartcloud-agent-composer/get-rendered-preview with the freshest post_id, modified_gmt, and revision and let the inline rendered HTML preview be delivered. After that preview, you MUST call submit-content-proposal with the same concurrency tokens and the exact rendered_preview_token returned by that preview. Do not report the proposal as ready while its state is working.'
+				: 'Creates a separate agent-owned working copy of one published item when both the Site Contract and Blueprint opt in. The source remains unchanged and merge is not exposed to the agent. After all updates and validation, rendered HTML preview is the recommended default. If the user explicitly asks to skip it, submit-content-proposal may be called with the freshest concurrency tokens and without rendered_preview_token. Do not report the proposal as ready while its state is working.',
 			$this->content_proposal_create_schema(),
 			array( $this, 'create_content_proposal' ),
 			false
@@ -382,7 +389,9 @@ final class Abilities {
 		$this->register_ability(
 			'submit-content-proposal',
 			'Submit content proposal for human review',
-			'Validates and freezes an assigned working proposal for a human reviewer. Before calling this tool, MUST call smartcloud-agent-composer/get-rendered-preview after the final proposal write and pass its exact rendered_preview_token. Submission fails when the current proposal revision has not been rendered for this agent. It cannot update published content.',
+			$rendered_preview_required
+				? 'Validates and freezes an assigned working proposal for a human reviewer. Before calling this tool, MUST call smartcloud-agent-composer/get-rendered-preview after the final proposal write and pass its exact rendered_preview_token. Submission fails when the current proposal revision has not been rendered for this agent. It cannot update published content.'
+				: 'Validates and freezes an assigned working proposal for a human reviewer. Rendering the final proposal revision first is the recommended default, but when the user explicitly asks to skip HTML preview this tool accepts the freshest concurrency tokens without rendered_preview_token. If a preview token is supplied, it must attest to the exact current revision. It cannot update published content.',
 			$this->content_proposal_submit_schema(),
 			array( $this, 'submit_content_proposal' ),
 			false
@@ -414,7 +423,9 @@ final class Abilities {
 		$this->register_ability(
 			'validate-content-draft',
 			'Validate content draft',
-			'Assembles and validates content, the blueprint-specific excerpt policy, and the SEO description without saving. The blueprint fixes the target type and template. Validation is not preview or submission: after a published-content proposal passes validation and all updates are complete, call get-rendered-preview with its freshest concurrency tokens, then pass that response token to submit-content-proposal.',
+			$rendered_preview_required
+				? 'Assembles and validates content, the blueprint-specific excerpt policy, and the SEO description without saving. The blueprint fixes the target type and template. Validation is not preview or submission: after a published-content proposal passes validation and all updates are complete, call get-rendered-preview with its freshest concurrency tokens, then pass that response token to submit-content-proposal.'
+				: 'Assembles and validates content, the blueprint-specific excerpt policy, and the SEO description without saving. The blueprint fixes the target type and template. Validation is not preview or submission. Rendered HTML preview remains the recommended default after validation; if the user explicitly asks to skip it, submit the proposal with the freshest concurrency tokens and no preview token.',
 			$this->candidate_schema( false ),
 			array( $this, 'validate_content_draft' ),
 			true
@@ -422,7 +433,9 @@ final class Abilities {
 		$this->register_ability(
 			'create-content-draft',
 			'Create content draft',
-			'Creates an agent-owned draft with the blueprint-specific WordPress excerpt policy and a Yoast meta description using the target fixed by the blueprint. After the final successful draft write, you MUST call smartcloud-agent-composer/get-rendered-preview with the returned post_id, modified_gmt, and revision before reporting completion so the user receives the inline preview.',
+			$rendered_preview_required
+				? 'Creates an agent-owned draft with the blueprint-specific WordPress excerpt policy and a Yoast meta description using the target fixed by the blueprint. After the final successful draft write, you MUST call smartcloud-agent-composer/get-rendered-preview with the returned post_id, modified_gmt, and revision before reporting completion so the user receives the inline preview.'
+				: 'Creates an agent-owned draft with the blueprint-specific WordPress excerpt policy and a Yoast meta description using the target fixed by the blueprint. Rendered HTML preview after the final successful write remains the recommended default. If the user explicitly asks to skip it, completion may be reported using the returned post_id, modified_gmt, and revision without requesting HTML preview.',
 			$this->candidate_schema( true ),
 			array( $this, 'create_content_draft' ),
 			false
@@ -438,7 +451,9 @@ final class Abilities {
 		$this->register_ability(
 			'create-page-draft',
 			'Create content draft (legacy name)',
-			'Backward-compatible alias for create-content-draft; the blueprint fixes whether the draft is a page, post, or approved custom post type. After the final successful draft write, you MUST call smartcloud-agent-composer/get-rendered-preview with the returned post_id, modified_gmt, and revision before reporting completion so the user receives the inline preview.',
+			$rendered_preview_required
+				? 'Backward-compatible alias for create-content-draft; the blueprint fixes whether the draft is a page, post, or approved custom post type. After the final successful draft write, you MUST call smartcloud-agent-composer/get-rendered-preview with the returned post_id, modified_gmt, and revision before reporting completion so the user receives the inline preview.'
+				: 'Backward-compatible alias for create-content-draft; the blueprint fixes whether the draft is a page, post, or approved custom post type. Rendered HTML preview after the final successful write remains the recommended default, but it may be skipped when the user explicitly asks for no HTML preview.',
 			$this->candidate_schema( true ),
 			array( $this, 'create_page_draft' ),
 			false
@@ -446,7 +461,9 @@ final class Abilities {
 		$this->register_ability(
 			'update-own-draft',
 			'Update assigned content draft',
-			'Updates only a draft assigned to this agent, without changing its WordPress author, blueprint, post type, or template. Requires optimistic concurrency. After the final successful update, you MUST call smartcloud-agent-composer/get-rendered-preview with the returned post_id, modified_gmt, and revision and let the inline rendered HTML preview be delivered before reporting completion. If assignment_source is published-update-proposal, validate the completed proposal, call that preview tool, then MUST call submit-content-proposal with the same concurrency tokens and the exact rendered_preview_token returned by the preview. Do not submit before previewing, leave a completed proposal in working state, or report it as ready before submission succeeds.',
+			$rendered_preview_required
+				? 'Updates only a draft assigned to this agent, without changing its WordPress author, blueprint, post type, or template. Requires optimistic concurrency. After the final successful update, you MUST call smartcloud-agent-composer/get-rendered-preview with the returned post_id, modified_gmt, and revision and let the inline rendered HTML preview be delivered before reporting completion. If assignment_source is published-update-proposal, validate the completed proposal, call that preview tool, then MUST call submit-content-proposal with the same concurrency tokens and the exact rendered_preview_token returned by the preview. Do not submit before previewing, leave a completed proposal in working state, or report it as ready before submission succeeds.'
+				: 'Updates only a draft assigned to this agent, without changing its WordPress author, blueprint, post type, or template. Requires optimistic concurrency. Rendered HTML preview after the final successful update remains the recommended default. If the user explicitly asks to skip it, a normal draft may be completed without preview and a published-update-proposal must still be validated and submitted with the freshest concurrency tokens, omitting rendered_preview_token. Do not leave a completed proposal in working state or report it as ready before submission succeeds.',
 			$this->update_schema(),
 			array( $this, 'update_own_draft' ),
 			false
@@ -462,7 +479,9 @@ final class Abilities {
 		$this->register_ability(
 			'get-preview',
 			'Get draft preview',
-			'Returns edit and browser preview URLs plus a fresh validation report for one draft assigned to this agent. This URL-only fallback does not display the draft inline; after a final draft write, use smartcloud-agent-composer/get-rendered-preview instead.',
+			$rendered_preview_required
+				? 'Returns edit and browser preview URLs plus a fresh validation report for one draft assigned to this agent. This URL-only fallback does not display the draft inline; after a final draft write, use smartcloud-agent-composer/get-rendered-preview instead.'
+				: 'Returns edit and browser preview URLs plus a fresh validation report for one draft assigned to this agent. This URL-only fallback does not display the draft inline. Rendered HTML preview remains the recommended default after a final write unless the user explicitly asks to skip it.',
 			$this->post_id_schema(),
 			array( $this, 'get_preview' ),
 			true
@@ -470,7 +489,9 @@ final class Abilities {
 		$this->register_ability(
 			'get-rendered-preview',
 			'Get rendered draft preview',
-			'Required final preview step after a successful draft create or update. Call it with the freshest post_id, modified_gmt, and revision after every final write. It returns bounded, sanitized frontend HTML with Gutenberg serialization comments removed and displays that HTML inline in MCP Apps-capable clients. For a published-content proposal, pass its rendered_preview_token unchanged to submit-content-proposal; do not submit first. It does not execute shortcodes, frontend JavaScript, forms, or site template parts.',
+			$rendered_preview_required
+				? 'Required final preview step after a successful draft create or update. Call it with the freshest post_id, modified_gmt, and revision after every final write. It returns bounded, sanitized frontend HTML with Gutenberg serialization comments removed and displays that HTML inline in MCP Apps-capable clients. For a published-content proposal, pass its rendered_preview_token unchanged to submit-content-proposal; do not submit first. It does not execute shortcodes, frontend JavaScript, forms, or site template parts.'
+				: 'Recommended default preview step after a successful draft create or update. Call it with the freshest post_id, modified_gmt, and revision unless the user explicitly asks to skip HTML preview. It returns bounded, sanitized frontend HTML with Gutenberg serialization comments removed and displays that HTML inline in MCP Apps-capable clients. A returned rendered_preview_token may be passed unchanged to submit-content-proposal. It does not execute shortcodes, frontend JavaScript, forms, or site template parts.',
 			$this->rendered_preview_input_schema(),
 			array( $this, 'get_rendered_preview' ),
 			true,
@@ -586,7 +607,10 @@ final class Abilities {
 							'scope'          => 'content',
 							'fidelity'       => 'static',
 							'max_html_bytes' => 500000,
-							'required_after_final_draft_write' => true,
+							'policy'         => $this->config->get_rendered_preview_policy(),
+							'default_recommended' => true,
+							'required_after_final_draft_write' => $this->is_rendered_preview_required(),
+							'required_for_proposal_submission' => $this->is_rendered_preview_required(),
 							'inline_ui_requires_compatible_host' => true,
 							'asset_bridge'   => array(
 								'ability'                 => self::PREFIX . 'get-rendered-preview-asset',
@@ -2100,17 +2124,27 @@ HTML;
 	}
 
 	public function content_proposal_submit_schema(): array {
-		return array(
+		$schema = array(
 			'type' => 'object',
 			'properties' => array(
 				'post_id' => array( 'type' => 'integer', 'minimum' => 1 ),
 				'expected_modified_gmt' => array( 'type' => 'string', 'format' => 'date-time' ),
 				'expected_revision' => array( 'type' => 'string', 'format' => 'uuid' ),
-				'rendered_preview_token' => $this->string_property( 'Exact token returned by get-rendered-preview for this final proposal revision.', 58, 58 ),
+				'rendered_preview_token' => $this->string_property(
+					$this->is_rendered_preview_required()
+						? 'Exact token returned by get-rendered-preview for this final proposal revision.'
+						: 'Optional exact token returned by get-rendered-preview for this final proposal revision. Omit only when the user explicitly requests no HTML preview.',
+					58,
+					58
+				),
 			),
-			'required' => array( 'post_id', 'expected_modified_gmt', 'expected_revision', 'rendered_preview_token' ),
+			'required' => array( 'post_id', 'expected_modified_gmt', 'expected_revision' ),
 			'additionalProperties' => false,
 		);
+		if ( $this->is_rendered_preview_required() ) {
+			$schema['required'][] = 'rendered_preview_token';
+		}
+		return $schema;
 	}
 
 	public function adoption_inspection_schema(): array {

@@ -67,6 +67,10 @@ final class ConfigSetValidator {
 			$by_type[ EntityType::BLUEPRINT ] ?? array(),
 			$errors
 		);
+		$this->validate_rendered_preview_policy(
+			is_array( $site_contract ) ? $site_contract : array(),
+			$errors
+		);
 		$this->validate_proposal_policy(
 			is_array( $site_contract ) ? $site_contract : array(),
 			$by_type[ EntityType::BLUEPRINT ] ?? array(),
@@ -409,6 +413,20 @@ final class ConfigSetValidator {
 					$errors[] = $this->issue( 'registered-block-attribute-type-mismatch', 'A contracted attribute type differs from the registered block schema.', $attribute_path );
 				}
 			}
+		}
+	}
+
+	private function validate_rendered_preview_policy( array $site_contract, array &$errors ): void {
+		$policy = is_array( $site_contract['design_policy'] ?? null ) ? $site_contract['design_policy'] : array();
+		if ( ! array_key_exists( 'rendered_preview_policy', $policy ) ) {
+			return;
+		}
+		if ( ! in_array( $policy['rendered_preview_policy'], array( 'required', 'optional' ), true ) ) {
+			$errors[] = $this->issue(
+				'rendered-preview-policy-invalid',
+				'Rendered preview policy must be required or optional.',
+				'site-contract:design_policy.rendered_preview_policy'
+			);
 		}
 	}
 
