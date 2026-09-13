@@ -9,7 +9,7 @@
     "Config_Repository.php": "sha256:ac2146d78486501c0f9b5018669f7ba9f50e9e74740486f86b72d5b37767e2c5",
     "Content_Field_Materializer.php": "sha256:ce0b431dcb82c7bca255817f488c64387dfc52f67c64f7a75972b40398082e06",
     "Content_Language_Validator.php": "sha256:f983e1f0eb9ecee37016a9aeaed84e9c7af74c76f4a5d557c2ac6779ef0ae63e",
-    "Content_Proposal_Service.php": "sha256:fb570c30e956c9d8dbb6e289c33396202de69d921586599b838933923a5fa650",
+    "Content_Proposal_Service.php": "sha256:502d4fd071c2e9dfd0fff8750e03dc83880b7601805533973364ef4a4f8ff32d",
     "Draft_Service.php": "sha256:1cc5aeb2b5d91e72230fb66ecc163291f7883d6bc4d84dd6bc44c783b6dcdbd7",
     "Excerpt_Policy.php": "sha256:eb061a192291b68e9b25c14361ad880a8fd6e2d75cf65892137ebd1bf758f5d9",
     "Execution_Exception.php": "sha256:b2b3def11ecb5a760eb20c0bdd1dcf885677d5f97ad8508655ba85100fc293e6",
@@ -21,7 +21,7 @@
     "Pattern_Repository.php": "sha256:823a19e5a67380390a2ccf4d0bc3cb90a881fdd4f35f18cb97998622c67b2c10",
     "Query_Loop_Materializer.php": "sha256:9787a86add2626622c6f9d7daaedeec178a751ea3a4c298d3a31f68fd7ceb374",
     "Remote_Media_Ingestor.php": "sha256:b0f4843026e14c3611e562e6fc24c9adfe760cbd146171157a6c888640ae679d",
-    "Rendered_Preview_Service.php": "sha256:7b85336a45aee4d8f2964455cc223d14857b3916a0c7e22552aeeb9011476f5b",
+    "Rendered_Preview_Service.php": "sha256:90275132af3312d30523cf9d627edde5fd6b1477ad54155d9bcabc504681f0f1",
     "Semantic_Slot_Materializer.php": "sha256:09f92b076f8b423f7650fe30bd011d0c10f692d0ac5a6691fc18644669790c3e",
     "Target_Resolver.php": "sha256:86a417c583a1276822365bce810a676b51bd8b56f8cbec61b9d58ebc79bc7657",
     "Taxonomy_Term_Service.php": "sha256:7f46bf3cfebeba21fbb4cb712a2927a7720fb5682e358fe5c1f9d6f4de0da37d"

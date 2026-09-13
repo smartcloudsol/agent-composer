@@ -107,6 +107,7 @@ final class Content_Proposal_Service {
 				Draft_Service::IDEMPOTENCY_META => $key,
 				Draft_Service::REVISION_META => wp_generate_uuid4(),
 				Draft_Service::POST_TYPE_META => $target['post_type'],
+				Draft_Service::CONTENT_LANGUAGE_META => $content_language,
 				Draft_Service::TEMPLATE_META => $this->targets->template_identity( $target ),
 				Draft_Service::ASSIGNED_AGENT_META => $user_id,
 				Draft_Service::ASSIGNMENT_SOURCE_META => 'published-update-proposal',

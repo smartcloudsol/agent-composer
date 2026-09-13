@@ -107,6 +107,7 @@ test("homepage and product Blueprints allow governed published-content proposals
     "product-flow",
     "product-gatey",
     "product-publisher",
+    "solution",
   ];
 
   for (const id of proposalBlueprints) {
@@ -417,8 +418,8 @@ test("release copy contains no internal milestone or retired theme-contract narr
   assert.doesNotMatch(read("readme.txt"), /development milestone|not yet (?:the )?final/i);
   assert.match(read("smartcloud-agent-composer.php"), /License:\s+MIT/);
   assert.equal(fs.existsSync(path.join(root, "LICENSE")), true);
-  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.2\.5/);
-  assert.match(read("readme.txt"), /Stable tag:\s+1\.2\.5/);
+  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.2\.6/);
+  assert.match(read("readme.txt"), /Stable tag:\s+1\.2\.6/);
 });
 
 test("localization selection is manifest-driven and the main runtime names no concrete provider", () => {

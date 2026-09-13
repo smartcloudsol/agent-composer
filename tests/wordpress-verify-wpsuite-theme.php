@@ -45,7 +45,7 @@ $blueprints = array_values(
 		static fn ( array $entity ): bool => 'blueprint' === ( $entity['type'] ?? '' )
 	)
 );
-if ( 'wpsuite-site-contract-7-theme-1-0-59' !== $active || 26 !== count( $blueprints ) ) {
+if ( 'wpsuite-site-contract-8-theme-1-0-59' !== $active || 26 !== count( $blueprints ) ) {
 	throw new RuntimeException( 'The active database Config Set does not contain all 26 WP Suite blueprints.' );
 }
 

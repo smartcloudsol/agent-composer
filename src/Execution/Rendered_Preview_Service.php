@@ -20,6 +20,7 @@ final class Rendered_Preview_Service {
 	private const ASSET_SNAPSHOT_TTL       = 1800;
 	private const ASSET_SNAPSHOT_VERSION   = 1;
 	private const PROPOSAL_TARGET_SLUG_META = '_wpsuite_agent_proposal_target_slug';
+	private const PROPOSAL_LOCALIZATION_META = '_wpsuite_agent_proposal_localization';
 	private const PAGE_TYPE_META             = '_wpsuite_agent_page_type';
 
 	/** @var array<string,array<string,mixed>> */
@@ -32,7 +33,7 @@ final class Rendered_Preview_Service {
 		$post          = $this->drafts->get_owned_draft( absint( $input['post_id'] ?? 0 ) );
 		$preview_start = $this->drafts->get_preview( $post->ID );
 		$this->assert_expected_version( $input, $preview_start );
-		$language = sanitize_text_field( (string) get_post_meta( $post->ID, Draft_Service::CONTENT_LANGUAGE_META, true ) );
+		$language = $this->content_language_for_post( $post->ID );
 		$result   = $this->build_document( $post, $preview_start, $language ?: 'und' );
 		$this->assert_same_version( $preview_start, $this->drafts->get_preview( $post->ID ) );
 		$this->store_asset_snapshot(
@@ -62,7 +63,7 @@ final class Rendered_Preview_Service {
 		if ( null === $sources ) {
 			$preview_start = $this->drafts->get_preview_for_preview_asset( $post->ID );
 			$this->assert_expected_version( array( 'expected_revision' => $expected_revision ), $preview_start );
-			$language = sanitize_text_field( (string) get_post_meta( $post->ID, Draft_Service::CONTENT_LANGUAGE_META, true ) );
+			$language = $this->content_language_for_post( $post->ID );
 			$this->build_document( $post, $preview_start, $language ?: 'und', false );
 			$this->assert_same_version( $preview_start, $this->drafts->get_preview_for_preview_asset( $post->ID ) );
 			$sources = $this->asset_sources;
@@ -172,6 +173,25 @@ final class Rendered_Preview_Service {
 			$result['rendered_preview_token'] = self::issue_submission_token( $post->ID, $modified_gmt, $revision, self::current_user_id() );
 		}
 		return $result;
+	}
+
+	/**
+	 * Resolve the authored language, including proposals created before the
+	 * dedicated draft-language meta was copied from their published source.
+	 */
+	private function content_language_for_post( int $post_id ): string {
+		$language = sanitize_text_field( (string) get_post_meta( $post_id, Draft_Service::CONTENT_LANGUAGE_META, true ) );
+		if ( '' !== $language ) {
+			return $language;
+		}
+
+		$stored = get_post_meta( $post_id, self::PROPOSAL_LOCALIZATION_META, true );
+		$context = is_array( $stored ) ? $stored : json_decode( (string) $stored, true );
+		if ( ! is_array( $context ) ) {
+			return '';
+		}
+
+		return sanitize_text_field( (string) ( $context['content_language'] ?? '' ) );
 	}
 
 	/**

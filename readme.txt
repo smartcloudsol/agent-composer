@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.2.5
+Stable tag: 1.2.6
 License: MIT
 License URI: https://mit-license.org/
 
@@ -143,6 +143,11 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 
 == Changelog ==
 
+= 1.2.6 =
+* WP Suite Solution workflow: Enable human-reviewed published-content update proposals in the Solution Blueprint and Site Contract.
+* WP Suite preset: Add Config Set 8 with Site Contract policy 1.0.46; the imported set remains inactive until validation and explicit activation.
+* Rendered preview localization: Preserve the source content language on published-update proposals and recover it from the proposal localization snapshot for existing working copies.
+
 = 1.2.5 =
 * Rendered preview localization: Make the draft's authored content language available to frontend render integrations so localized links are not rewritten using the MCP request locale.
 * Preview policy: Add a Site Contract switch that keeps rendered HTML preview required by default for existing configurations and allows administrators to make it optional.
@@ -226,6 +231,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.2.6 =
+To enable Solution update proposals, import, validate, and explicitly activate the bundled wpsuite-site-contract-8-theme-1-0-59 Config Set, then restart the MCP runtime and refresh the client tool catalogue. Existing localized proposals also gain correct rendered-preview language recovery after the runtime restart.
 
 = 1.2.5 =
 Restart the MCP runtime and refresh the client tool catalogue after upgrading. Existing Config Sets remain fail-closed and require rendered preview; to make it optional, clone and activate a validated Config Set with design_policy.rendered_preview_policy set to optional. A supplied token is still validated against the exact proposal revision. Sites that localize links during block rendering should consume the request-scoped smartcloud_composer_rendered_preview_content_language filter; the WP Suite theme 1.0.68 includes this integration.

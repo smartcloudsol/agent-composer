@@ -7,6 +7,7 @@ namespace {
 	$preview_transients = array();
 	$composer_preview_filters = array();
 	$rendered_preview_language_seen = '';
+	$preview_post_meta = array();
 	$preview_fixture_root = sys_get_temp_dir() . '/smartcloud-preview-' . getmypid();
 	@mkdir($preview_fixture_root . '/assets', 0777, true);
 	define('WP_CONTENT_DIR', $preview_fixture_root);
@@ -44,8 +45,8 @@ namespace {
 	}
 
 	function get_post_meta(int $post_id, string $key, bool $single = false): mixed {
-		unset($post_id, $key, $single);
-		return '';
+		unset($single);
+		return $GLOBALS['preview_post_meta'][$post_id][$key] ?? '';
 	}
 
 	function wp_salt(string $scheme = 'auth'): string {
@@ -82,6 +83,11 @@ namespace {
 
 namespace SmartCloud\AgentComposer\Execution {
 	use RuntimeException;
+
+	final class Draft_Service {
+		public const CONTENT_LANGUAGE_META = '_wpsuite_agent_content_language';
+		public const REVISION_META = '_wpsuite_agent_revision';
+	}
 
 	function do_blocks(string $content): string {
 		$GLOBALS['rendered_preview_language_seen'] = apply_filters('smartcloud_composer_rendered_preview_content_language', '');
@@ -206,6 +212,14 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(str_contains((string) ($document['html'] ?? ''), 'Hello preview.'), 'Rendered block content must reach the preview document.');
 	$assert('ar-SA' === $GLOBALS['rendered_preview_language_seen'], 'Block rendering integrations must receive the authored draft language instead of the MCP request locale.');
 	$assert('fallback' === apply_filters('smartcloud_composer_rendered_preview_content_language', 'fallback'), 'The draft-language render context must be removed after preview generation.');
+	$resolve_language = new \ReflectionMethod(Rendered_Preview_Service::class, 'content_language_for_post');
+	$GLOBALS['preview_post_meta'][73][Draft_Service::CONTENT_LANGUAGE_META] = 'de-DE';
+	$assert('de-DE' === $resolve_language->invoke($service, 73), 'Rendered previews must prefer the dedicated authored-language meta.');
+	$GLOBALS['preview_post_meta'][73][Draft_Service::CONTENT_LANGUAGE_META] = '';
+	$GLOBALS['preview_post_meta'][73]['_wpsuite_agent_proposal_localization'] = array('content_language' => 'hu-HU');
+	$assert('hu-HU' === $resolve_language->invoke($service, 73), 'Existing proposals must recover their authored language from the structured localization snapshot.');
+	$GLOBALS['preview_post_meta'][73]['_wpsuite_agent_proposal_localization'] = json_encode(array('content_language' => 'fr-FR'));
+	$assert('fr-FR' === $resolve_language->invoke($service, 73), 'Legacy JSON localization snapshots must remain a valid preview-language fallback.');
 	$assert(!str_contains((string) ($document['html'] ?? ''), '<header><h1>'), 'The preview body must not repeat the title already shown by the preview app chrome.');
 	$assert(str_contains((string) ($document['html'] ?? ''), 'page-gatey'), 'The rendered document must carry frontend-compatible body context classes.');
 	$assert(hash_equals(hash('sha256', (string) $document['html']), (string) ($document['sha256'] ?? '')), 'The preview hash must cover the exact returned HTML.');

@@ -28,7 +28,7 @@ if ( empty( $admins ) ) {
 }
 wp_set_current_user( (int) $admins[0]->ID );
 
-$config_set = 'wpsuite-site-contract-7-theme-1-0-59';
+$config_set = 'wpsuite-site-contract-8-theme-1-0-59';
 $repository = new WordPressConfigurationRepository();
 $audit      = new AuditTable();
 $importer   = new ConfigPackageImporter( $repository, $audit );
