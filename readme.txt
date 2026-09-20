@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.3.0
+Stable tag: 1.3.1
 License: MIT
 License URI: https://mit-license.org/
 
@@ -28,7 +28,7 @@ Core operation runs inside WordPress without requiring a WP Suite account, subsc
 * Gutenberg block-tree, pattern, template, post-type, language, excerpt, field, and relation validation.
 * Document and structured-record Blueprints, including registered REST-visible fields approved by the Site Contract.
 * Human-readable, ordered relation editing constrained by allowed target types, statuses, and cardinality.
-* Existing-image assignment and optional bounded raster ingestion from approved HTTPS hosts.
+* Existing-image assignment, optional bounded Contributor raster ingestion from approved HTTPS hosts, and separately enabled Publisher-only public Media Library image upload with governed SEO metadata.
 * Short-lived preview drafts with ownership-checked cleanup.
 * Bounded, sanitized static HTML previews with optional inline MCP Apps rendering in compatible clients.
 * Redacted, tamper-evident audit events in an append-only SHA-256 hash chain.
@@ -50,7 +50,7 @@ This plugin is not affiliated with or endorsed by the WordPress Foundation. All 
 
 == Usage Notice ==
 
-Composer does not grant anonymous access or general WordPress administration. Protected MCP access validates signed Cognito access tokens without provisioning WordPress users. In backward-compatible Open mode, the dedicated `smartcloud_agent` role has no publishing, normal-content deletion, plugin, theme, user, arbitrary media-upload, or unfiltered-HTML capabilities.
+Composer does not grant anonymous access or general WordPress administration. Protected MCP access validates signed Cognito access tokens without provisioning WordPress users. In backward-compatible Open mode, the dedicated `smartcloud_agent` role has no publishing, normal-content deletion, plugin, theme, user, arbitrary media-upload, or unfiltered-HTML capabilities. The optional Publisher image tool is available only in protected mode and never grants general WordPress upload access.
 
 The model never publishes agent-created content. An authorized human may approve one exact, locked revision through the inline MCP App or WordPress fallback; any intervening draft change invalidates the request. Composer deletes only expired, Composer-owned temporary previews. Optional remote ingestion is restricted to allowlisted HTTPS hosts and Composer-owned drafts; it is not a general Media Library API.
 
@@ -77,7 +77,7 @@ Install WordPress MCP Adapter 0.6.1 or newer and connect to `/wp-json/mcp/smartc
 
 = How does media handling work? =
 
-Composer can search readable Media Library images and assign an existing image as the featured image of a Composer-owned draft. If an administrator explicitly enables remote ingestion and allowlists an exact HTTPS host in the active Site Contract, Composer can download one bounded raster image, validate it, store it locally, and assign it to that draft. It cannot browse arbitrary hosts, follow redirects, edit existing media, or delete Media Library items.
+Composer can search readable Media Library images and assign an existing image as the featured image of a Composer-owned draft. If an administrator explicitly enables remote ingestion and allowlists an exact HTTPS host in the active Site Contract, a Contributor can download one bounded raster image, validate it, store it locally, and assign it to that draft. Separately, a protected Publisher may upload one new immediately public image only when the active Site Contract enables Publisher uploads. That operation requires a semantic SEO slug, title, explicit alt policy, rights and publication confirmations, and bounded validated bytes from base64 or safe HTTPS. Readers and Contributors cannot discover or call it. No Composer role can edit or delete existing Media Library items.
 
 = How can configuration be preserved before uninstalling? =
 
@@ -114,6 +114,7 @@ Composer's configuration, validation, audit, ownership, concurrency, pattern ass
    * Composer sends a normal HTTPS image request with its user-agent and standard network headers. It does not send draft content, WordPress credentials, cookies, or portable configuration secrets.
    * The bounded response is restricted to allowed raster MIME types, validated, fingerprinted, stored in the local Media Library, and assignable only to a Composer-owned draft. HTTP, redirects, embedded credentials, custom ports, and non-allowlisted hosts are rejected.
    * The administrator must verify the source's reuse rights, terms, and privacy policy.
+   * A protected Publisher may also supply a safe HTTPS image to the separately enabled public-media tool. It uses the same bounded network behavior and requires an explicit rights confirmation, but the Contributor host allowlist does not grant or constrain Publisher authority.
 
 3. **WP Suite platform connection (optional)**
    * Used only when an administrator connects the packaged shared Hub to a WP Suite workspace or enables shared account, entitlement, license, configuration, or subscription features.
@@ -152,6 +153,16 @@ https://www.npmjs.com/package/@smart-cloud/agent-composer-core
 The distributed JavaScript and CSS are built from public `admin/src` and `core` sources. PHP owns registration, authorization, persistence, audit, portability, and execution. The release assembler adds the shared Hub runtime, verifies the package, normalizes timestamps, and records SHA-256 checksums.
 
 == Changelog ==
+
+= 1.3.1 =
+* Dependencies: Bundle WP Suite Hub 2.5.16 so Static Publisher is notified when the shared translation catalog changes.
+* Publisher media: Add an explicitly enabled, protected Publisher-only MCP tool for publishing one governed raster image to the Media Library without granting general WordPress upload access.
+* SEO and accessibility: Require a semantic filename slug, title, descriptive-or-decorative alt decision, rights confirmation, and immediate-publication confirmation.
+* Validation and privacy: Bound base64 or safe HTTPS input, verify signature/MIME/size/dimensions/idempotency, and keep raw bytes and source URLs out of the audit log.
+
+* Operational Abilities: Admit a bounded list of registered external tools to the Composer MCP surface, including the Static Publisher job scheduler and its read-only target, rule, and job-status tools.
+* Publisher reads: Classify the explicit Static Publisher read tools at the read boundary while retaining provider-enforced Publisher-only discovery and job-specific status authorization in protected modes.
+* MCP surface: Refresh tool-list cache identity while preserving Composer's prohibition on direct agent publication.
 
 = 1.3.0 =
 * MCP security boundary: Add optional Cognito access-token validation, group roles, per-client ceilings, optional scopes, filtered discovery, invocation enforcement, principal-bound ownership, and actor-aware audit context on WordPress MCP Adapter hooks.
@@ -259,6 +270,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.3.1 =
+Restart MCP and refresh client tools after installing the matching Static Publisher update. In Protected or Protected Required mode, map publish/content-sync operators and their status checks plus Publisher target/rule discovery to Publisher; Contributor remains sufficient for crawl/deploy scheduling and status checks. Existing Config Sets keep Publisher media upload disabled. To enable it, clone the active set, enable **Allow Publisher media uploads**, review the shared MIME and size limits, validate and activate it, then restart MCP and refresh the Publisher connector's tools. No new Cognito resource-server scope is required: the operation reuses the existing resource-bound `publish.request` scope. Readers, Contributors, and Open mode remain unable to upload.
 
 = 1.3.0 =
 Install MCP Adapter 0.6.1+. The upgrade adds approval storage/capability but leaves MCP protection Open. Validate and activate a Structure Contract Config Set, synchronize its local patterns, restart MCP, reconnect compatible clients so they discover the inline approval App, and refresh tools. Existing content is not migrated automatically. Before enabling Protected Required, configure a Cognito Hosted UI domain and public code-plus-PKCE client with the exact callback, map groups and client ceilings, migrate any external tunnel from STDIO to HTTP, copy the exact external MCP resource URI into Composer, and complete a test OAuth round trip. Enable scope enforcement only after Cognito uses that same URI as its resource-server identifier and App Client scopes.

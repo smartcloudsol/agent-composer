@@ -8,7 +8,7 @@ use SmartCloud\AgentComposer\Infrastructure\Persistence\WordPressConfigurationRe
 use SmartCloud\AgentComposer\Infrastructure\Persistence\PublishApprovalTable;
 
 final class Activation {
-	private const ROLE_SCHEMA_VERSION = '7';
+	private const ROLE_SCHEMA_VERSION = '8';
 	private const DB_SCHEMA_VERSION = '3';
 	public const ROLE                = 'smartcloud_agent';
 	public const CAP_USE             = 'smartcloud_agent_use';
@@ -20,6 +20,7 @@ final class Activation {
 	public const CAP_VIEW_AUDIT      = 'smartcloud_composer_view_audit';
 	public const CAP_EXECUTE_DRAFTS  = 'smartcloud_composer_execute_drafts';
 	public const CAP_INGEST_MEDIA    = 'smartcloud_composer_ingest_media';
+	public const CAP_PUBLISH_MEDIA   = 'smartcloud_composer_publish_media';
 	public const CAP_ASSIGN_TERMS    = 'smartcloud_composer_assign_terms';
 	public const CAP_CREATE_TERMS    = 'smartcloud_composer_create_terms';
 	public const CAP_PROPOSE_UPDATES = 'smartcloud_composer_propose_published_updates';
@@ -138,6 +139,7 @@ final class Activation {
 			self::CAP_VIEW_AUDIT,
 			self::CAP_EXECUTE_DRAFTS,
 			self::CAP_INGEST_MEDIA,
+			self::CAP_PUBLISH_MEDIA,
 			self::CAP_ASSIGN_TERMS,
 			self::CAP_CREATE_TERMS,
 			self::CAP_PROPOSE_UPDATES,
@@ -150,6 +152,7 @@ final class Activation {
 
 	private static function forbidden_caps(): array {
 		return array(
+			self::CAP_PUBLISH_MEDIA,
 			'publish_pages', 'publish_posts', 'delete_pages', 'delete_posts',
 			'delete_others_pages', 'delete_others_posts', 'edit_others_pages',
 			'edit_others_posts', 'manage_options', 'edit_theme_options',

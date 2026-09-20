@@ -63,6 +63,7 @@ final class Config_Repository {
 			'synced_structural_patterns' => array(),
 			'remote_media_ingest'        => array(
 				'enabled'            => false,
+				'publisher_upload_enabled' => false,
 				'allowed_hosts'      => array(),
 				'allowed_mime_types' => array( 'image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif' ),
 				'max_bytes'          => 12582912,
@@ -270,6 +271,7 @@ final class Config_Repository {
 		);
 		return array(
 			'enabled'            => true === ( $value['enabled'] ?? false ) && ! empty( $hosts ) && ! empty( $allowed_mimes ),
+			'publisher_upload_enabled' => true === ( $value['publisher_upload_enabled'] ?? false ) && ! empty( $allowed_mimes ),
 			'allowed_hosts'      => array_values( array_unique( $hosts ) ),
 			'allowed_mime_types' => $allowed_mimes,
 			'max_bytes'          => min( 26214400, max( 1024, (int) ( $value['max_bytes'] ?? 12582912 ) ) ),

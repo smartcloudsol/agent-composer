@@ -24,6 +24,7 @@
     "search-media",
     "assign-featured-image",
     "ingest-remote-media",
+    "upload-media-asset",
     "materialize-media-image",
     "materialize-query-loop",
     "get-content-field-contract",

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "smartcloud-agent-composer/extension-slot",
+  "version": "1.0.0",
+  "title": "Composer Extension Slot",
+  "category": "design",
+  "icon": "insert",
+  "description": "A contract-governed area for editor-owned Gutenberg blocks.",
+  "textdomain": "smartcloud-agent-composer",
+  "supports": {
+    "html": false,
+    "inserter": false,
+    "reusable": false
+  },
+  "attributes": {
+    "slotId": {
+      "type": "string",
+      "default": ""
+    },
+    "allowedBlocks": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      }
+    },
+    "minBlocks": {
+      "type": "number",
+      "default": 0
+    },
+    "maxBlocks": {
+      "type": "number"
+    }
+  },
+  "editorScript": "smartcloud-agent-composer-blocks-editor-script",
+  "editorStyle": "smartcloud-agent-composer-blocks-editor-style"
+}

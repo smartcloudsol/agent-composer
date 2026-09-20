@@ -35,6 +35,17 @@ namespace {
 		if ( 'smartcloud_composer_execution_providers' === $hook ) {
 			return $GLOBALS['composer_mcp_provider_manifests'] ?? $value;
 		}
+		if ( 'smartcloud_agent_composer_mcp_ability_names' === $hook ) {
+			return array_merge( array_fill( 0, 25, 'INVALID EXTERNAL ABILITY' ), array(
+				'smartcloud-static-publisher/schedule-job',
+				'smartcloud-static-publisher/schedule-job',
+				'smartcloud-static-publisher/schedule-job',
+				'smartcloud-static-publisher/list-targets',
+				'smartcloud-static-publisher/list-content-sync-rules',
+				'smartcloud-static-publisher/get-job-status',
+				'INVALID EXTERNAL ABILITY',
+			) );
+		}
 		return $value;
 	}
 }
@@ -132,6 +143,7 @@ namespace {
 		'smartcloud-agent-composer/create-blueprint-migration-proposal',
 		'smartcloud-agent-composer/plan-blueprint-migration',
 		'smartcloud-agent-composer/create-blueprint-migration-proposals',
+		'smartcloud-agent-composer/upload-media-asset',
 		'smartcloud-agent-composer/attach-content-to-translation-group',
 		'smartcloud-agent-composer/merge-content-translation-groups',
 		'smartcloud-agent-composer/get-rendered-preview',
@@ -146,8 +158,22 @@ namespace {
 	if ( ! in_array( 'late-provider/materialize-component', $names, true ) ) {
 		throw new RuntimeException( 'Composer MCP did not refresh providers registered after its first discovery pass.' );
 	}
+	if ( ! in_array( 'smartcloud-static-publisher/schedule-job', $names, true ) ) {
+		throw new RuntimeException( 'Composer MCP did not admit a registered external operational Ability.' );
+	}
+	if ( 1 !== count( array_keys( $names, 'smartcloud-static-publisher/schedule-job', true ) ) ) {
+		throw new RuntimeException( 'Composer MCP did not deduplicate external operational Abilities before applying its cap.' );
+	}
+	foreach ( array( 'smartcloud-static-publisher/list-targets', 'smartcloud-static-publisher/list-content-sync-rules', 'smartcloud-static-publisher/get-job-status' ) as $publisher_discovery_name ) {
+		if ( ! in_array( $publisher_discovery_name, $names, true ) ) {
+			throw new RuntimeException( 'Composer MCP did not admit Publisher discovery Ability: ' . $publisher_discovery_name );
+		}
+	}
+	if ( in_array( 'INVALID EXTERNAL ABILITY', $names, true ) ) {
+		throw new RuntimeException( 'Composer MCP admitted a malformed external Ability name.' );
+	}
 	$server_version = (string) ( $adapter->arguments[5] ?? '' );
-	if ( ! str_contains( $server_version, '+surface.publisher-handoff.5' ) ) {
+	if ( ! str_contains( $server_version, '+surface.publisher-jobs.4' ) ) {
 		throw new RuntimeException( 'Composer MCP server version is missing the Publisher handoff surface cachebuster.' );
 	}
 

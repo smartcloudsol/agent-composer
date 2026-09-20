@@ -22,6 +22,7 @@ final class Abilities {
 	private Taxonomy_Term_Service $taxonomy_terms;
 	private Semantic_Slot_Materializer $semantic_slots;
 	private Remote_Media_Ingestor $remote_media;
+	private Publisher_Media_Uploader $publisher_media;
 	private Content_Proposal_Service $proposals;
 	private Localization_Provider_Registry $localization;
 	private Localized_Draft_Service $localized_drafts;
@@ -43,6 +44,7 @@ final class Abilities {
 		Taxonomy_Term_Service $taxonomy_terms,
 		Semantic_Slot_Materializer $semantic_slots,
 		Remote_Media_Ingestor $remote_media,
+		Publisher_Media_Uploader $publisher_media,
 		Content_Proposal_Service $proposals,
 		Localization_Provider_Registry $localization,
 		Localized_Draft_Service $localized_drafts,
@@ -63,6 +65,7 @@ final class Abilities {
 		$this->taxonomy_terms = $taxonomy_terms;
 		$this->semantic_slots = $semantic_slots;
 		$this->remote_media   = $remote_media;
+		$this->publisher_media = $publisher_media;
 		$this->proposals      = $proposals;
 		$this->localization   = $localization;
 		$this->localized_drafts = $localized_drafts;
@@ -98,6 +101,7 @@ final class Abilities {
 			self::PREFIX . 'search-media',
 			self::PREFIX . 'assign-featured-image',
 			self::PREFIX . 'ingest-remote-media',
+			self::PREFIX . 'upload-media-asset',
 			self::PREFIX . 'materialize-media-image',
 			self::PREFIX . 'materialize-query-loop',
 			self::PREFIX . 'get-content-field-contract',
@@ -367,6 +371,15 @@ final class Abilities {
 			$this->remote_media_schema(),
 			array( $this, 'ingest_remote_media' ),
 			false
+		);
+		$this->register_ability(
+			'upload-media-asset',
+			'Upload public media asset',
+			'Publisher-only publication of one image into the WordPress Media Library. Supply exactly one bounded base64 payload or safe public HTTPS source, plus a meaningful SEO filename slug, title, accessible alternative-text decision, stable idempotency key, and explicit publication and rights confirmations. The returned attachment may then be selected through the normal Composer media and draft tools. Contributors cannot discover or call this ability.',
+			$this->publisher_media_upload_schema(),
+			array( $this, 'upload_media_asset' ),
+			false,
+			$this->publisher_media_upload_output_schema()
 		);
 		$this->register_ability(
 			'materialize-media-image',
@@ -807,6 +820,18 @@ final class Abilities {
 							array(
 								'controlled_ingest_capability_required' => true,
 								'composer_owned_draft_assignment_only' => true,
+								'publisher_upload' => array(
+									'ability'                       => self::PREFIX . 'upload-media-asset',
+									'available'                     => ! empty( $this->config->get_remote_media_ingest_policy()['publisher_upload_enabled'] ),
+									'required_role'                 => 'publisher',
+									'required_scope'                => 'composer.publish.request',
+									'immediately_public_asset'      => true,
+									'semantic_slug_required'        => true,
+									'sources'                       => array( 'content_base64', 'safe_https_url' ),
+									'max_direct_bytes'              => Publisher_Media_Uploader::MAX_DIRECT_BYTES,
+									'publication_confirmation_required' => true,
+									'rights_confirmation_required'  => true,
+								),
 							)
 						),
 						'text_editor_contract'                 => isset( $extensions['text_editor_contract'] ) && is_array( $extensions['text_editor_contract'] )
@@ -1135,6 +1160,18 @@ final class Abilities {
 
 	public function ingest_remote_media( array $input ): array|\WP_Error {
 		return $this->execute( 'ingest-remote-media', $input, fn() => $this->remote_media->ingest( $input ) );
+	}
+
+	public function upload_media_asset( array $input ): array|\WP_Error {
+		$audit_input = $input;
+		$source_kind = '' !== trim( (string) ( $input['content_base64'] ?? '' ) ) ? 'base64' : 'remote';
+		$source_reference = 'base64' === $source_kind
+			? (string) ( $input['content_base64'] ?? '' )
+			: (string) ( $input['source_url'] ?? '' );
+		unset( $audit_input['content_base64'], $audit_input['source_url'] );
+		$audit_input['source_kind'] = $source_kind;
+		$audit_input['source_reference_sha256'] = hash( 'sha256', $source_reference );
+		return $this->execute( 'upload-media-asset', $audit_input, fn() => $this->publisher_media->upload( $input ) );
 	}
 
 	public function assign_featured_image( array $input ): array|\WP_Error {
@@ -1466,7 +1503,7 @@ final class Abilities {
 						'destructive' => false,
 						'idempotent'  => $read_only || in_array(
 							$slug,
-							array( 'create-page-draft', 'create-content-draft', 'create-content-proposal', 'create-blueprint-migration-proposal', 'create-blueprint-migration-proposals', 'submit-content-proposal', 'adopt-content-draft', 'assign-featured-image', 'ingest-remote-media', 'create-taxonomy-term', 'assign-taxonomy-terms', 'link-content-draft-translations', 'attach-content-draft-to-translation-group', 'attach-content-to-translation-group', 'merge-content-translation-groups' ),
+							array( 'create-page-draft', 'create-content-draft', 'create-content-proposal', 'create-blueprint-migration-proposal', 'create-blueprint-migration-proposals', 'submit-content-proposal', 'adopt-content-draft', 'assign-featured-image', 'ingest-remote-media', 'upload-media-asset', 'create-taxonomy-term', 'assign-taxonomy-terms', 'link-content-draft-translations', 'attach-content-draft-to-translation-group', 'attach-content-to-translation-group', 'merge-content-translation-groups' ),
 							true
 						),
 					),
@@ -1771,7 +1808,7 @@ HTML;
 
 		try {
 			$result    = $callback();
-			$object_id = is_array( $result ) ? absint( $result['post_id'] ?? $result['term_id'] ?? 0 ) : 0;
+			$object_id = is_array( $result ) ? absint( $result['post_id'] ?? $result['term_id'] ?? $result['attachment_id'] ?? 0 ) : 0;
 			$this->audit->log( $operation, 'success', $input, $object_id );
 			if ( is_array( $result ) ) {
 				$result['_request_id'] = $this->audit->get_request_id();
@@ -1785,7 +1822,7 @@ HTML;
 				true
 			);
 			$this->audit->log( $operation, 'error', $input, $post_id, $error->get_execution_code(), array( 'conflict' => $conflict ) );
-			$denied = in_array( $error->get_execution_code(), array( 'taxonomy_term_create_denied', 'taxonomy_assignment_denied', 'proposal_create_denied', 'proposal_source_read_denied', 'localization_content_read_denied', 'localized_content_edit_forbidden', 'migration_permission_denied' ), true );
+			$denied = in_array( $error->get_execution_code(), array( 'taxonomy_term_create_denied', 'taxonomy_assignment_denied', 'proposal_create_denied', 'proposal_source_read_denied', 'localization_content_read_denied', 'localized_content_edit_forbidden', 'migration_permission_denied', 'publisher_media_upload_denied' ), true );
 			$status = $conflict ? 409 : ( $denied ? 403 : 400 );
 			return new \WP_Error(
 				'smartcloud_agent_' . $error->get_execution_code(),
@@ -2191,6 +2228,75 @@ HTML;
 			),
 			'required'             => array( 'source_url', 'idempotency_key' ),
 			'additionalProperties' => false,
+		);
+	}
+
+	public function publisher_media_upload_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'content_base64'      => array(
+					'type'        => 'string',
+					'minLength'   => 4,
+					'maxLength'   => 16777216,
+					'description' => 'Raw base64 image bytes without a data-URL prefix. Supply this or source_url, never both.',
+				),
+				'source_url'          => array(
+					'type'        => 'string',
+					'format'      => 'uri',
+					'minLength'   => 10,
+					'maxLength'   => 4096,
+					'description' => 'Safe public HTTPS image URL without credentials, fragments, redirects, or a custom port. Supply this or content_base64, never both.',
+				),
+				'mime_type'           => array( 'type' => 'string', 'enum' => array( 'image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif' ) ),
+				'slug'                => array(
+					'type'        => 'string',
+					'minLength'   => 3,
+					'maxLength'   => 120,
+					'pattern'     => '^[a-z0-9]+(?:-[a-z0-9]+)*$',
+					'description' => 'Required meaningful SEO filename stem. Describe the asset; never use an AI vendor name or generated-image placeholder.',
+				),
+				'title'               => $this->string_property( 'Required concise Media Library title.', 1, 200 ),
+				'alt_mode'            => array(
+					'type'        => 'string',
+					'enum'        => array( 'descriptive', 'decorative' ),
+					'description' => 'Choose descriptive for meaningful content or decorative only when an empty alt attribute is appropriate.',
+				),
+				'alt_text'            => $this->string_property( 'Meaningful alternative text for descriptive media; must be empty for decorative media.', 0, 500 ),
+				'caption'             => $this->string_property( 'Optional plain-text Media Library caption.', 0, 1000 ),
+				'description'         => $this->string_property( 'Optional plain-text Media Library description.', 0, 4000 ),
+				'idempotency_key'     => array( 'type' => 'string', 'minLength' => 8, 'maxLength' => 128, 'pattern' => '^[A-Za-z0-9._:-]+$' ),
+				'confirm_publication' => array( 'type' => 'boolean', 'enum' => array( true ), 'description' => 'Explicitly acknowledge that the upload becomes a publicly addressable asset immediately.' ),
+				'confirm_rights'      => array( 'type' => 'boolean', 'enum' => array( true ), 'description' => 'Explicitly confirm that the site may store and publish this asset.' ),
+			),
+			'required'             => array( 'mime_type', 'slug', 'title', 'alt_mode', 'alt_text', 'idempotency_key', 'confirm_publication', 'confirm_rights' ),
+			'oneOf'                => array(
+				array( 'required' => array( 'content_base64' ) ),
+				array( 'required' => array( 'source_url' ) ),
+			),
+			'additionalProperties' => false,
+		);
+	}
+
+	public function publisher_media_upload_output_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'attachment_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+				'created'       => array( 'type' => 'boolean' ),
+				'public_asset'  => array( 'type' => 'boolean', 'enum' => array( true ) ),
+				'source_kind'   => array( 'type' => 'string', 'enum' => array( 'base64', 'remote' ) ),
+				'slug'          => array( 'type' => 'string' ),
+				'file_name'     => array( 'type' => 'string' ),
+				'title'         => array( 'type' => 'string' ),
+				'alt_text'      => array( 'type' => 'string' ),
+				'mime_type'     => array( 'type' => 'string' ),
+				'url'           => array( 'type' => 'string', 'format' => 'uri' ),
+				'width'         => array( 'type' => 'integer', 'minimum' => 1 ),
+				'height'        => array( 'type' => 'integer', 'minimum' => 1 ),
+			),
+			'required'             => array( 'attachment_id', 'created', 'public_asset', 'source_kind', 'slug', 'file_name', 'title', 'alt_text', 'mime_type', 'url', 'width', 'height' ),
+			'additionalProperties' => true,
 		);
 	}
 

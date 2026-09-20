@@ -53,7 +53,7 @@ function McpAccessDocs() {
       <List.Item>{__("Open mode is backward compatible: tokens are not required, but only read, draft and proposal operations are available.", TEXT_DOMAIN)}</List.Item>
       <List.Item>{__("Protected mode requires a valid Cognito access token, a mapped group and an allowed client before any Composer tool is exposed.", TEXT_DOMAIN)}</List.Item>
       <List.Item>{__("Required mode is selected by the active Site Contract. Incomplete identity configuration closes MCP access instead of falling back to Open.", TEXT_DOMAIN)}</List.Item>
-      <List.Item>{__("Reader inspects content; Contributor also creates drafts and proposals; Publisher may additionally request a human publish review. No role can publish directly through MCP.", TEXT_DOMAIN)}</List.Item>
+      <List.Item>{__("Reader inspects content; Contributor also creates drafts and proposals; Publisher may additionally request a human publish review and, when the Site Contract explicitly enables it, publish a governed image to the Media Library. No role can publish normal content directly through MCP.", TEXT_DOMAIN)}</List.Item>
       <List.Item>{__("Use a separate Cognito App Client for every security-relevant agent class. Client ceilings only reduce the authority granted by the human's groups.", TEXT_DOMAIN)}</List.Item>
       <List.Item>{__("Bearer tokens are validated request-locally and are never stored in WordPress or the audit log.", TEXT_DOMAIN)}</List.Item>
     </List>
@@ -61,7 +61,7 @@ function McpAccessDocs() {
     <Text>{__("Composer shows the effective AWS Region, User Pool ID, issuer, and JWKS URL it will use at runtime. Resolved automatically means a trusted WP Suite integration supplied the values through the Composer provider filter. Resolved from manual configuration means the local fallback fields are active. If neither source resolves to a valid region and pool ID, the fields become required and saving is rejected until both are complete.", TEXT_DOMAIN)}</Text>
     <Text size="sm">{__("Region is the AWS region containing the User Pool, for example eu-central-1. User Pool ID is the pool identifier, for example eu-central-1_AbCd1234; it is not an App Client ID, Identity Pool ID, ARN, domain, or secret.", TEXT_DOMAIN)}</Text>
     <Title order={3} mt="md">{__("Cognito group to Composer role mapping", TEXT_DOMAIN)}</Title>
-    <Text>{__("The Group field is case-sensitive and must exactly match a Cognito User Pool group emitted in the access token's cognito:groups claim. Reader permits inspection, Contributor adds governed draft and proposal work, and Publisher adds only the right to create a short-lived human approval request. If several mapped groups are present, the highest group role is selected and then reduced by the OAuth client's role ceiling.", TEXT_DOMAIN)}</Text>
+    <Text>{__("The Group field is case-sensitive and must exactly match a Cognito User Pool group emitted in the access token's cognito:groups claim. Reader permits inspection, Contributor adds governed draft and proposal work, and Publisher adds short-lived human approval requests plus optional governed Media Library publication. If several mapped groups are present, the highest group role is selected and then reduced by the OAuth client's role ceiling.", TEXT_DOMAIN)}</Text>
     <Title order={3} mt="md">{__("Create a dedicated OAuth App Client", TEXT_DOMAIN)}</Title>
     <List type="ordered" withPadding spacing="xs">
       <List.Item>{__("In the external AI client, start a User-Defined OAuth Client connection and copy its exact callback URL. Each connection can have a different callback URL.", TEXT_DOMAIN)}</List.Item>
@@ -108,7 +108,7 @@ function OverviewDocs() {
     <Title order={3} mt="md">{__("Safety boundary", TEXT_DOMAIN)}</Title>
     <List withPadding spacing="xs">
       <List.Item>{__("Agent abilities create and update drafts or separate working proposals; they never merge into published content.", TEXT_DOMAIN)}</List.Item>
-      <List.Item>{__("Publishing, normal-content deletion, theme editing, plugin management, and media upload are not exposed.", TEXT_DOMAIN)}</List.Item>
+      <List.Item>{__("Direct normal-content publishing, deletion, theme editing, plugin management, and unrestricted media upload are not exposed. A protected Publisher may use the separate Site Contract-controlled image publication tool.", TEXT_DOMAIN)}</List.Item>
       <List.Item>{__("Configuration mutations require an authenticated administrator, a REST nonce, and the exact Composer capability.", TEXT_DOMAIN)}</List.Item>
       <List.Item>{__("Every write is recorded in the redacted, hash-chained audit log.", TEXT_DOMAIN)}</List.Item>
     </List>

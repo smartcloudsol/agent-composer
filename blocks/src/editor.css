@@ -1,0 +1,99 @@
+.wp-block-smartcloud-agent-composer-extension-slot {
+  border: 1px dashed #7c3aed;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.smartcloud-agent-composer-slot__header {
+  align-items: center;
+  color: #5b21b6;
+  display: flex;
+  font-size: 12px;
+  font-weight: 600;
+  gap: 8px;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.smartcloud-agent-composer-slot__count {
+  color: #6b7280;
+  font-weight: 400;
+}
+
+.smartcloud-agent-composer-slot__appender {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px dashed #a78bfa;
+  border-radius: 6px;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  min-height: 48px;
+  padding: 8px 12px;
+	position: relative;
+}
+
+.smartcloud-agent-composer-slot__empty-hint,
+.smartcloud-agent-composer-slot__limit {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.smartcloud-agent-composer-slot__add {
+	background: #fff;
+	border: 1px solid #7c3aed;
+	border-radius: 4px;
+  color: #5b21b6;
+	cursor: pointer;
+  flex: 0 0 auto;
+  margin: 0;
+	padding: 6px 10px;
+}
+
+.smartcloud-agent-composer-slot__add:hover,
+.smartcloud-agent-composer-slot__add:focus-visible {
+	background: #f3e8ff;
+	box-shadow: 0 0 0 1px #7c3aed;
+}
+
+.smartcloud-agent-composer-slot__choices {
+	background: #fff;
+	border: 1px solid #c4b5fd;
+	border-radius: 6px;
+	box-shadow: 0 8px 24px rgb(15 23 42 / 12%);
+	display: grid;
+	gap: 4px;
+	left: 50%;
+	min-width: 190px;
+	padding: 6px;
+	position: absolute;
+	top: calc(100% + 4px);
+	transform: translateX(-50%);
+	z-index: 20;
+}
+
+.smartcloud-agent-composer-slot__choices button {
+	background: transparent;
+	border: 0;
+	border-radius: 3px;
+	cursor: pointer;
+	padding: 7px 9px;
+	text-align: left;
+}
+
+.smartcloud-agent-composer-slot__choices button:hover,
+.smartcloud-agent-composer-slot__choices button:focus-visible {
+	background: #f3e8ff;
+}
+
+.smartcloud-agent-composer-slot__limit {
+  background: #f8fafc;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.smartcloud-agent-composer-slot__warning {
+  color: #b45309;
+  font-size: 12px;
+  margin-top: 8px;
+}

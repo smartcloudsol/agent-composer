@@ -323,8 +323,9 @@ test("guided admin exposes the existing-content access gate without requiring JS
   for (const label of ["Search terms", "Assign to draft", "Create terms", "Maximum terms", "Assignment mode", "Creation parent policy", "Allowed parent slugs"]) {
     assert.match(editor, new RegExp(label));
   }
-  assert.match(editor, /Remote Media Library ingestion/);
+  assert.match(editor, /Governed Media Library ingestion/);
   assert.match(editor, /remote_media_ingest/);
+  assert.match(editor, /publisher_upload_enabled/);
   assert.match(editor, /Write draft/);
   for (const label of ["Select all Read", "Deselect all Read", "Select all Write draft", "Deselect all Write draft"]) {
     assert.match(editor, new RegExp(label));
@@ -404,7 +405,7 @@ test("Composer execution contract is checksum-pinned and canonical names are fro
   const surface = JSON.parse(read("tests/fixtures/execution-ability-surface.json"));
   assert.equal(surface.contract, manifest.contract);
   const aliases = read("src/Integration/Abilities/ExecutionAbilityAliases.php");
-  assert.equal(surface.operations.length, 56);
+  assert.equal(surface.operations.length, 57);
   for (const alias of surface.preferred_aliases) {
     assert.match(aliases, new RegExp(alias.replaceAll("-", "\\-")));
   }
@@ -521,8 +522,8 @@ test("release copy contains no internal milestone or retired theme-contract narr
   assert.doesNotMatch(read("readme.txt"), /development milestone|not yet (?:the )?final/i);
   assert.match(read("smartcloud-agent-composer.php"), /License:\s+MIT/);
   assert.equal(fs.existsSync(path.join(root, "LICENSE")), true);
-  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.3\.0/);
-  assert.match(read("readme.txt"), /Stable tag:\s+1\.3\.0/);
+  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.3\.1/);
+  assert.match(read("readme.txt"), /Stable tag:\s+1\.3\.1/);
 });
 
 test("localization selection is manifest-driven and the main runtime names no concrete provider", () => {

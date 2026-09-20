@@ -428,15 +428,15 @@ final class ConfigSetValidator {
 			$errors[] = $this->issue( 'remote-media-policy-type', 'Remote media ingestion policy must be an object.', 'site-contract:design_policy.remote_media_ingest' );
 			return;
 		}
-		if ( ! is_array( $media ) || empty( $media['enabled'] ) ) {
+		if ( ! is_array( $media ) || ( empty( $media['enabled'] ) && empty( $media['publisher_upload_enabled'] ) ) ) {
 			return;
 		}
 		$hosts = (array) ( $media['allowed_hosts'] ?? array() );
 		$mimes = (array) ( $media['allowed_mime_types'] ?? array() );
-		if ( empty( $hosts ) ) {
+		if ( ! empty( $media['enabled'] ) && empty( $hosts ) ) {
 			$errors[] = $this->issue( 'remote-media-hosts-missing', 'Enabled remote media ingestion requires at least one exact host.', 'site-contract:design_policy.remote_media_ingest.allowed_hosts' );
 		}
-		foreach ( $hosts as $host ) {
+		foreach ( ! empty( $media['enabled'] ) ? $hosts : array() as $host ) {
 			if ( ! preg_match( '/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/', strtolower( trim( (string) $host ) ) ) ) {
 				$errors[] = $this->issue( 'remote-media-host-invalid', 'Remote media hosts must be exact DNS names without schemes, paths, ports, or wildcards.', 'site-contract:design_policy.remote_media_ingest.allowed_hosts' );
 			}

@@ -1,7 +1,7 @@
 {
   "contract": "smartcloud-agent-composer-execution",
   "files": {
-    "Abilities.php": "sha256:8d24a11fafd8cc138947189a61d2ed09bcc1d71d7244a2ce5400ad5a8eb9c8bc",
+    "Abilities.php": "sha256:f5666e485d5fa2bb98d1fd39744d41ccf3d6efce68e2f6456ae1c3c725196bf1",
     "Ability_Provider_Registry.php": "sha256:576d07261044e203bed581359cbc9d77d88778a5dddb3cf554b8a7f263baadc6",
     "Admin_Managed_Document_Service.php": "sha256:6a33b767f8e71d286b36205df92077b4c97bb9101c135953eaf096604297afb9",
     "Audit_Logger.php": "sha256:f517fa4314ebbdd3f2004b61ba49c4d3885b05b90aab13393acbec6f49b7b163",
@@ -9,7 +9,7 @@
     "Block_Tree_Service.php": "sha256:7a1ac6b0ba9fe3b3187fae3f5800f35f8c59638a3f886bef06ec20445b162028",
     "Blueprint_Migration_Service.php": "sha256:eecd7056922ca734551c55f5657cb23ea174e46fbbb51069651715613fe64494",
     "Bulk_Blueprint_Migration_Service.php": "sha256:50d8808a6c4b9a3cc48afb4dc82eb8f8d1e56750b0047a3433f758049bfe4fdb",
-    "Config_Repository.php": "sha256:b0fd312c2ee9a338f01f27f3bec2a2da6191d84ca438fc0a0de0ff57b5f47bdf",
+    "Config_Repository.php": "sha256:b82acba8681457ccd5afd6777f5ed3922aaf8397be6f2c0dc75fc94685e88989",
     "Content_Field_Materializer.php": "sha256:6dc03aac8cc72b19e8465f64ef698ecd4b0e6bf5291857de67f3f8eb4ab4a8a6",
     "Content_Language_Validator.php": "sha256:f983e1f0eb9ecee37016a9aeaed84e9c7af74c76f4a5d557c2ac6779ef0ae63e",
     "Content_Proposal_Service.php": "sha256:782e0b0e1da987fb7546211e031e511e0c74699525c5fcff4ec3550385369d58",
@@ -23,6 +23,7 @@
     "Page_Validator.php": "sha256:c08ac24a2c0f68e59917b6c37851a1217f40c4d469defcc8500c323666671d3f",
     "Pattern_Assembler.php": "sha256:23409e43238f65702c58f4dca3a4f93ce7319cc2b2caa23dc14286f28c5cbc68",
     "Pattern_Repository.php": "sha256:823a19e5a67380390a2ccf4d0bc3cb90a881fdd4f35f18cb97998622c67b2c10",
+    "Publisher_Media_Uploader.php": "sha256:de00d53905b2732162d2bbfaa205e8aadb9cb6adf53a1056edde1d94f37a7633",
     "Query_Loop_Materializer.php": "sha256:9787a86add2626622c6f9d7daaedeec178a751ea3a4c298d3a31f68fd7ceb374",
     "Remote_Media_Ingestor.php": "sha256:b0f4843026e14c3611e562e6fc24c9adfe760cbd146171157a6c888640ae679d",
     "Rendered_Preview_Service.php": "sha256:03c6ae46398be0288134ea58010009c1ccdd362e2deb2b5462d918da2537589f",

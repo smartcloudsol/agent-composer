@@ -11,7 +11,7 @@ use SmartCloud\AgentComposer\Security\McpAccessGuard;
 
 final class ComposerMcpServer {
 	public const SERVER_ID = 'smartcloud-agent-composer';
-	public const SURFACE_REVISION = 'publisher-handoff.5';
+	public const SURFACE_REVISION = 'publisher-jobs.4';
 	public const HTTP_ENDPOINT = '/wp-json/mcp/smartcloud-agent-composer';
 	public const PREVIEW_RESOURCE_URI = 'ui://smartcloud-agent-composer/rendered-preview/v5.html';
 	public const PREVIEW_RESOURCE_URI_V4 = 'ui://smartcloud-agent-composer/rendered-preview/v4.html';
@@ -77,7 +77,22 @@ final class ComposerMcpServer {
 		// before fixing the server's tool surface for this request.
 		$this->providers->reset();
 		$this->localization->reset();
-		$names = array_merge( Abilities::names(), ExecutionAbilityAliases::canonical_names(), $this->providers->mcp_ability_names(), $this->localization->mcp_ability_names() );
+		$external_names = apply_filters( 'smartcloud_agent_composer_mcp_ability_names', array() );
+		$external_names = is_array( $external_names ) ? $external_names : array();
+		$external_names = array_slice(
+			array_values(
+				array_unique(
+					array_filter(
+						$external_names,
+						static fn( mixed $name ): bool => is_string( $name )
+							&& 1 === preg_match( '/^[a-z0-9][a-z0-9-]{0,63}\/[a-z0-9][a-z0-9-]{0,63}$/', $name )
+					)
+				)
+			),
+			0,
+			20
+		);
+		$names = array_merge( Abilities::names(), ExecutionAbilityAliases::canonical_names(), $this->providers->mcp_ability_names(), $this->localization->mcp_ability_names(), $external_names );
 		$names = array_values( array_filter( array_unique( $names ), static fn( string $name ): bool => wp_has_ability( $name ) ) );
 		if ( empty( $names ) ) {
 			return;

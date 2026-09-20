@@ -50,7 +50,7 @@ export default function Onboarding() {
           <Accordion.Control><Group gap="xs"><Text fw={700}>{__("What Composer does", TEXT_DOMAIN)}</Text><Badge variant="light">{__("Safety", TEXT_DOMAIN)}</Badge></Group></Accordion.Control>
           <Accordion.Panel><Stack gap="sm">
             <Text size="sm">{__("Composer turns the active Config Set, its Site Contract, and page-type Blueprints into a restricted Ability surface for authenticated agent clients. Generated content is assembled from approved theme patterns and blocks, then checked against the active theme's design capabilities, editorial policy, ownership, and concurrency rules before any write.", TEXT_DOMAIN)}</Text>
-            <Text size="sm">{__("Agent operations create and update agent-owned WordPress drafts only. Publishing, ordinary-content deletion, media upload, theme or plugin changes, and user administration are outside this boundary.", TEXT_DOMAIN)}</Text>
+            <Text size="sm">{__("Agent operations create and update governed WordPress drafts. Direct content publishing, ordinary-content deletion, unrestricted media upload, theme or plugin changes, and user administration remain outside this boundary; an authenticated Publisher may use the separately enabled governed image-publication tool.", TEXT_DOMAIN)}</Text>
           </Stack></Accordion.Panel>
         </Accordion.Item>
         <Accordion.Item value="configure">
