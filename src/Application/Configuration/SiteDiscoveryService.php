@@ -42,6 +42,7 @@ final class SiteDiscoveryService {
 		$profile_count = count( $this->profiles->profiles() );
 		$registered_blocks = $this->registered_blocks( $providers );
 		$registered_patterns = $this->registered_patterns();
+		$synced_pattern_records = $this->synced_pattern_records();
 		$registered_templates = $this->registered_templates();
 		$registered_post_types = $this->registered_post_types();
 		$theme_profile = array(
@@ -60,14 +61,16 @@ final class SiteDiscoveryService {
 			'providers'          => $providers,
 			'registered_blocks'  => $registered_blocks,
 			'registered_patterns' => $registered_patterns,
+			'synced_pattern_records' => $synced_pattern_records,
 			'registered_templates' => $registered_templates,
 			'registered_post_types' => $registered_post_types,
 			'provider_profiles'  => $profile_count,
 			'theme_fingerprint'  => CanonicalJson::checksum( array( $theme_profile, $registered_patterns, $registered_templates ) ),
+			'pattern_record_fingerprint' => CanonicalJson::checksum( $synced_pattern_records ),
 			'provider_fingerprint' => CanonicalJson::checksum( array( $providers, $registered_blocks ) ),
 			'content_model_fingerprint' => CanonicalJson::checksum( $registered_post_types ),
 		);
-		$result['site_capability_fingerprint'] = CanonicalJson::checksum( array( $result['theme_fingerprint'], $result['provider_fingerprint'], $result['content_model_fingerprint'] ) );
+		$result['site_capability_fingerprint'] = CanonicalJson::checksum( array( $result['theme_fingerprint'], $result['pattern_record_fingerprint'], $result['provider_fingerprint'], $result['content_model_fingerprint'] ) );
 
 		if ( $persist ) {
 			$key = 'discovery:' . gmdate( 'YmdHis' ) . '-' . substr( str_replace( '-', '', wp_generate_uuid4() ), 0, 6 );
@@ -128,6 +131,40 @@ final class SiteDiscoveryService {
 		}
 		usort( $patterns, static fn( array $left, array $right ): int => strcmp( $left['name'], $right['name'] ) );
 		return $patterns;
+	}
+
+	/**
+	 * Native synced patterns are wp_block records, not entries in
+	 * WP_Block_Patterns_Registry. Expose their actual publication state so the
+	 * administration UI does not report a healthy synced pattern as missing.
+	 */
+	private function synced_pattern_records(): array {
+		if ( ! post_type_exists( 'wp_block' ) ) {
+			return array();
+		}
+		$posts = get_posts(
+			array(
+				'post_type'        => 'wp_block',
+				'post_status'      => array_values( get_post_stati() ),
+				'posts_per_page'   => 500,
+				'orderby'          => 'post_name',
+				'order'            => 'ASC',
+				'suppress_filters' => false,
+			)
+		);
+		$records = array();
+		foreach ( $posts as $post ) {
+			if ( ! $post instanceof \WP_Post || '' === (string) $post->post_name ) {
+				continue;
+			}
+			$records[] = array(
+				'post_id'     => (int) $post->ID,
+				'post_name'   => sanitize_title( (string) $post->post_name ),
+				'title'       => sanitize_text_field( get_the_title( $post ) ),
+				'post_status' => sanitize_key( (string) $post->post_status ),
+			);
+		}
+		return $records;
 	}
 
 	private function registered_templates(): array {

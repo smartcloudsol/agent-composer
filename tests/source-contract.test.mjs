@@ -4,9 +4,109 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import Ajv2020 from "ajv/dist/2020.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
+
+test("config packages validate versioned Structure Contracts separately from editorial guidance", () => {
+  const schema = JSON.parse(read("contracts/schemas/composer-config-package.schema.json"));
+  const fixture = JSON.parse(read("contracts/fixtures/composer-config-package.valid.json"));
+  const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
+
+  assert.equal(validate(fixture), true, JSON.stringify(validate.errors));
+  const blueprint = fixture.entities.find((entity) => entity.type === "blueprint");
+  const siteContract = fixture.entities.find((entity) => entity.type === "site-contract");
+  assert.deepEqual(blueprint.payload.structure_contract, { id: "solution-editor", version: 1 });
+  assert.equal(siteContract.payload.design_policy.structure_contracts["solution-editor"].version, 1);
+  assert.equal(siteContract.payload.design_policy.synced_structural_patterns["wpsuite/solution-hero"].version, 1);
+  assert.deepEqual(blueprint.payload.synced_patterns, ["wpsuite/solution-hero"]);
+
+  const editor = read("admin/src/EntityEditor.tsx");
+  assert.match(editor, /content_contract/);
+  assert.doesNotMatch(editor, /content_contract[^\n]+structure_contract|structure_contract[^\n]+content_contract/);
+});
+
+test("governed migrations are plan-bound proposals rather than direct published writes", () => {
+  const abilities = read("src/Execution/Abilities.php");
+  const migrations = read("src/Execution/Blueprint_Migration_Service.php");
+  const bulk = read("src/Execution/Bulk_Blueprint_Migration_Service.php");
+  const proposals = read("src/Execution/Content_Proposal_Service.php");
+  const activation = read("src/Infrastructure/WordPress/Activation.php");
+
+  assert.match(abilities, /preview-blueprint-migration/);
+  assert.match(abilities, /create-blueprint-migration-proposal/);
+  assert.match(abilities, /plan-blueprint-migration/);
+  assert.match(abilities, /create-blueprint-migration-proposals/);
+  assert.match(abilities, /expected_migration_plan_hash/);
+  assert.match(migrations, /CanonicalJson::checksum\( \$public \)/);
+  assert.match(migrations, /unset\( \$plan\['_target_content'\], \$plan\['_target_metadata'\] \)/);
+  assert.match(migrations, /create_migration/);
+  assert.doesNotMatch(migrations, /wp_update_post|wp_insert_post/);
+  assert.match(proposals, /MIGRATION_META/);
+  assert.match(proposals, /allow_structure_change/);
+  assert.match(proposals, /structural_fingerprint/);
+  assert.match(bulk, /MAX_PLAN_ITEMS\s*=\s*100/);
+  assert.match(bulk, /MAX_CREATE_ITEMS\s*=\s*25/);
+  assert.match(bulk, /partial_success/);
+  assert.match(bulk, /publication_changed'\s*=>\s*false/);
+  assert.doesNotMatch(bulk, /wp_update_post|wp_insert_post/);
+  assert.match(activation, /run_agent_composer_migrations/);
+});
+
+test("native wp-admin creation uses a managed Blueprint baseline instead of a blank CPT draft", () => {
+  const runtime = read("src/Application/Execution/ExecutionRuntime.php");
+  const adminCreation = read("src/Execution/Admin_Managed_Document_Service.php");
+  const guard = read("src/Execution/Structure_Contract_Save_Guard.php");
+  const state = read("src/Execution/Managed_Document_State.php");
+  const assembler = read("src/Execution/Pattern_Assembler.php");
+  const editor = read("admin/src/EntityEditor.tsx");
+
+  assert.match(runtime, /new Admin_Managed_Document_Service/);
+  assert.match(runtime, /admin_documents->register\(\)/);
+  assert.match(adminCreation, /load-post-new\.php/);
+  assert.match(adminCreation, /wp_insert_post_empty_content/);
+  assert.match(adminCreation, /preview_post_link/);
+  assert.match(adminCreation, /normalize_managed_preview_url/);
+  assert.match(adminCreation, /home_url\( '\/' \)/);
+  assert.match(adminCreation, /post_status'\s*=>\s*'auto-draft'/);
+  assert.match(adminCreation, /ASSIGNMENT_SOURCE_META\s*=>\s*'wp-admin'/);
+  assert.doesNotMatch(adminCreation, /OWNED_META\s*=>/);
+  assert.match(adminCreation, /admin-managed-document-created/);
+  assert.match(guard, /document_state->is_managed/);
+  assert.match(guard, /managed_creation_required/);
+  assert.match(state, /_composer_managed_document/);
+  assert.match(assembler, /assemble_admin_default/);
+  assert.match(editor, /WP-admin Add New/);
+  assert.match(editor, /Starting Blueprint/);
+});
+
+test("WP Suite Solution declares the first complete synced structural pattern composition", () => {
+  const site = JSON.parse(read("presets/wpsuite/site-contract.json"));
+  const solution = JSON.parse(read("presets/wpsuite/blueprints/solution.json"));
+  const expected = [
+    "wpsuite/solution-hero",
+    "wpsuite/problem-grid",
+    "wpsuite/architecture",
+    "wpsuite/implementation-steps",
+    "wpsuite/fit-check",
+    "wpsuite/faq-4",
+    "wpsuite/solution-cta",
+  ];
+  assert.deepEqual(solution.synced_patterns, expected);
+  assert.ok(solution.allowed_blocks.includes("core/block"));
+  for (const name of expected) {
+    const definition = site.design_policy.synced_structural_patterns[name];
+    assert.equal(definition.version, 1, `${name} must have an independent structural version`);
+    assert.match(definition.post_name, /^[a-z0-9][a-z0-9-]+$/);
+    assert.ok(Object.keys(definition.overrides).length > 0, `${name} must expose bounded semantic overrides`);
+  }
+  assert.deepEqual(
+    JSON.parse(read("presets/wpsuite/wpsuite-site-contract.package.json"))
+      .entities.find((entity) => entity.type === "blueprint" && entity.id === "solution")?.payload,
+    solution,
+  );
+});
 
 test("WordPress identifiers use the approved Composer prefix and role", () => {
   const sources = [
@@ -139,13 +239,14 @@ test("WP Suite markup roles cover every specialized card grid", () => {
   }
 });
 
-test("WordPress admin build exposes the complete public feature source and externalizes Mantine", () => {
+test("WordPress admin and block builds expose their complete runtime sources", () => {
   const rootPackage = JSON.parse(read("package.json"));
   const packageJson = JSON.parse(read("admin/package.json"));
   const webpack = read("admin/webpack.config.cjs");
   const app = read("admin/src/App.tsx");
-  assert.deepEqual(rootPackage.workspaces, ["core", "admin", "tests"]);
+  assert.deepEqual(rootPackage.workspaces, ["core", "admin", "blocks", "tests"]);
   assert.match(rootPackage.scripts.build, /build:wp/);
+  assert.match(rootPackage.scripts.build, /agent-composer-blocks/);
   assert.match(packageJson.scripts["build:wp"], /WPSUITE_PREMIUM=true/);
   assert.match(packageJson.scripts["build:wp"], /--webpack-copy-php/);
   assert.match(app, /\.\/features/);
@@ -165,6 +266,8 @@ test("WordPress admin build exposes the complete public feature source and exter
   assert.match(proposals, /Proposal ID/);
   assert.match(proposals, /<Pagination/);
   assert.match(proposals, /languageFlag/);
+  assert.match(proposals, /buildBodyContentReview/);
+  assert.match(proposals, /Only the affected visible content and nearby context are shown/);
   assert.doesNotMatch(proposals, /window\.(?:confirm|prompt)/);
   assert.match(read("smartcloud-agent-composer.php"), /hub-loader\.php/);
   assert.match(read("admin/php/admin.php"), /smartcloud-wpsuite\//);
@@ -301,7 +404,7 @@ test("Composer execution contract is checksum-pinned and canonical names are fro
   const surface = JSON.parse(read("tests/fixtures/execution-ability-surface.json"));
   assert.equal(surface.contract, manifest.contract);
   const aliases = read("src/Integration/Abilities/ExecutionAbilityAliases.php");
-  assert.equal(surface.operations.length, 41);
+  assert.equal(surface.operations.length, 56);
   for (const alias of surface.preferred_aliases) {
     assert.match(aliases, new RegExp(alias.replaceAll("-", "\\-")));
   }
@@ -418,8 +521,8 @@ test("release copy contains no internal milestone or retired theme-contract narr
   assert.doesNotMatch(read("readme.txt"), /development milestone|not yet (?:the )?final/i);
   assert.match(read("smartcloud-agent-composer.php"), /License:\s+MIT/);
   assert.equal(fs.existsSync(path.join(root, "LICENSE")), true);
-  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.2\.6/);
-  assert.match(read("readme.txt"), /Stable tag:\s+1\.2\.6/);
+  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.3\.0/);
+  assert.match(read("readme.txt"), /Stable tag:\s+1\.3\.0/);
 });
 
 test("localization selection is manifest-driven and the main runtime names no concrete provider", () => {

@@ -25,6 +25,10 @@ namespace SmartCloud\AgentComposer\Execution {
 		public function get_design_policy(): array {
 			return array( 'localization' => array( 'provider' => 'none', 'allowed_content_languages' => $GLOBALS['localization_test_allowlist'] ) );
 		}
+		public function get_blueprint( string $page_type ): array {
+			unset( $page_type );
+			return array( 'content_language' => 'hu-HU', 'allowed_content_languages' => array( 'hu-HU' ) );
+		}
 	}
 
 	final class Execution_Exception extends RuntimeException {
@@ -34,7 +38,17 @@ namespace SmartCloud\AgentComposer\Execution {
 	}
 
 	function current_user_can( string $capability, int $post_id = 0 ): bool { return 'read_post' === $capability && 12 === $post_id; }
-	function get_locale(): string { return 'hu_HU'; }
+	function get_locale(): string { return $GLOBALS['localization_test_locale'] ?? 'hu_HU'; }
+	function get_post_meta( int $post_id, string $key, bool $single = false ): mixed {
+		unset( $single );
+		if ( 99 === $post_id && '_wpsuite_agent_page_type' === $key ) {
+			return 'physician-profile';
+		}
+		if ( 12 === $post_id && '_wpsuite_agent_content_language' === $key ) {
+			return $GLOBALS['localization_test_stored_language'] ?? '';
+		}
+		return '';
+	}
 	function get_post( int $post_id ): ?\WP_Post { return 12 === $post_id ? new \WP_Post( 12 ) : null; }
 	function sanitize_key( string $value ): string { return strtolower( (string) preg_replace( '/[^a-z0-9_-]/i', '', $value ) ); }
 	function sanitize_text_field( string $value ): string { return trim( strip_tags( $value ) ); }
@@ -61,6 +75,7 @@ namespace SmartCloud\AgentComposer\Execution {
 		);
 	}
 
+	require_once dirname( __DIR__ ) . '/src/Execution/Content_Language_Validator.php';
 	require_once dirname( __DIR__ ) . '/src/Execution/Localization_Provider_Registry.php';
 
 	$registry = new Localization_Provider_Registry( new Config_Repository() );
@@ -75,6 +90,16 @@ namespace SmartCloud\AgentComposer\Execution {
 	if ( 'wordpress' !== $resolved['provider'] || 'hu-HU' !== $resolved['content_language'] || 'hu' !== $resolved['language_code'] ) {
 		throw new RuntimeException( 'The monolingual provider must return a complete, stable language context.' );
 	}
+	$GLOBALS['localization_test_locale'] = 'en_US';
+	$blueprint_resolved = $registry->resolve_for_blueprint(
+		12,
+		'page',
+		array( 'content_language' => 'hu-HU', 'allowed_content_languages' => array( 'hu-HU' ) )
+	);
+	if ( 'hu-HU' !== $blueprint_resolved['content_language'] || 'hu' !== $blueprint_resolved['language_code'] || 'blueprint' !== $blueprint_resolved['language_source'] || 'en_US' !== $blueprint_resolved['locale'] ) {
+		throw new RuntimeException( 'A concrete monolingual Blueprint must define authored content language independently from the WordPress UI locale.' );
+	}
+	$GLOBALS['localization_test_locale'] = 'hu_HU';
 	$registry->validate_proposal( $resolved, 12, 99 );
 	$supported = $registry->supported_languages();
 	if ( 'any-language' !== $supported['authoring_mode'] || true !== in_array( '*', $supported['authorable_languages'], true ) || $supported['localization_available'] || $supported['language_switching'] || $supported['draft_linking'] || $supported['draft_group_attachment'] ) {

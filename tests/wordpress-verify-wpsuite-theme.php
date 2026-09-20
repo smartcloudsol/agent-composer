@@ -15,9 +15,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 $theme = wp_get_theme();
-if ( 'twentytwentyfive-child' !== $theme->get_stylesheet() || '1.0.59' !== (string) $theme->get( 'Version' ) ) {
-	throw new RuntimeException( 'The WP Suite child theme is not active at version 1.0.59.' );
+if ( 'twentytwentyfive-child' !== $theme->get_stylesheet() ) {
+	throw new RuntimeException( 'The WP Suite child theme is not active.' );
 }
+$theme_version = (string) $theme->get( 'Version' );
 
 $theme_root = $theme->get_stylesheet_directory();
 $retired    = array(
@@ -62,6 +63,9 @@ if ( 'confirmed' !== $result['theme']['manifest_status'] ) {
 if ( '1.0.0-rc.1' !== ( $result['theme']['manifest']['schema_version'] ?? '' ) ) {
 	throw new RuntimeException( 'Unexpected theme presentational-manifest schema version.' );
 }
+if ( $theme_version !== (string) ( $result['theme']['manifest']['theme']['version'] ?? '' ) ) {
+	throw new RuntimeException( 'The active theme header and Composer manifest versions do not match.' );
+}
 
 $registered_block_names = array_column( $result['registered_blocks'] ?? array(), 'name' );
 if ( ! in_array( 'core/paragraph', $registered_block_names, true ) ) {
@@ -78,10 +82,11 @@ if ( ! is_object( $query_ability ) ) {
 }
 $query_result = $query_ability->execute(
 	array(
-		'page_type'          => 'page',
+		'page_type'          => 'blog-index',
 		'post_type'          => 'post',
 		'per_page'           => 6,
 		'offset'             => 0,
+		'sticky_mode'        => 'exclude',
 		'orderby'            => 'date',
 		'order'              => 'DESC',
 		'columns'            => 3,
@@ -101,14 +106,24 @@ if ( is_wp_error( $query_result ) || 'core/query' !== ( $query_result['block']['
 $execution_config = new Config_Repository( new ActiveConfigurationSource( $repository ) );
 $execution_providers = new Ability_Provider_Registry();
 $query_validation = ( new Block_Tree_Service( new Block_Catalog( $execution_config, $execution_providers ), $execution_config, $execution_providers ) )
-	->validate( (array) $query_result['blocks'], 'page' );
+	->validate( (array) $query_result['blocks'], 'blog-index' );
 if ( empty( $query_validation['valid'] ) ) {
 	throw new RuntimeException( 'The materialized Query Loop did not pass the live WordPress block registry and blueprint validation: ' . wp_json_encode( $query_validation ) );
 }
 
 $pattern_names = $result['theme']['manifest']['patterns'] ?? array();
-if ( 50 !== count( $pattern_names ) ) {
-	throw new RuntimeException( 'Expected 50 declared WP Suite patterns, found ' . count( $pattern_names ) . '.' );
+$pattern_file_names = array();
+foreach ( glob( trailingslashit( $theme_root ) . 'patterns/*.php' ) ?: array() as $pattern_file ) {
+	$pattern_header = get_file_data( $pattern_file, array( 'slug' => 'Slug' ) );
+	if ( empty( $pattern_header['slug'] ) ) {
+		throw new RuntimeException( 'Theme pattern file has no Slug header: ' . basename( $pattern_file ) );
+	}
+	$pattern_file_names[] = $pattern_header['slug'];
+}
+sort( $pattern_names );
+sort( $pattern_file_names );
+if ( $pattern_names !== $pattern_file_names ) {
+	throw new RuntimeException( 'The theme pattern files and Composer manifest declarations do not match.' );
 }
 
 $common_css = apply_filters( 'wpsuite_scoped_css_common_files', array( 'common.css', 'wps-solutions.css' ) );
@@ -119,7 +134,7 @@ if ( ! in_array( 'pattern-library.css', $common_css, true ) ) {
 echo wp_json_encode(
 	array(
 		'theme'             => $theme->get_stylesheet(),
-		'theme_version'     => (string) $theme->get( 'Version' ),
+		'theme_version'     => $theme_version,
 		'active_config_set' => $active,
 		'blueprint_count'   => count( $blueprints ),
 		'pattern_count'     => count( $pattern_names ),

@@ -7,11 +7,15 @@ final class Pattern_Assembler {
 	private Config_Repository $config;
 	private Pattern_Repository $patterns;
 	private Semantic_Slot_Materializer $slots;
+	private Structure_Editor_Projector $editor;
+	private Synced_Structural_Pattern_Service $synced_patterns;
 
-	public function __construct( Config_Repository $config, Pattern_Repository $patterns, Semantic_Slot_Materializer $slots ) {
+	public function __construct( Config_Repository $config, Pattern_Repository $patterns, Semantic_Slot_Materializer $slots, Structure_Editor_Projector $editor, Synced_Structural_Pattern_Service $synced_patterns ) {
 		$this->config   = $config;
 		$this->patterns = $patterns;
 		$this->slots    = $slots;
+		$this->editor   = $editor;
+		$this->synced_patterns = $synced_patterns;
 	}
 
 	/**
@@ -19,7 +23,7 @@ final class Pattern_Assembler {
 	 * Supported tokens: {{wpsuite:text:key}}, {{wpsuite:attr:key}},
 	 * {{wpsuite:url:key}}, and {{wpsuite:json:key}}.
 	 */
-	public function assemble( string $page_type, array $sections ): array {
+	public function assemble( string $page_type, array $sections, array $context = array() ): array {
 		$blueprint = $this->config->get_blueprint( $page_type );
 		if ( 'structured-record' === $blueprint['composition_mode'] ) {
 			if ( ! empty( $sections ) ) {
@@ -48,12 +52,24 @@ final class Pattern_Assembler {
 				throw new Execution_Exception( 'pattern_not_allowed', 'A requested pattern is not allowed by this blueprint.' );
 			}
 			$this->assert_namespace_allowed( $pattern );
+			$fields = isset( $section['fields'] ) && is_array( $section['fields'] ) ? $section['fields'] : array();
+			if ( null !== $this->synced_patterns->definition( $pattern, $blueprint ) ) {
+				$instance   = $this->synced_patterns->materialize_instance(
+					$pattern,
+					$fields,
+					$blueprint,
+					true === ( $context['allow_pattern_defaults'] ?? false )
+				);
+				$sequence[] = $pattern;
+				$content   .= serialize_block( $instance['block'] );
+				continue;
+			}
+
 			$registered = $this->patterns->resolve_approved( $pattern, $blueprint );
 			if ( ! is_array( $registered ) || empty( $registered['content'] ) ) {
 				throw new Execution_Exception( 'pattern_not_registered', 'An approved pattern is not registered by the active theme or a plugin.' );
 			}
 
-			$fields = isset( $section['fields'] ) && is_array( $section['fields'] ) ? $section['fields'] : array();
 			$source = preg_replace(
 				'/<!--\s*wpsuite-agent-section:[a-z0-9-]+\/[a-z0-9-]+\s*-->/',
 				'',
@@ -72,20 +88,41 @@ final class Pattern_Assembler {
 		}
 
 		$this->assert_required_sequence( $blueprint['required_sequence'], $sequence );
+		$content = trim( $content );
+		if ( 'enforced' === (string) ( $blueprint['structure_contract_mode'] ?? '' ) ) {
+			$content = $this->editor->project_content( (array) $blueprint['resolved_structure_contract'], $content );
+		}
 		return array(
-			'content'          => trim( $content ),
+			'content'          => $content,
 			'sequence'         => $sequence,
 			'composition_mode' => 'document',
 			'content_language' => $blueprint['content_language'],
 		);
 	}
 
+	/** Build the canonical native-editor starting document from the Blueprint minimum sequence. */
+	public function assemble_admin_default( string $page_type ): array {
+		$blueprint = $this->config->get_blueprint( $page_type );
+		if ( 'structured-record' === (string) $blueprint['composition_mode'] ) {
+			return $this->assemble( $page_type, array() );
+		}
+		$sections = array_map(
+			static fn( string $pattern ): array => array( 'pattern' => $pattern, 'fields' => array() ),
+			(array) $blueprint['required_sequence']
+		);
+		return $this->assemble( $page_type, $sections, array( 'allow_pattern_defaults' => true ) );
+	}
+
 	/**
 	 * Store the approved pattern identity on its native root block.
 	 *
 	 * Raw HTML marker comments become separate Classic blocks in Gutenberg.
-	 * The supported block metadata name is non-rendering, survives editor saves,
-	 * and gives the root block a useful label in List View.
+	 * Legacy patterns use metadata.name. A pattern that already uses that field
+	 * for a Structure Contract node keeps it and stores the source identity in
+	 * Composer's namespace. WordPress reserves metadata.patternName for native
+	 * pattern editing; setting it on a materialized extension-slot wrapper makes
+	 * Gutenberg treat the wrapper as an indivisible pattern and swallow nested
+	 * slot interaction.
 	 */
 	private function add_pattern_metadata( string $content, string $pattern ): string {
 		$blocks     = parse_blocks( trim( $content ) );
@@ -114,7 +151,17 @@ final class Pattern_Assembler {
 		$attrs    = isset( $root['attrs'] ) && is_array( $root['attrs'] ) ? $root['attrs'] : array();
 		$metadata = isset( $attrs['metadata'] ) && is_array( $attrs['metadata'] ) ? $attrs['metadata'] : array();
 
-		$metadata['name']  = $pattern;
+		$existing_name = isset( $metadata['name'] ) ? trim( (string) $metadata['name'] ) : '';
+		if ( '' === $existing_name || $pattern === $existing_name ) {
+			$metadata['name'] = $pattern;
+		} else {
+			$namespaced = isset( $metadata['wpsuiteAgentComposer'] ) && is_array( $metadata['wpsuiteAgentComposer'] )
+				? $metadata['wpsuiteAgentComposer']
+				: array();
+			$namespaced['patternName'] = $pattern;
+			$metadata['wpsuiteAgentComposer'] = $namespaced;
+			unset( $metadata['patternName'] );
+		}
 		$attrs['metadata'] = $metadata;
 		$root['attrs']      = $attrs;
 
@@ -123,10 +170,16 @@ final class Pattern_Assembler {
 		$stored_name = isset( $round_trip[0]['attrs']['metadata']['name'] )
 			? (string) $round_trip[0]['attrs']['metadata']['name']
 			: '';
+		$stored_namespace = isset( $round_trip[0]['attrs']['metadata']['wpsuiteAgentComposer'] ) && is_array( $round_trip[0]['attrs']['metadata']['wpsuiteAgentComposer'] )
+			? $round_trip[0]['attrs']['metadata']['wpsuiteAgentComposer']
+			: array();
+		$stored_pattern = isset( $stored_namespace['patternName'] )
+			? (string) $stored_namespace['patternName']
+			: $stored_name;
 		if (
 			1 !== count( $round_trip )
 			|| null === ( $round_trip[0]['blockName'] ?? null )
-			|| ! hash_equals( $pattern, $stored_name )
+			|| ! hash_equals( $pattern, $stored_pattern )
 		) {
 			throw new Execution_Exception( 'invalid_pattern_metadata', 'The approved pattern identity did not survive native block serialization.' );
 		}

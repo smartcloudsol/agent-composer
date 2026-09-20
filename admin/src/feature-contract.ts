@@ -5,7 +5,7 @@ import type {
 } from "./api";
 import type { DocTopic } from "./DocSidebar";
 
-export type Section = "overview" | "configuration" | "blueprints" | "proposals" | "providers" | "audit";
+export type Section = "overview" | "configuration" | "blueprints" | "proposals" | "mcp-access" | "providers" | "audit";
 
 export interface SectionProps {
   section: Section;
@@ -14,7 +14,8 @@ export interface SectionProps {
   selectedId: string;
   selectedSet: ConfigSet | null;
   chooseSet: (id: string | null) => Promise<void>;
-  run: (operation: () => Promise<void>) => Promise<void>;
+  run: (operation: () => Promise<void>, action?: string) => Promise<void>;
+  pendingAction: string | null;
   refreshSets: (preferred?: string) => Promise<void>;
   setNotice: (notice: string) => void;
   setEntityChangesPending: Dispatch<SetStateAction<boolean>>;

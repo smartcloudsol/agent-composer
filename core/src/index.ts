@@ -1,4 +1,5 @@
 export {
+  ADMIN_CREATION_MODES,
   CONTENT_PROPOSAL_STATES,
   CONTRACT_VERSION,
   ENTITY_TYPES,
@@ -8,11 +9,13 @@ export {
   PUBLISHED_UPDATE_POLICIES
 } from "./constants.js";
 export type {
+  AdminCreationMode,
   BlueprintPayload,
   Bcp47LanguageTag,
   ContentAccessPolicy,
   ContentProposal,
   ContentProposalDetail,
+  ContentProposalChangeDetail,
   ContentProposalList,
   ContentProposalListState,
   ContentProposalSummary,

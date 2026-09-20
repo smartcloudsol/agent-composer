@@ -3,6 +3,8 @@
 
 namespace SmartCloud\AgentComposer\Execution;
 
+use SmartCloud\AgentComposer\Infrastructure\WordPress\Activation;
+
 /**
  * Provides a fail-closed bridge between Composer and registered CPT fields.
  *
@@ -40,6 +42,7 @@ final class Content_Field_Materializer {
 			}
 			$field = array(
 				'key'         => $meta_key,
+				'label'       => sanitize_text_field( (string) ( $registration['label'] ?? '' ) ),
 				'type'        => (string) $registration['type'],
 				'description' => sanitize_text_field( (string) ( $registration['description'] ?? '' ) ),
 				'read'        => true,
@@ -93,19 +96,25 @@ final class Content_Field_Materializer {
 
 		$is_owned = 'draft' === $post->post_status
 			&& '1' === (string) get_post_meta( $post_id, Draft_Service::OWNED_META, true );
+		$access = $this->config->get_content_access( $post->post_type );
+		$proposal_read = 'publish' === $post->post_status
+			&& ! empty( $access['read'] )
+			&& ! empty( $access['propose_updates'] )
+			&& 'proposal-only' === (string) ( $blueprint['published_update_policy'] ?? '' )
+			&& current_user_can( Activation::CAP_PROPOSE_UPDATES );
 		if ( $is_owned ) {
 			$post = $this->drafts->get_owned_draft( $post_id );
 		} elseif (
-			! $this->config->get_content_access( $post->post_type )['read']
+			! $access['read']
 			|| ! current_user_can( 'read_post', $post_id )
-			|| ! current_user_can( 'edit_post', $post_id )
+			|| ( ! $proposal_read && ! current_user_can( 'edit_post', $post_id ) )
 		) {
 			throw new Execution_Exception( 'content_field_read_denied', 'The active Site Contract or current WordPress user does not allow reading fields from this content item.' );
 		}
 
 		$values = array();
 		foreach ( $this->allowed_fields( $post->post_type, false ) as $meta_key => $registration ) {
-			if ( ! current_user_can( 'edit_post_meta', $post_id, $meta_key ) ) {
+			if ( ! $proposal_read && ! current_user_can( 'edit_post_meta', $post_id, $meta_key ) ) {
 				continue;
 			}
 			$values[ $meta_key ] = get_post_meta( $post_id, $meta_key, true );
@@ -116,6 +125,7 @@ final class Content_Field_Materializer {
 			'page_type'    => $page_type,
 			'post_type'    => $post->post_type,
 			'source_owned' => $is_owned,
+			'read_mode'    => $proposal_read ? 'published-proposal-source' : ( $is_owned ? 'composer-owned-draft' : 'editor' ),
 			'fields'       => $values,
 		);
 	}

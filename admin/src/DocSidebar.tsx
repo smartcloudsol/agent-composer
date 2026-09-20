@@ -2,7 +2,7 @@ import { Anchor, Code, Divider, Drawer, List, Stack, Text, Title } from "@mantin
 import { __ } from "@wordpress/i18n";
 import "./doc-sidebar.css";
 
-type DocPage = "overview" | "configuration" | "blueprints" | "proposals" | "providers" | "audit";
+type DocPage = "overview" | "configuration" | "blueprints" | "proposals" | "mcp-access" | "providers" | "audit";
 
 export type DocTopic =
   | "config-set-metadata"
@@ -35,6 +35,7 @@ export default function DocSidebar({ opened, close, page, topic = null }: DocSid
         {page === "configuration" && <LifecycleDocs />}
         {page === "blueprints" && <EntityDocs />}
         {page === "proposals" && <ProposalDocs />}
+        {page === "mcp-access" && <McpAccessDocs />}
         {page === "providers" && <ProviderDocs />}
         {page === "audit" && <AuditDocs />}
       </>}
@@ -42,6 +43,50 @@ export default function DocSidebar({ opened, close, page, topic = null }: DocSid
       <Text size="sm">{__("Full documentation:", TEXT_DOMAIN)}{" "}<Anchor href="https://wpsuite.io/docs/" target="_blank" rel="noreferrer">https://wpsuite.io/docs/</Anchor></Text>
     </Stack>
   </Drawer>;
+}
+
+function McpAccessDocs() {
+  return <>
+    <Title order={2}>{__("MCP access and publishing boundary", TEXT_DOMAIN)}</Title>
+    <Text>{__("Authentication identifies the human represented by the access token. Authorization combines that human's mapped Cognito group role with the OAuth client's maximum role and, when enabled, the token scopes. The Site Contract then validates the concrete content operation independently.", TEXT_DOMAIN)}</Text>
+    <List withPadding spacing="xs" mt="md">
+      <List.Item>{__("Open mode is backward compatible: tokens are not required, but only read, draft and proposal operations are available.", TEXT_DOMAIN)}</List.Item>
+      <List.Item>{__("Protected mode requires a valid Cognito access token, a mapped group and an allowed client before any Composer tool is exposed.", TEXT_DOMAIN)}</List.Item>
+      <List.Item>{__("Required mode is selected by the active Site Contract. Incomplete identity configuration closes MCP access instead of falling back to Open.", TEXT_DOMAIN)}</List.Item>
+      <List.Item>{__("Reader inspects content; Contributor also creates drafts and proposals; Publisher may additionally request a human publish review. No role can publish directly through MCP.", TEXT_DOMAIN)}</List.Item>
+      <List.Item>{__("Use a separate Cognito App Client for every security-relevant agent class. Client ceilings only reduce the authority granted by the human's groups.", TEXT_DOMAIN)}</List.Item>
+      <List.Item>{__("Bearer tokens are validated request-locally and are never stored in WordPress or the audit log.", TEXT_DOMAIN)}</List.Item>
+    </List>
+    <Title order={3} mt="md">{__("Identity provider resolution", TEXT_DOMAIN)}</Title>
+    <Text>{__("Composer shows the effective AWS Region, User Pool ID, issuer, and JWKS URL it will use at runtime. Resolved automatically means a trusted WP Suite integration supplied the values through the Composer provider filter. Resolved from manual configuration means the local fallback fields are active. If neither source resolves to a valid region and pool ID, the fields become required and saving is rejected until both are complete.", TEXT_DOMAIN)}</Text>
+    <Text size="sm">{__("Region is the AWS region containing the User Pool, for example eu-central-1. User Pool ID is the pool identifier, for example eu-central-1_AbCd1234; it is not an App Client ID, Identity Pool ID, ARN, domain, or secret.", TEXT_DOMAIN)}</Text>
+    <Title order={3} mt="md">{__("Cognito group to Composer role mapping", TEXT_DOMAIN)}</Title>
+    <Text>{__("The Group field is case-sensitive and must exactly match a Cognito User Pool group emitted in the access token's cognito:groups claim. Reader permits inspection, Contributor adds governed draft and proposal work, and Publisher adds only the right to create a short-lived human approval request. If several mapped groups are present, the highest group role is selected and then reduced by the OAuth client's role ceiling.", TEXT_DOMAIN)}</Text>
+    <Title order={3} mt="md">{__("Create a dedicated OAuth App Client", TEXT_DOMAIN)}</Title>
+    <List type="ordered" withPadding spacing="xs">
+      <List.Item>{__("In the external AI client, start a User-Defined OAuth Client connection and copy its exact callback URL. Each connection can have a different callback URL.", TEXT_DOMAIN)}</List.Item>
+      <List.Item>{__("In the same Cognito User Pool shown by Composer, create a public App Client with no client secret. Enable the authorization-code grant and PKCE, and add the copied URL to Allowed callback URLs. Do not use an existing browser or application client when a dedicated agent client can be created.", TEXT_DOMAIN)}</List.Item>
+      <List.Item>{__("Ensure the User Pool has a Cognito hosted domain. Its authorization endpoint is https://DOMAIN/oauth2/authorize and its token endpoint is https://DOMAIN/oauth2/token.", TEXT_DOMAIN)}</List.Item>
+      <List.Item>{__("Copy the external client's exact MCP resource URI. For a ChatGPT tunnel, use the complete tunnel-service URL shown in Advanced OAuth settings. Create a Cognito resource server with that exact identifier and the read, draft, propose, and publish.request scope names; allow openid and the resulting resource-bound scopes on the App Client.", TEXT_DOMAIN)}</List.Item>
+      <List.Item>{__("Paste the exact same resource URI into Composer, then add the Cognito-generated App Client ID and the exact Cognito group name. Choose the group role and an equal or lower client maximum role, and keep Unknown clients set to Deny.", TEXT_DOMAIN)}</List.Item>
+      <List.Item>{__("Save, confirm that Current protection is Protected or Protected required, and perform a read-only connection test before testing draft or proposal creation.", TEXT_DOMAIN)}</List.Item>
+    </List>
+    <Title order={3} mt="md">{__("Optional Composer scopes", TEXT_DOMAIN)}</Title>
+    <Text>{__("Group mapping and the client ceiling remain mandatory. Scope enforcement adds a third boundary once the complete resource-bound flow is configured. For a tunnel connection, the Cognito resource-server identifier must exactly match the external tunnel resource URI sent by ChatGPT; its read, draft, propose, and publish.request scopes must be enabled on the App Client, advertised by Composer for that same resource, and validated together with the token audience.", TEXT_DOMAIN)}</Text>
+    <Text>{__("The Composer client allowlist continues to use the canonical policy names composer.read, composer.draft, composer.propose, and composer.publish.request. Do not request the legacy composer/read-style scopes for a tunnel resource: Cognito rejects custom scopes that belong to a different resource-server identifier.", TEXT_DOMAIN)}</Text>
+    <Title order={3} mt="md">{__("External client field mapping", TEXT_DOMAIN)}</Title>
+    <List withPadding spacing="xs">
+	  <List.Item><strong>{__("Automatic OAuth discovery:", TEXT_DOMAIN)}</strong> {__("the protected Composer HTTP endpoint returns a 401 challenge either directly or through the MCP tunnel. Composer then exposes protected-resource and authorization-server metadata, including explicit PKCE S256 support, authorization-code and refresh-token grants, and the resolved Cognito authorization and token endpoints.", TEXT_DOMAIN)}</List.Item>
+      <List.Item><strong>{__("Registration method:", TEXT_DOMAIN)}</strong> {__("User-Defined OAuth Client.", TEXT_DOMAIN)}</List.Item>
+      <List.Item><strong>{__("OAuth Client ID:", TEXT_DOMAIN)}</strong> {__("the Cognito App Client ID also allowlisted in Composer.", TEXT_DOMAIN)}</List.Item>
+      <List.Item><strong>{__("OAuth Client Secret:", TEXT_DOMAIN)}</strong> {__("empty for the public PKCE client.", TEXT_DOMAIN)}</List.Item>
+      <List.Item><strong>{__("Token endpoint auth method:", TEXT_DOMAIN)}</strong> <Code>none</Code>.</List.Item>
+      <List.Item><strong>{__("Default scopes:", TEXT_DOMAIN)}</strong> <Code>openid</Code>{__(" plus the exact resource-bound scopes advertised by Composer when scope enforcement is enabled. Add email or profile only when the client needs user information.", TEXT_DOMAIN)}</List.Item>
+    </List>
+	<Text size="sm">{__("For direct access, connect to Composer's HTTP MCP endpoint. For a private site, configure tunnel-client with that same HTTP endpoint as its main mcp.server_urls target. An STDIO mcp.command tunnel cannot carry the HTTP OAuth challenge or the external user's bearer token and is suitable only for local development or Open mode.", TEXT_DOMAIN)}</Text>
+	<Text size="sm">{__("If a client reports that the MCP server does not implement OAuth, it did not receive the Composer WWW-Authenticate discovery challenge. In the tunnel UI, transport_kind must be http-streamable and metadata_source must not be not_advertised. If the client reports that PKCE S256 is missing, it resolved Cognito's incomplete OpenID metadata instead of Composer's authorization-server metadata facade.", TEXT_DOMAIN)}</Text>
+	<Text size="sm">{__("If setup fails after the Cognito Hosted UI returns to the AI client, open Audit & portability and inspect the latest mcp-access-denied event. bearer_present=false means the client did not deliver an access token to Composer. A true value with an error_code identifies the safe validation stage that rejected it. Composer records neither the bearer token nor the authorization code.", TEXT_DOMAIN)}</Text>
+  </>;
 }
 
 function ProposalDocs() {
@@ -119,11 +164,17 @@ function EntityDocs() {
     <Text>{__("The guided editor exposes the fields used most often and preserves every unknown extension field. Advanced JSON source is available for uncommon nested data, but it must be applied back to the form before saving.", TEXT_DOMAIN)}</Text>
     <Title order={3} mt="md">{__("Site Contract", TEXT_DOMAIN)}</Title>
     <Text>{__("Owns site-wide brand, language, content, SEO, media, accessibility, security, layout, and block-extension policy, plus defaults inherited by Blueprints without explicit page-type values.", TEXT_DOMAIN)}</Text>
+      <Text>{__("The Site Contract may also register independently versioned Structure Contracts under design_policy.structure_contracts. A Blueprint references one by exact ID and version; it never embeds or silently rewrites that machine-enforced definition.", TEXT_DOMAIN)}</Text>
+      <Text>{__("Executable version-to-version changes are closed migration definitions under design_policy.structure_migrations. They are configured in Advanced JSON, validated with the whole Config Set, previewed without writes, and applied only as a separate human-reviewed proposal. The simpler Blueprint Migration guidance field is editorial guidance and never executes a structural change.", TEXT_DOMAIN)}</Text>
+      <Text>{__("Synced structural patterns are declared separately under design_policy.synced_structural_patterns. A Blueprint opts in with synced_patterns; WordPress stores the shared structure in a local synced pattern and each post stores only its approved Pattern Override values.", TEXT_DOMAIN)}</Text>
+      <Text>{__("WP-admin Add New policy is configured per post type. Required mode creates a human-owned but Composer-managed auto-draft from one default Blueprint, including synced pattern references, locks, language, and the exact managed baseline. Optional mode leaves ordinary WordPress creation available. Managed identity does not grant agent ownership.", TEXT_DOMAIN)}</Text>
+      <Text>{__("After changing a theme, synced pattern, or structural configuration, rescan the site first. Keep presentation in the theme, shared section structure in the synced pattern, permissions and composition in Composer, and instance values in the post. Compatible presentation changes need validation only; semantic or slot changes require a new version and an explicit migration.", TEXT_DOMAIN)}</Text>
       <Text>{__("Composer content access is managed in the guided Site Contract editor per registered post type. Discover exposes list metadata, Read permits content analysis, Clone creates a separate agent-owned draft, and Adopt permits an explicit takeover only while the original item is a draft. WordPress capabilities and a matching Blueprint remain mandatory for every operation.", TEXT_DOMAIN)}</Text>
       <Text>{__("Composer field access is a second, field-level gate. Discovery lists only public, single-value, REST-registered fields. Read and Write draft must be enabled explicitly for each key; field writes remain limited to Composer-owned assigned drafts and require fresh concurrency tokens plus confirmation.", TEXT_DOMAIN)}</Text>
       <Text>{__("Composer taxonomy access governs public terms separately for each Blueprint target and registered taxonomy. Search is the base permission, assignment additionally changes only an agent-owned draft, and creation is the narrowest global permission. Creating implies assignment and search; assignment implies search. Maximum terms, append or replace behavior, and hierarchical creation parents are explicit Site Contract policy.", TEXT_DOMAIN)}</Text>
     <Title order={3} mt="md">{__("Blueprint", TEXT_DOMAIN)}</Title>
     <Text>{__("Owns one page type: WordPress target, template assignment, visual variant, allowed patterns and blocks, required pattern order, word boundary, reference sources, and content or migration rules.", TEXT_DOMAIN)}</Text>
+    <Text>{__("Blueprints without a Structure Contract remain explicit legacy documents. A referenced Structure Contract is deterministic policy for semantic node ownership, protected attributes, editor modes, and extension-slot cardinality. The Content rules field remains human-readable editorial guidance and is never used as structural enforcement.", TEXT_DOMAIN)}</Text>
     <Text>{__("A Detected Theme Starter is only a safe beginning. Clone or edit its inactive Config Set, add page-type Blueprints, extend their approved pattern and block contracts, and refine the Site Contract to reach the level of integration the active theme and installed providers can actually support.", TEXT_DOMAIN)}</Text>
     <Text>{__("Allowed Blocks searches every Gutenberg block currently registered by WordPress, the active theme, and active plugins. Provider abilities are operations rather than blocks and therefore appear in provider discovery, not in this block selector. Existing saved block names remain visible even when their plugin is temporarily unavailable.", TEXT_DOMAIN)}</Text>
     <Title order={3} mt="md">{__("Excerpt policy", TEXT_DOMAIN)}</Title>
@@ -210,6 +261,7 @@ function FieldDocs({ topic }: { topic: DocTopic }) {
       title: __("Blueprint constraints", TEXT_DOMAIN),
       intro: __("Blueprint constraints explicitly override the Site Contract defaults for one page type. Composer reports and validates the resulting Blueprint values without silently tightening or loosening them.", TEXT_DOMAIN),
       items: [
+        __("Structure Contract ID and version select the exact machine-enforced structure policy registered by the Site Contract. Leave both absent for an explicit legacy document; never use Content rules as a substitute.", TEXT_DOMAIN),
         __("Exactly one H1 prevents missing or duplicated page titles.", TEXT_DOMAIN),
         __("Theme presets only rejects arbitrary inline presentation values and keeps colors, spacing, and typography aligned with the theme.", TEXT_DOMAIN),
         __("Enable shortcodes, inline CSS, or external embeds only when the target site deliberately supports and audits them. Composer never accepts Custom HTML blocks or active script content.", TEXT_DOMAIN),
@@ -237,14 +289,15 @@ function FieldDocs({ topic }: { topic: DocTopic }) {
       example: __("Use one descriptive H1 and a clear heading hierarchy.\nSupport factual claims with an approved source.\nEnd with one relevant next step for the reader.", TEXT_DOMAIN)
     },
     "blueprint-migration": {
-      title: __("Migration rules", TEXT_DOMAIN),
-      intro: __("These rules apply when existing content is rebuilt into the Blueprint. Leave the list empty when this page type is only used for new content.", TEXT_DOMAIN),
+      title: __("Migration guidance", TEXT_DOMAIN),
+      intro: __("This list tells humans and agents what content meaning should be preserved during a migration. It does not move blocks, change a Structure Contract baseline, or authorize an automatic rewrite.", TEXT_DOMAIN),
       items: [
-        __("Specify what must be preserved, what may be normalized, and how old structures map to approved patterns.", TEXT_DOMAIN),
+        __("Specify facts, URLs, attribution, media relationships, and editorial meaning that must be preserved or reviewed.", TEXT_DOMAIN),
         __("Preserve supported facts, URLs, attribution, and media relationships unless an explicit rule says otherwise.", TEXT_DOMAIN),
-        __("Migration does not authorize publishing or deletion; the result remains an agent-owned draft.", TEXT_DOMAIN)
+        __("Machine-executable section and field mappings belong in the Site Contract structure_migrations registry, not in this free-text list.", TEXT_DOMAIN),
+        __("A governed structural migration first produces a zero-write preview, then a separate proposal. Bulk planning uses the same per-item safety checks and only creates review proposals; it never directly rewrites, publishes, or deletes the source.", TEXT_DOMAIN)
       ],
-      example: __("Preserve the existing slug, topic, and supported factual claims.\nMap legacy sections to the closest approved pattern.\nRetain relevant media and source attribution.", TEXT_DOMAIN)
+      example: __("Preserve the existing slug, topic, and supported factual claims.\nRetain relevant media and source attribution.\nFlag unsupported legacy claims for human review.", TEXT_DOMAIN)
     },
     "blueprint-references": {
       title: __("Reference URLs", TEXT_DOMAIN),
@@ -341,6 +394,7 @@ function AuditDocs() {
     <Title order={2}>{__("Audit and portability", TEXT_DOMAIN)}</Title>
     <List withPadding spacing="xs">
       <List.Item>{__("Audit inputs are represented by canonical hashes and secret-like values are redacted.", TEXT_DOMAIN)}</List.Item>
+      <List.Item>{__("Choose Details on an audit row to inspect its request identifier, complete hash-chain values, entity references, and redacted context.", TEXT_DOMAIN)}</List.Item>
       <List.Item>{__("A complete backup contains every config set and nested entity checksum, but no credentials or audit history.", TEXT_DOMAIN)}</List.Item>
       <List.Item>{__("Restore accepts local JSON only, rejects secret-like keys, verifies every checksum, and keeps every set inactive.", TEXT_DOMAIN)}</List.Item>
       <List.Item>{__("A failed backup restore removes every entity created by the complete attempt.", TEXT_DOMAIN)}</List.Item>

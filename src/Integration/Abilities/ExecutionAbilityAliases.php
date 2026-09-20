@@ -67,7 +67,7 @@ final class ExecutionAbilityAliases {
 				'input_schema'        => $this->schema( $schema ),
 				'output_schema'       => $this->output_schema( $target ),
 				'execute_callback'    => array( $this->abilities, $method ),
-				'permission_callback' => array( $this->abilities, 'check_permission' ),
+				'permission_callback' => $this->abilities->permission_callback_for( Abilities::PREFIX . $target ),
 				'meta'                => array(
 					'show_in_rest'        => false,
 					'mcp'                 => array( 'public' => false ),

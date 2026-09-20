@@ -176,6 +176,8 @@ namespace SmartCloud\AgentComposer\Execution {
 		return parse_url($url, $component);
 	}
 
+	require_once dirname(__DIR__) . '/src/Security/ActorContext.php';
+	require_once dirname(__DIR__) . '/src/Security/ActorIdentity.php';
 	require_once dirname(__DIR__) . '/src/Execution/Rendered_Preview_Service.php';
 	require_once dirname(__DIR__) . '/src/Execution/Execution_Exception.php';
 	require_once dirname(__DIR__) . '/src/Execution/Abilities.php';
@@ -333,6 +335,53 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(str_contains($latest_app_html, 'function safeStyle'), 'Safe Gutenberg inline presentation styles must remain available in the rendered preview.');
 	$assert(str_contains($latest_app_html, 'audio,video,source,track,picture'), 'The client sanitizer must remove passive media elements that could fetch external resources.');
 	$assert(str_contains($latest_app_html, "version:'5.0.0'"), 'Every resource alias must serve the latest v5 preview app.');
+
+	$register_approval_tools = new \ReflectionMethod(Abilities::class, 'register_publish_approval_private_abilities');
+	$register_approval_tools->invoke($abilities);
+	$register_approval_resource = new \ReflectionMethod(Abilities::class, 'register_publish_approval_resource');
+	$register_approval_resource->invoke($abilities);
+	$decision_ability = $GLOBALS['registered_abilities']['smartcloud-agent-composer/decide-publish-approval'] ?? array();
+	$open_ability = $GLOBALS['registered_abilities']['smartcloud-agent-composer/open-publish-approval'] ?? array();
+	$approval_asset_ability = $GLOBALS['registered_abilities']['smartcloud-agent-composer/get-publish-approval-asset'] ?? array();
+	$assert(array('app') === ($decision_ability['meta']['mcp']['_meta']['ui']['visibility'] ?? null), 'The publication decision must be app-only.');
+	$assert('private' === ($decision_ability['meta']['mcp']['_meta']['openai/visibility'] ?? ''), 'The publication decision must be absent from the model-facing tool surface.');
+	$assert(true === ($decision_ability['meta']['mcp']['_meta']['openai/widgetAccessible'] ?? false), 'The publication app must be allowed to invoke its private decision tool.');
+	$assert(array('app') === ($open_ability['meta']['mcp']['_meta']['ui']['visibility'] ?? null), 'The short-lived approval session must be delivered only to the app.');
+	$assert(array('app') === ($approval_asset_ability['meta']['mcp']['_meta']['ui']['visibility'] ?? null), 'Publication preview assets must be app-only.');
+	$approval_resource = $GLOBALS['registered_abilities']['smartcloud-agent-composer/publish-approval-app'] ?? array();
+	$approval_contents = ($approval_resource['execute_callback'])();
+	$assert('ui://smartcloud-agent-composer/publish-approval/v5.html' === ($approval_contents[0]['uri'] ?? ''), 'Publication review must use the latest versioned MCP App resource URI.');
+	$approval_v4_resource = $GLOBALS['registered_abilities']['smartcloud-agent-composer/publish-approval-app-v4'] ?? array();
+	$approval_v4_contents = ($approval_v4_resource['execute_callback'])();
+	$assert('ui://smartcloud-agent-composer/publish-approval/v4.html' === ($approval_v4_contents[0]['uri'] ?? ''), 'The v4 publication review URI must remain a compatibility alias.');
+	$approval_v3_resource = $GLOBALS['registered_abilities']['smartcloud-agent-composer/publish-approval-app-v3'] ?? array();
+	$approval_v3_contents = ($approval_v3_resource['execute_callback'])();
+	$assert('ui://smartcloud-agent-composer/publish-approval/v3.html' === ($approval_v3_contents[0]['uri'] ?? ''), 'The v3 publication review URI must remain a compatibility alias.');
+	$approval_v2_resource = $GLOBALS['registered_abilities']['smartcloud-agent-composer/publish-approval-app-v2'] ?? array();
+	$approval_v2_contents = ($approval_v2_resource['execute_callback'])();
+	$assert('ui://smartcloud-agent-composer/publish-approval/v2.html' === ($approval_v2_contents[0]['uri'] ?? ''), 'The v2 publication review URI must remain a compatibility alias.');
+	$approval_v1_resource = $GLOBALS['registered_abilities']['smartcloud-agent-composer/publish-approval-app-v1'] ?? array();
+	$approval_v1_contents = ($approval_v1_resource['execute_callback'])();
+	$assert('ui://smartcloud-agent-composer/publish-approval/v1.html' === ($approval_v1_contents[0]['uri'] ?? ''), 'The v1 publication review URI must remain a compatibility alias.');
+	$approval_html = (string) ($approval_contents[0]['text'] ?? '');
+	$assert(str_contains($approval_html, 'Approve and publish'), 'The inline publication app must expose an explicit human approval control.');
+	$assert(str_contains($approval_html, 'function askDecision'), 'The first approval or rejection click must open an in-app confirmation step.');
+	$assert(str_contains($approval_html, 'function cancelConfirmation'), 'The in-app decision confirmation must remain cancellable without invoking a tool.');
+	$assert(str_contains($approval_html, 'class="confirm-backdrop"'), 'The confirmation must cover the approval card as an in-app modal layer.');
+	$assert(str_contains($approval_html, 'aria-modal="true"'), 'The confirmation layer must expose modal dialog semantics to assistive technology.');
+	$assert(str_contains($approval_html, "event.key==='Escape'"), 'The in-app modal must support keyboard cancellation.');
+	$assert(str_contains($approval_html, 'No body content'), 'An empty draft body must render an explicit approval-preview empty state.');
+	$assert(str_contains($approval_html, 'hasRenderableBody'), 'The approval app must distinguish an empty body from text or visual HTML content.');
+	$assert(str_contains($approval_html, "approve.addEventListener('click',()=>askDecision('approve'))"), 'The primary publish button must not invoke the private decision helper directly.');
+	$assert(str_contains($approval_html, "reject.addEventListener('click',()=>askDecision('reject'))"), 'The primary reject button must not invoke the private decision helper directly.');
+	$assert(str_contains($approval_html, 'smartcloud-agent-composer-decide-publish-approval'), 'The inline publication app must call only the private decision helper.');
+	$assert(str_contains($approval_html, 'smartcloud-agent-composer-open-publish-approval'), 'The inline publication app must acquire its short-lived token through an app-only helper.');
+	$assert(str_contains($approval_html, 'confirm_decision:true'), 'The inline publication app must send an explicit human confirmation marker.');
+	$assert(str_contains($approval_html, 'smartcloud-agent-composer-get-publish-approval-asset'), 'The inline publication app must load preview assets through the authenticated MCP bridge.');
+	$assert(str_contains($approval_html, 'openExternal'), 'The firewall-dependent WordPress approval page must remain only an explicit fallback link.');
+	$assert(str_contains($approval_html, 'statusMessage'), 'The approval app must render terminal approval states without exposing a raw repeated-decision error.');
+	$assert(str_contains($approval_html, "state==='pending'"), 'Only pending approvals may keep decision controls enabled.');
+	$assert(str_contains($approval_html, "version:'5.0.0'"), 'Every publication review resource alias must serve the latest v5 approval UI.');
 
 	foreach (glob($preview_fixture_root . '/assets/*') ?: array() as $fixture) {
 		@unlink($fixture);

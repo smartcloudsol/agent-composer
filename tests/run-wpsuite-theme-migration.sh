@@ -6,7 +6,7 @@ FAMILY_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 WORKSPACE_ROOT="$(cd -- "${FAMILY_ROOT}/.." && pwd)"
 PLUGIN_VERSION="$(awk '/^ \* Version:/ { print $3; exit }' "${SCRIPT_DIR}/../smartcloud-agent-composer.php")"
 PLUGIN_ZIP="${1:-${FAMILY_ROOT}/wpsuite-plugins/dist/smartcloud-agent-composer-${PLUGIN_VERSION}.zip}"
-THEME_SOURCE="${WORKSPACE_ROOT}/wpsuite-template/twentytwentyfive-child"
+THEME_SOURCE="${WORKSPACE_ROOT}/wpsuite-theme"
 WP_VERSION="${WP_VERSION:-7.0.2}"
 WP_CLI="${WP_CLI:-/usr/local/bin/wp}"
 
@@ -57,7 +57,7 @@ php8.1 "${WP_CLI}" config create --path="${WP_ROOT}" --dbname=composer_theme --d
 php8.1 "${WP_CLI}" core install --path="${WP_ROOT}" --url=composer-theme.test --title='Composer Theme Migration' --admin_user=theme-admin --admin_password='composer-theme-disposable-password' --admin_email=theme@example.test --skip-email
 php8.1 "${WP_CLI}" plugin install --path="${WP_ROOT}" "${PLUGIN_ZIP}" --force --activate
 php8.1 "${WP_CLI}" theme install --path="${WP_ROOT}" "${THEME_ZIP}" --force --activate
-cp "${FAMILY_ROOT}/smartcloud-agent-composer/presets/wpsuite/wpsuite-site-contract.package.json" /tmp/wpsuite-site-contract.package.json
+cp "${FAMILY_ROOT}/agent-composer/presets/wpsuite/wpsuite-site-contract.package.json" /tmp/wpsuite-site-contract.package.json
 php8.1 "${WP_CLI}" eval-file "${SCRIPT_DIR}/wordpress-import-wpsuite-preset.php" --path="${WP_ROOT}"
 php8.1 "${WP_CLI}" eval-file "${SCRIPT_DIR}/wordpress-verify-wpsuite-theme.php" --path="${WP_ROOT}"
 

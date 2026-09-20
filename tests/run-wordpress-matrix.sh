@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 FAMILY_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 PLUGIN_VERSION="$(awk '/^ \* Version:/ { print $3; exit }' "${SCRIPT_DIR}/../smartcloud-agent-composer.php")"
 PLUGIN_ZIP="${1:-${FAMILY_ROOT}/wpsuite-plugins/dist/smartcloud-agent-composer-${PLUGIN_VERSION}.zip}"
-WP_VERSION="${WP_VERSION:-7.0.2}"
+WP_VERSION="${WP_VERSION:-7.1}"
 WP_CLI="${WP_CLI:-/usr/local/bin/wp}"
 PHP_BINARIES=(php8.1 php8.2 php8.3 php8.4)
 
@@ -72,6 +72,7 @@ for php_binary in "${PHP_BINARIES[@]}"; do
     SMARTCLOUD_PRESET_STAGE=setup "${php_binary}" "${WP_CLI}" eval-file "${SCRIPT_DIR}/wordpress-preset-runtime.php" --path="${WP_ROOT}" --url=composer-c4.test
     SMARTCLOUD_PRESET_STAGE=universal "${php_binary}" "${WP_CLI}" eval-file "${SCRIPT_DIR}/wordpress-preset-runtime.php" --path="${WP_ROOT}" --url=composer-c4.test
     SMARTCLOUD_PRESET_STAGE=recommended "${php_binary}" "${WP_CLI}" eval-file "${SCRIPT_DIR}/wordpress-preset-runtime.php" --path="${WP_ROOT}" --url=composer-c4.test
+    "${php_binary}" "${WP_CLI}" eval-file "${SCRIPT_DIR}/wordpress-structure-migration.php" --path="${WP_ROOT}" --url=composer-c4.test
     "${php_binary}" "${WP_CLI}" eval-file "${SCRIPT_DIR}/wordpress-multisite-integration.php" --path="${WP_ROOT}" --url=composer-c4.test
 done
 

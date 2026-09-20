@@ -4,6 +4,7 @@ namespace SmartCloud\AgentComposer\Infrastructure\Persistence;
 
 use RuntimeException;
 use SmartCloud\AgentComposer\Domain\Configuration\CanonicalJson;
+use SmartCloud\AgentComposer\Security\ActorIdentity;
 
 final class AuditTable {
 	public static function name(): string {
@@ -45,6 +46,10 @@ final class AuditTable {
 		$event_uuid    = null !== $event_uuid && preg_match( '/^[a-f0-9-]{36}$/', $event_uuid ) ? $event_uuid : wp_generate_uuid4();
 		$created_gmt   = gmdate( 'Y-m-d H:i:s' );
 		$request_id    = substr( sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_REQUEST_ID'] ?? $event_uuid ) ), 0, 64 );
+		$actor = ActorIdentity::context();
+		if ( null !== $actor ) {
+			$context['composer_actor'] = $actor->audit_context();
+		}
 		$clean_context = $this->redact( $context );
 		if ( $manage_transaction ) {
 			$wpdb->query( 'START TRANSACTION' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- The append-only audit chain requires a database transaction.

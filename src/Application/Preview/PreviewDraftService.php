@@ -26,7 +26,7 @@ final class PreviewDraftService {
 				'input_schema'        => $this->abilities->candidate_schema( true ),
 				'output_schema'       => array( 'type' => 'object', 'additionalProperties' => true ),
 				'execute_callback'    => array( $this, 'create' ),
-				'permission_callback' => array( $this->abilities, 'check_permission' ),
+				'permission_callback' => $this->abilities->permission_callback_for( Abilities::PREFIX . 'create-preview-draft' ),
 				'meta'                => array(
 					'show_in_rest'        => false,
 					'mcp'                 => array( 'public' => false ),

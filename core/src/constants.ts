@@ -16,6 +16,8 @@ export const EXCERPT_POLICIES = ["required", "optional", "disabled"] as const;
 
 export const PUBLISHED_UPDATE_POLICIES = ["disabled", "proposal-only"] as const;
 
+export const ADMIN_CREATION_MODES = ["off", "optional", "required"] as const;
+
 export const CONTENT_PROPOSAL_STATES = [
   "working",
   "ready-for-review",

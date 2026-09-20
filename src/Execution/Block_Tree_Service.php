@@ -359,7 +359,7 @@ final class Block_Tree_Service {
 			return;
 		}
 
-		$standard = array( 'anchor', 'className', 'classNames', 'lock', 'metadata', 'style', 'align' );
+		$standard = array( 'anchor', 'className', 'classNames', 'lock', 'metadata', 'style', 'align', 'templateLock' );
 		foreach ( $attrs as $attribute => $value ) {
 			if ( ! is_string( $attribute ) || ! preg_match( '/^[A-Za-z][A-Za-z0-9_-]{0,127}$/', $attribute ) ) {
 				$errors[] = $this->issue( 'invalid_attribute_name', 'A block contains an invalid attribute name.', array( 'block' => $name ) );

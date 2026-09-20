@@ -6,6 +6,7 @@ namespace SmartCloud\AgentComposer\Execution;
 use SmartCloud\AgentComposer\Domain\Configuration\CanonicalJson;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\AuditTable;
 use SmartCloud\AgentComposer\Infrastructure\WordPress\Activation;
+use SmartCloud\AgentComposer\Security\ActorIdentity;
 
 /** Durable working copies for changes to already published content. */
 final class Content_Proposal_Service {
@@ -20,6 +21,7 @@ final class Content_Proposal_Service {
 	public const RETURNED_BY_META = '_wpsuite_agent_proposal_returned_by';
 	public const RETURNED_GMT_META = '_wpsuite_agent_proposal_returned_gmt';
 	public const TARGET_SLUG_META = '_wpsuite_agent_proposal_target_slug';
+	public const MIGRATION_META = '_wpsuite_agent_proposal_migration';
 
 	private const ACTIVE_STATES = array( 'working', 'ready-for-review' );
 
@@ -29,10 +31,20 @@ final class Content_Proposal_Service {
 		private readonly Page_Validator $validator,
 		private readonly Localization_Provider_Registry $localization,
 		private readonly AuditTable $audit,
-		private readonly Draft_Service $drafts
+		private readonly Draft_Service $drafts,
+		private readonly Managed_Document_State $document_state
 	) {}
 
 	public function create( array $input ): array {
+		return $this->create_internal( $input, null );
+	}
+
+	/** Create a proposal from a server-calculated, validation-bound migration plan. */
+	public function create_migration( array $input, array $plan ): array {
+		return $this->create_internal( $input, $plan );
+	}
+
+	private function create_internal( array $input, ?array $migration_plan ): array {
 		if ( ! current_user_can( Activation::CAP_PROPOSE_UPDATES ) ) {
 			throw new Execution_Exception( 'proposal_create_denied', 'The current agent cannot create published-content proposals.' );
 		}
@@ -67,8 +79,27 @@ final class Content_Proposal_Service {
 		if ( ! hash_equals( $this->targets->template_meta_value( $target ), $this->targets->normalized_stored_template( $source_id ) ) ) {
 			throw new Execution_Exception( 'proposal_source_template_mismatch', 'The published source does not use the selected Blueprint template.' );
 		}
+		$source_validation = null === $migration_plan
+			? $this->validator->validate( $page_type, (string) $source->post_content )
+			: $this->validator->validate( $page_type, (string) ( $migration_plan['content'] ?? '' ), (string) $source->post_content, array( 'allow_structure_change' => true ) );
+		if ( ! $source_validation['valid'] ) {
+			$message = null === $migration_plan
+				? 'The published source does not satisfy the current Blueprint and cannot be used as an ordinary content-update baseline.'
+				: 'The migration target no longer satisfies the active Blueprint and Structure Contract.';
+			throw $this->validation_exception( $source_validation, null === $migration_plan ? 'proposal_source_validation_failed' : 'migration_target_validation_failed', sanitize_text_field( $message ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Structured validation context is returned through the API, not rendered.
+		}
+		if ( null !== $migration_plan ) {
+			$migration = is_array( $migration_plan['migration'] ?? null ) ? $migration_plan['migration'] : array();
+			if (
+				! is_array( $migration_plan['managed_meta'] ?? null )
+				|| ! hash_equals( (string) ( $migration['target_content_hash'] ?? '' ), hash( 'sha256', (string) ( $migration_plan['content'] ?? '' ) ) )
+				|| ! hash_equals( (string) ( $migration['structural_fingerprint'] ?? '' ), (string) ( $source_validation['structure_contract']['structural_fingerprint'] ?? '' ) )
+			) {
+				throw new Execution_Exception( 'migration_plan_invalid', 'The internal migration plan is incomplete or no longer matches its validated target.' );
+			}
+		}
 
-		$context = $this->localization->resolve( $source_id, $source->post_type );
+		$context = $this->localization->resolve_for_blueprint( $source_id, $source->post_type, $blueprint );
 		$content_language = trim( (string) ( $context['content_language'] ?? $blueprint['content_language'] ?? '' ) );
 		$requested_language = trim( (string) ( $input['content_language'] ?? '' ) );
 		$allowed_languages = array_map( 'strtolower', (array) ( $blueprint['allowed_content_languages'] ?? array() ) );
@@ -85,8 +116,12 @@ final class Content_Proposal_Service {
 		try {
 		$active = $this->find_active( $source_id, $page_type, $context );
 		if ( $active instanceof \WP_Post ) {
-			if ( get_current_user_id() !== absint( get_post_meta( $active->ID, Draft_Service::ASSIGNED_AGENT_META, true ) ) ) {
+			if ( ! $this->drafts->is_assigned_to_current_actor( $active->ID ) ) {
 				throw new Execution_Exception( 'proposal_assigned_to_other_agent', 'Another agent already owns the active proposal for this localized item.' );
+			}
+			$active_migration = $this->migration_meta( $active->ID );
+			if ( ( null === $migration_plan ) !== empty( $active_migration ) || ( null !== $migration_plan && ! hash_equals( (string) ( $migration_plan['migration']['plan_hash'] ?? '' ), (string) ( $active_migration['plan_hash'] ?? '' ) ) ) ) {
+				throw new Execution_Exception( 'proposal_creation_conflict', 'A different active proposal already exists for this source and Blueprint.' );
 			}
 			$result = $this->describe( $active );
 			$result['idempotent_replay'] = true;
@@ -99,8 +134,13 @@ final class Content_Proposal_Service {
 			throw new Execution_Exception( 'invalid_idempotency_key', 'A stable idempotency key is required.' );
 		}
 		$user_id = get_current_user_id();
+		$principal_id = ActorIdentity::principal_id();
+		$managed_meta = null === $migration_plan
+			? $this->document_state->metadata_for( $source_id, $page_type, $source_validation )
+			: (array) $migration_plan['managed_meta'];
+		$proposal_specific_meta = null === $migration_plan ? array() : array( self::MIGRATION_META => (array) $migration_plan['migration'] );
 		$meta_input = array_merge(
-			$projection['meta'],
+			$this->proposal_meta_input( $projection['meta'], $source_id ),
 			array(
 				Draft_Service::OWNED_META => '1',
 				Draft_Service::PAGE_TYPE_META => $page_type,
@@ -110,6 +150,7 @@ final class Content_Proposal_Service {
 				Draft_Service::CONTENT_LANGUAGE_META => $content_language,
 				Draft_Service::TEMPLATE_META => $this->targets->template_identity( $target ),
 				Draft_Service::ASSIGNED_AGENT_META => $user_id,
+				Draft_Service::ASSIGNED_PRINCIPAL_META => $principal_id,
 				Draft_Service::ASSIGNMENT_SOURCE_META => 'published-update-proposal',
 				Draft_Service::CLONED_FROM_META => $source_id,
 				Target_Resolver::TEMPLATE_META => $projection['template'],
@@ -119,9 +160,11 @@ final class Content_Proposal_Service {
 				self::BASE_FINGERPRINT_META => $this->source_fingerprint( $projection ),
 				self::STATE_META => 'working',
 				self::TARGET_SLUG_META => $source->post_name,
-			)
+			),
+			$managed_meta,
+			$proposal_specific_meta
 		);
-		$temporary_storage_slug = sanitize_title( $source->post_name . '-composer-proposal-new-' . substr( hash( 'sha256', $source_id . '|' . $user_id . '|' . $key ), 0, 12 ) );
+		$temporary_storage_slug = sanitize_title( $source->post_name . '-composer-proposal-new-' . substr( hash( 'sha256', $source_id . '|' . $principal_id . '|' . $key ), 0, 12 ) );
 		do_action( 'smartcloud_agent_composer_before_proposal_insert', $context, $source_id, $source->post_type );
 		$post_id = 0;
 		try {
@@ -133,7 +176,7 @@ final class Content_Proposal_Service {
 				'menu_order' => (int) $source->menu_order,
 				'post_title' => $source->post_title,
 				'post_name' => $temporary_storage_slug,
-				'post_content' => $source->post_content,
+				'post_content' => null === $migration_plan ? $source->post_content : (string) $migration_plan['content'],
 				'post_excerpt' => $source->post_excerpt,
 				'meta_input' => $meta_input,
 			) ), true );
@@ -177,7 +220,7 @@ final class Content_Proposal_Service {
 
 	public function submit( array $input ): array {
 		$proposal = $this->proposal( absint( $input['post_id'] ?? 0 ) );
-		if ( get_current_user_id() !== absint( get_post_meta( $proposal->ID, Draft_Service::ASSIGNED_AGENT_META, true ) ) ) {
+		if ( ! $this->drafts->is_assigned_to_current_actor( $proposal->ID ) ) {
 			throw new Execution_Exception( 'proposal_not_editable', 'Only the assigned agent can submit this proposal.' );
 		}
 		$this->assert_proposal_token( $proposal, $input );
@@ -198,12 +241,12 @@ final class Content_Proposal_Service {
 				$proposal->ID,
 				(string) ( $input['expected_modified_gmt'] ?? '' ),
 				(string) ( $input['expected_revision'] ?? '' ),
-				get_current_user_id()
+				ActorIdentity::principal_id()
 			);
 		}
 		$validation = $this->validate_post( $proposal );
 		if ( ! $validation['valid'] ) {
-			throw new Execution_Exception( 'proposal_validation_failed', 'The proposal must pass its current Blueprint before review.' );
+			throw $this->validation_exception( $validation, 'proposal_validation_failed', 'The proposal must pass its current Blueprint before review.' ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Structured validation context is returned through the API, not rendered.
 		}
 		if ( false === update_post_meta( $proposal->ID, self::STATE_META, 'ready-for-review', 'working' ) ) {
 			throw new Execution_Exception( 'proposal_state_conflict', 'The proposal state changed before review submission could be recorded.' );
@@ -220,6 +263,29 @@ final class Content_Proposal_Service {
 			$proposal->ID
 		);
 		return $this->describe( $proposal );
+	}
+
+	/** Validate the exact current proposal revision without changing its state. */
+	public function validate( array $input ): array {
+		$proposal = $this->proposal( absint( $input['post_id'] ?? 0 ) );
+		if ( ! $this->drafts->is_assigned_to_current_actor( $proposal->ID ) ) {
+			throw new Execution_Exception( 'proposal_not_editable', 'Only the assigned agent can validate this proposal.' );
+		}
+		$this->assert_proposal_token( $proposal, $input );
+		$state = sanitize_key( (string) get_post_meta( $proposal->ID, self::STATE_META, true ) );
+		if ( ! in_array( $state, self::ACTIVE_STATES, true ) ) {
+			throw new Execution_Exception( 'proposal_not_active', 'Only a working or ready-for-review proposal can be validated.' );
+		}
+		$description = $this->describe( $proposal );
+		$validation  = $this->validate_post( $proposal );
+		return array_merge(
+			$description,
+			array(
+				'valid'      => true === ( $validation['valid'] ?? false ) && empty( $description['source_conflict'] ),
+				'validation' => $validation,
+				'submittable' => 'working' === $state && true === ( $validation['valid'] ?? false ) && empty( $description['source_conflict'] ),
+			)
+		);
 	}
 
 	/** @param array<int,string>|string $state */
@@ -298,7 +364,9 @@ final class Content_Proposal_Service {
 			}
 		}
 		$result['validation'] = $this->validate_post( $proposal );
-		$result['changes'] = $this->changes( $proposal );
+		$change_set = $this->changes( $proposal );
+		$result['changes'] = $change_set['fields'];
+		$result['change_details'] = $change_set['details'];
 		return $result;
 	}
 
@@ -327,7 +395,7 @@ final class Content_Proposal_Service {
 		$this->assert_proposal_token( $proposal, $input );
 		$validation = $this->validate_post( $proposal );
 		if ( ! $validation['valid'] ) {
-			throw new Execution_Exception( 'proposal_validation_failed', 'The proposal no longer passes its current Blueprint.' );
+			throw $this->validation_exception( $validation, 'proposal_validation_failed', 'The proposal no longer passes its current Blueprint.' ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Structured validation context is returned through the API, not rendered.
 		}
 		$context = $this->localization_context( $proposal_id );
 		$this->localization->validate_proposal( $context, $source_id, $proposal_id );
@@ -360,7 +428,7 @@ final class Content_Proposal_Service {
 			$this->assert_proposal_token( $proposal, $input );
 			$validation = $this->validate_post( $proposal );
 			if ( ! $validation['valid'] ) {
-				throw new Execution_Exception( 'proposal_validation_failed', 'The proposal no longer passes its current Blueprint.' );
+				throw $this->validation_exception( $validation, 'proposal_validation_failed', 'The proposal no longer passes its current Blueprint.' );
 			}
 			$context = $this->localization_context( $proposal_id );
 			$source = $this->fresh_post( $source_id );
@@ -548,6 +616,10 @@ final class Content_Proposal_Service {
 	}
 
 	private function projection_for_merge_verification( array $projection ): array {
+		$post_type = sanitize_key( (string) ( $projection['post_type'] ?? '' ) );
+		foreach ( (array) ( $projection['meta'] ?? array() ) as $key => $value ) {
+			$projection['meta'][ $key ] = $this->normalized_meta_comparison_value( $post_type, (string) $key, $value );
+		}
 		unset( $projection['status'], $projection['modified_gmt'] );
 		return $projection;
 	}
@@ -557,6 +629,9 @@ final class Content_Proposal_Service {
 		update_post_meta( $source_id, Target_Resolver::TEMPLATE_META, $projection['template'] );
 		update_post_meta( $source_id, Draft_Service::YOAST_METADESC_META, $projection['meta_description'] );
 		foreach ( $projection['meta'] as $key => $value ) {
+			if ( $this->meta_values_equal( $proposal->post_type, (string) $key, get_post_meta( $source_id, $key, true ), $value ) ) {
+				continue;
+			}
 			update_post_meta( $source_id, $key, $value );
 		}
 		foreach ( $projection['taxonomies'] as $taxonomy => $term_ids ) {
@@ -570,11 +645,27 @@ final class Content_Proposal_Service {
 		} else {
 			delete_post_meta( $source_id, '_thumbnail_id' );
 		}
+		$this->document_state->copy( $proposal->ID, $source_id );
 	}
 
 	private function validate_post( \WP_Post $proposal ): array {
 		$page_type = sanitize_key( (string) get_post_meta( $proposal->ID, Draft_Service::PAGE_TYPE_META, true ) );
-		$result = $this->validator->validate( $page_type, (string) $proposal->post_content );
+		$source = $this->fresh_post( absint( get_post_meta( $proposal->ID, self::SOURCE_META, true ) ) );
+		$migration = $this->migration_meta( $proposal->ID );
+		$result = $this->validator->validate(
+			$page_type,
+			(string) $proposal->post_content,
+			$source instanceof \WP_Post ? (string) $source->post_content : null,
+			empty( $migration ) ? array() : array( 'allow_structure_change' => true )
+		);
+		if ( ! empty( $migration ) ) {
+			$expected_fingerprint = (string) ( $migration['structural_fingerprint'] ?? '' );
+			$actual_fingerprint = (string) ( $result['structure_contract']['structural_fingerprint'] ?? '' );
+			if ( '' === $expected_fingerprint || ! hash_equals( $expected_fingerprint, $actual_fingerprint ) ) {
+				$result['valid'] = false;
+				$result['errors'][] = array( 'code' => 'migration_proposal_changed', 'message' => 'The migration proposal no longer matches its reviewed structural plan.', 'path' => 'migration' );
+			}
+		}
 		$blueprint = $this->config->get_blueprint( $page_type );
 		$seo = trim( (string) get_post_meta( $proposal->ID, Draft_Service::YOAST_METADESC_META, true ) );
 		$seo_contract = (array) ( $blueprint['seo_contract']['meta_description'] ?? array() );
@@ -594,24 +685,165 @@ final class Content_Proposal_Service {
 		return $result;
 	}
 
+	private function validation_exception( array $validation, string $fallback_code, string $message ): Execution_Exception {
+		$violations = array_values(
+			array_filter(
+				(array) ( $validation['errors'] ?? array() ),
+				static fn( mixed $error ): bool => is_array( $error ) && 'composer_contract_violation' === ( $error['code'] ?? '' )
+			)
+		);
+		return new Execution_Exception(
+			empty( $violations ) ? $fallback_code : 'composer_contract_violation',
+			$message,
+			0,
+			empty( $violations ) ? array() : array( 'violations' => $violations )
+		);
+	}
+
+	/**
+	 * Return both stable machine paths and reviewer-facing value changes.
+	 *
+	 * @return array{fields:array<int,string>,details:array<int,array<string,mixed>>}
+	 */
 	private function changes( \WP_Post $proposal ): array {
 		$source = $this->fresh_post( absint( get_post_meta( $proposal->ID, self::SOURCE_META, true ) ) );
 		if ( ! $source instanceof \WP_Post ) {
-			return array();
+			return array( 'fields' => array(), 'details' => array() );
 		}
 		$page_type = sanitize_key( (string) get_post_meta( $proposal->ID, Draft_Service::PAGE_TYPE_META, true ) );
 		$before = $this->projection( $source, $page_type );
 		$after = $this->proposal_projection( $proposal, $page_type );
 		$changed = array();
+		$details = array();
 		foreach ( $after as $field => $value ) {
 			if ( in_array( $field, array( 'post_type', 'status', 'modified_gmt', 'page_type' ), true ) ) {
 				continue;
 			}
-			if ( $before[ $field ] !== $value ) {
+			$previous = $before[ $field ] ?? null;
+			if ( 'meta' === $field && is_array( $previous ) && is_array( $value ) ) {
+				foreach ( array_unique( array_merge( array_keys( $previous ), array_keys( $value ) ) ) as $meta_key ) {
+					$old_value = $previous[ $meta_key ] ?? null;
+					$new_value = $value[ $meta_key ] ?? null;
+					if ( $this->meta_values_equal( $proposal->post_type, (string) $meta_key, $old_value, $new_value ) ) {
+						continue;
+					}
+					$path = 'meta.' . $meta_key;
+					$registration = $this->registered_meta( $proposal->post_type, (string) $meta_key );
+					$changed[] = $path;
+					$details[] = array(
+						'path'        => $path,
+						'scope'       => 'meta',
+						'key'         => (string) $meta_key,
+						'label'       => $this->change_label( 'meta', (string) $meta_key, $registration ),
+						'description' => sanitize_text_field( (string) ( $registration['description'] ?? '' ) ),
+						'before'      => $old_value,
+						'after'       => $new_value,
+					);
+				}
+				continue;
+			}
+			if ( 'taxonomies' === $field && is_array( $previous ) && is_array( $value ) ) {
+				foreach ( array_unique( array_merge( array_keys( $previous ), array_keys( $value ) ) ) as $taxonomy ) {
+					$old_value = $previous[ $taxonomy ] ?? array();
+					$new_value = $value[ $taxonomy ] ?? array();
+					if ( $old_value === $new_value ) {
+						continue;
+					}
+					$path = 'taxonomies.' . $taxonomy;
+					$changed[] = $path;
+					$details[] = array(
+						'path'        => $path,
+						'scope'       => 'taxonomy',
+						'key'         => (string) $taxonomy,
+						'label'       => $this->change_label( 'taxonomy', (string) $taxonomy ),
+						'description' => '',
+						'before'      => $old_value,
+						'after'       => $new_value,
+					);
+				}
+				continue;
+			}
+			if ( $previous !== $value ) {
 				$changed[] = $field;
+				$details[] = array(
+					'path'        => $field,
+					'scope'       => 'content',
+					'key'         => $field,
+					'label'       => $this->change_label( 'content', $field ),
+					'description' => '',
+					'before'      => $previous,
+					'after'       => $value,
+				);
 			}
 		}
-		return $changed;
+		return array( 'fields' => $changed, 'details' => $details );
+	}
+
+	/** @return array<string,mixed> */
+	private function registered_meta( string $post_type, string $meta_key ): array {
+		$registered = get_registered_meta_keys( 'post', $post_type );
+		return is_array( $registered[ $meta_key ] ?? null ) ? $registered[ $meta_key ] : array();
+	}
+
+	/** @param array<string,mixed> $meta */
+	private function proposal_meta_input( array $meta, int $source_id ): array {
+		$stored = array();
+		foreach ( $meta as $key => $value ) {
+			if ( metadata_exists( 'post', $source_id, (string) $key ) ) {
+				$stored[ $key ] = $value;
+			}
+		}
+		return $stored;
+	}
+
+	private function meta_values_equal( string $post_type, string $meta_key, mixed $before, mixed $after ): bool {
+		return $this->normalized_meta_comparison_value( $post_type, $meta_key, $before )
+			=== $this->normalized_meta_comparison_value( $post_type, $meta_key, $after );
+	}
+
+	private function normalized_meta_comparison_value( string $post_type, string $meta_key, mixed $value ): mixed {
+		$registration = $this->registered_meta( $post_type, $meta_key );
+		$type = (string) ( $registration['type'] ?? '' );
+		if ( 'array' === $type && ( '' === $value || null === $value || array() === $value ) ) {
+			return array();
+		}
+		if ( 'object' === $type && ( '' === $value || null === $value || array() === $value ) ) {
+			return array();
+		}
+		return $value;
+	}
+
+	/** @param array<string,mixed> $registration */
+	private function change_label( string $scope, string $key, array $registration = array() ): string {
+		if ( 'meta' === $scope ) {
+			$label = sanitize_text_field( (string) ( $registration['label'] ?? '' ) );
+			return '' !== $label ? $label : $this->humanize_key( $key );
+		}
+		if ( 'taxonomy' === $scope ) {
+			$taxonomy = get_taxonomy( $key );
+			if ( $taxonomy instanceof \WP_Taxonomy ) {
+				$label = sanitize_text_field( (string) ( $taxonomy->labels->singular_name ?? $taxonomy->label ?? '' ) );
+				if ( '' !== $label ) {
+					return $label;
+				}
+			}
+			return $this->humanize_key( $key );
+		}
+		$labels = array(
+			'title'             => __( 'Title', 'smartcloud-agent-composer' ),
+			'slug'              => __( 'URL slug', 'smartcloud-agent-composer' ),
+			'content'           => __( 'Body content', 'smartcloud-agent-composer' ),
+			'excerpt'           => __( 'Excerpt', 'smartcloud-agent-composer' ),
+			'template'          => __( 'Template', 'smartcloud-agent-composer' ),
+			'meta_description'  => __( 'SEO meta description', 'smartcloud-agent-composer' ),
+			'featured_image_id' => __( 'Featured image', 'smartcloud-agent-composer' ),
+		);
+		return $labels[ $key ] ?? $this->humanize_key( $key );
+	}
+
+	private function humanize_key( string $key ): string {
+		$label = preg_replace( '/[_-]+/', ' ', $key );
+		return ucwords( trim( is_string( $label ) ? $label : $key ) );
 	}
 
 	/** Keep every proposal state outside the public canonical namespace. */
@@ -690,7 +922,17 @@ final class Content_Proposal_Service {
 			'change_request_reason' => (string) get_post_meta( $proposal->ID, self::CHANGE_REQUEST_REASON_META, true ),
 			'returned_by' => absint( get_post_meta( $proposal->ID, self::RETURNED_BY_META, true ) ),
 			'returned_gmt' => '' === $returned_gmt ? '' : $this->time_token( $returned_gmt ),
+			'managed_document' => $this->document_state->public_state( $proposal->ID ),
+			'migration' => $this->migration_meta( $proposal->ID ),
 		);
+	}
+
+	private function migration_meta( int $proposal_id ): array {
+		$value = get_post_meta( $proposal_id, self::MIGRATION_META, true );
+		if ( is_string( $value ) && '' !== trim( $value ) ) {
+			$value = json_decode( $value, true );
+		}
+		return is_array( $value ) ? $value : array();
 	}
 
 	private function proposal( int $proposal_id ): \WP_Post {

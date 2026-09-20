@@ -3,6 +3,8 @@
 
 namespace SmartCloud\AgentComposer\Execution;
 
+use SmartCloud\AgentComposer\Security\ActorIdentity;
+
 final class Draft_Service {
 	private const ZERO_MODIFIED_GMT = '1970-01-01T00:00:00Z';
 	private const IDEMPOTENCY_LOCK_WAIT_SECONDS = 10;
@@ -15,6 +17,7 @@ final class Draft_Service {
 	public const POST_TYPE_META = '_wpsuite_agent_target_post_type';
 	public const TEMPLATE_META = '_wpsuite_agent_target_template';
 	public const ASSIGNED_AGENT_META = '_wpsuite_agent_assigned_user_id';
+	public const ASSIGNED_PRINCIPAL_META = '_wpsuite_agent_assigned_principal_id';
 	public const ASSIGNMENT_SOURCE_META = '_wpsuite_agent_assignment_source';
 	public const ADOPTED_GMT_META = '_wpsuite_agent_adopted_gmt';
 	public const CLONED_FROM_META = '_wpsuite_agent_cloned_from_post_id';
@@ -30,6 +33,7 @@ final class Draft_Service {
 	private Config_Repository $config;
 	private Content_Language_Validator $language;
 	private Localization_Provider_Registry $localization;
+	private Managed_Document_State $document_state;
 
 	public function __construct(
 		Pattern_Assembler $assembler,
@@ -38,7 +42,8 @@ final class Draft_Service {
 		Block_Tree_Service $trees,
 		Config_Repository $config,
 		Content_Language_Validator $language,
-		Localization_Provider_Registry $localization
+		Localization_Provider_Registry $localization,
+		Managed_Document_State $document_state
 	) {
 		$this->assembler = $assembler;
 		$this->validator = $validator;
@@ -47,6 +52,7 @@ final class Draft_Service {
 		$this->config    = $config;
 		$this->language  = $language;
 		$this->localization = $localization;
+		$this->document_state = $document_state;
 	}
 
 	public function validate_request( array $input ): array {
@@ -65,6 +71,7 @@ final class Draft_Service {
 	public function create( array $input, array $structured_fields = array() ): array {
 		$this->assert_no_forbidden_input( $input );
 		$user_id   = get_current_user_id();
+		$principal_id = ActorIdentity::principal_id();
 		$page_type = sanitize_key( (string) ( $input['page_type'] ?? '' ) );
 		$content_language = $this->language->request_language( $page_type, $input );
 		$title     = $this->sanitize_title( $input['title'] ?? '' );
@@ -78,12 +85,12 @@ final class Draft_Service {
 		$validation = $this->validator->validate( $page_type, $assembled['content'] );
 		$validation = $this->add_editorial_language_issues( $validation, $page_type, $input, $editorial );
 		if ( ! $validation['valid'] ) {
-			throw new Execution_Exception( 'validation_failed', 'The assembled content failed validation and was not saved.' );
+			throw $this->validation_exception( $validation, 'The assembled content failed validation and was not saved.' ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Structured validation context is returned through the API, not rendered.
 		}
 
-		$lock_name = $this->acquire_idempotency_lock( $user_id, $key );
+		$lock_name = $this->acquire_idempotency_lock( $principal_id, $key );
 		try {
-			$existing = $this->find_idempotent_draft( $user_id, $key, $page_type, $target );
+			$existing = $this->find_idempotent_draft( $principal_id, $user_id, $key, $page_type, $target );
 			if ( $existing ) {
 				$existing_language = sanitize_text_field( (string) get_post_meta( $existing->ID, self::CONTENT_LANGUAGE_META, true ) );
 				if ( '' === $existing_language || 0 !== strcasecmp( $existing_language, $content_language ) ) {
@@ -92,6 +99,7 @@ final class Draft_Service {
 				return $this->describe( $existing, true );
 			}
 
+			$managed_meta = $this->document_state->metadata_for( 0, $page_type, $validation );
 			$meta_input = array_merge(
 				array(
 					self::OWNED_META              => '1',
@@ -101,12 +109,14 @@ final class Draft_Service {
 					self::POST_TYPE_META          => $target['post_type'],
 					self::TEMPLATE_META           => $this->targets->template_identity( $target ),
 					self::ASSIGNED_AGENT_META     => $user_id,
+					self::ASSIGNED_PRINCIPAL_META => $principal_id,
 					self::ASSIGNMENT_SOURCE_META  => 'created',
 					self::CONTENT_LANGUAGE_META   => $content_language,
 					Target_Resolver::TEMPLATE_META => $this->targets->template_meta_value( $target ),
 					self::YOAST_METADESC_META     => $editorial['meta_description'],
 				),
-				$structured_fields
+				$structured_fields,
+				$managed_meta
 			);
 			$post_id = wp_insert_post(
 				wp_slash(
@@ -177,10 +187,10 @@ final class Draft_Service {
 		$this->targets->assert_current_user_can_edit( $post, true );
 
 		$assembled  = $this->assembler->assemble( $page_type, $input['sections'] ?? array() );
-		$validation = $this->validator->validate( $page_type, $assembled['content'] );
+		$validation = $this->validator->validate( $page_type, $assembled['content'], (string) $post->post_content );
 		$validation = $this->add_editorial_language_issues( $validation, $page_type, $input, $editorial );
 		if ( ! $validation['valid'] ) {
-			throw new Execution_Exception( 'validation_failed', 'The assembled content failed validation and was not saved.' );
+			throw $this->validation_exception( $validation, 'The assembled content failed validation and was not saved.' ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Structured validation context is returned through the API, not rendered.
 		}
 
 		$update = array(
@@ -194,7 +204,11 @@ final class Draft_Service {
 				self::YOAST_METADESC_META => $editorial['meta_description'],
 			),
 		);
-		$update['meta_input'] = array_merge( $update['meta_input'], $structured_fields );
+		$update['meta_input'] = array_merge(
+			$update['meta_input'],
+			$structured_fields,
+			$this->document_state->metadata_for_rematerialized_document( $post_id, $page_type, $validation )
+		);
 		if ( array_key_exists( 'title', $input ) ) {
 			$update['post_title'] = $this->sanitize_title( $input['title'] );
 		}
@@ -432,9 +446,9 @@ final class Draft_Service {
 			isset( $input['path'] ) && is_array( $input['path'] ) ? $input['path'] : array(),
 			$page_type
 		);
-		$validation = $this->validator->validate( $page_type, $tree['content'] );
+		$validation = $this->validator->validate( $page_type, $tree['content'], (string) $post->post_content );
 		if ( ! $validation['valid'] ) {
-			throw new Execution_Exception( 'validation_failed', 'The updated page failed its blueprint or block-tree validation and was not saved.' );
+			throw $this->validation_exception( $validation, 'The updated page failed its blueprint or block-tree validation and was not saved.' ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Structured validation context is returned through the API, not rendered.
 		}
 
 		$update = array(
@@ -445,6 +459,10 @@ final class Draft_Service {
 			'meta_input'   => array(
 				Target_Resolver::TEMPLATE_META => $this->targets->template_meta_value( $target ),
 			),
+		);
+		$update['meta_input'] = array_merge(
+			$update['meta_input'],
+			$this->document_state->metadata_for( $post_id, $page_type, $validation )
 		);
 
 		global $wpdb;
@@ -500,6 +518,7 @@ final class Draft_Service {
 			$page_type
 		);
 		$assigned_agent_id = absint( get_post_meta( $post_id, self::ASSIGNED_AGENT_META, true ) );
+		$assigned_principal_id = $this->assigned_principal_id( $post_id );
 
 		return array(
 			'post_id'               => $post_id,
@@ -509,7 +528,8 @@ final class Draft_Service {
 			'post_type'             => $post->post_type,
 			'post_author_id'        => (int) $post->post_author,
 			'assigned_agent_user_id' => $assigned_agent_id,
-			'already_assigned'       => get_current_user_id() === $assigned_agent_id,
+			'assigned_principal_id'  => $assigned_principal_id,
+			'already_assigned'       => ActorIdentity::is_current( $assigned_principal_id, $assigned_agent_id ),
 			'modified_gmt'           => $this->modified_gmt_token( $post->post_modified_gmt ),
 			'content_hash'           => hash( 'sha256', $content ),
 			'template'               => $this->targets->public_contract( $target )['template'],
@@ -556,6 +576,7 @@ final class Draft_Service {
 		}
 
 		$current_user_id  = get_current_user_id();
+		$current_principal_id = ActorIdentity::principal_id();
 		$revision         = '';
 		$already_assigned = false;
 
@@ -597,7 +618,7 @@ final class Draft_Service {
 					"SELECT meta_key, meta_value
 					FROM {$wpdb->postmeta}
 					WHERE post_id = %d
-					AND meta_key IN (%s, %s, %s, %s, %s, %s, %s)
+					AND meta_key IN (%s, %s, %s, %s, %s, %s, %s, %s)
 					FOR UPDATE",
 					$post_id,
 					self::OWNED_META,
@@ -606,6 +627,7 @@ final class Draft_Service {
 					self::POST_TYPE_META,
 					self::TEMPLATE_META,
 					self::ASSIGNED_AGENT_META,
+					self::ASSIGNED_PRINCIPAL_META,
 					Target_Resolver::TEMPLATE_META
 				),
 				ARRAY_A
@@ -623,11 +645,12 @@ final class Draft_Service {
 				throw new Execution_Exception( 'adoption_not_allowed', 'The active Site Contract does not allow Composer to adopt drafts of this post type.' );
 			}
 			$assigned_agent_id = absint( $meta[ self::ASSIGNED_AGENT_META ] ?? 0 );
-			if ( 0 !== $assigned_agent_id && $current_user_id !== $assigned_agent_id ) {
+			$assigned_principal_id = trim( (string) ( $meta[ self::ASSIGNED_PRINCIPAL_META ] ?? '' ) );
+			if ( ( '' !== $assigned_principal_id || 0 !== $assigned_agent_id ) && ! ActorIdentity::is_current( $assigned_principal_id, $assigned_agent_id ) ) {
 				throw new Execution_Exception( 'draft_assigned_to_other_agent', 'This draft is already assigned to a different SmartCloud agent.' );
 			}
 
-			$already_assigned = $current_user_id === $assigned_agent_id
+			$already_assigned = ActorIdentity::is_current( $assigned_principal_id, $assigned_agent_id )
 				&& '1' === (string) ( $meta[ self::OWNED_META ] ?? '' );
 			$revision = $this->revision_or_new( $meta[ self::REVISION_META ] ?? '' );
 			if ( ! $already_assigned ) {
@@ -638,11 +661,13 @@ final class Draft_Service {
 				update_post_meta( $post_id, self::POST_TYPE_META, $target['post_type'] );
 				update_post_meta( $post_id, self::TEMPLATE_META, $this->targets->template_identity( $target ) );
 				update_post_meta( $post_id, self::ASSIGNED_AGENT_META, $current_user_id );
+				update_post_meta( $post_id, self::ASSIGNED_PRINCIPAL_META, $current_principal_id );
 				update_post_meta( $post_id, self::ASSIGNMENT_SOURCE_META, 'adopted' );
 				update_post_meta( $post_id, self::ADOPTED_GMT_META, current_time( 'mysql', true ) );
 			} elseif ( ! hash_equals( $revision, (string) ( $meta[ self::REVISION_META ] ?? '' ) ) ) {
 				update_post_meta( $post_id, self::REVISION_META, $revision );
 			}
+			$this->document_state->persist( $post_id, $page_type, (array) $inspection['validation'] );
 
 			if ( false === $wpdb->query( 'COMMIT' ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Commits the explicit adoption transaction.
 				throw new Execution_Exception( 'commit_failed', 'The database could not safely commit the draft adoption.' );
@@ -717,7 +742,7 @@ final class Draft_Service {
 					"SELECT meta_key, meta_value
 					FROM {$wpdb->postmeta}
 					WHERE post_id = %d
-					AND meta_key IN (%s, %s, %s, %s, %s, %s, %s)
+					AND meta_key IN (%s, %s, %s, %s, %s, %s, %s, %s)
 					FOR UPDATE",
 					$post_id,
 					self::OWNED_META,
@@ -726,6 +751,7 @@ final class Draft_Service {
 					self::POST_TYPE_META,
 					self::TEMPLATE_META,
 					self::ASSIGNED_AGENT_META,
+					self::ASSIGNED_PRINCIPAL_META,
 					Target_Resolver::TEMPLATE_META
 				),
 				ARRAY_A
@@ -738,12 +764,14 @@ final class Draft_Service {
 				throw new Execution_Exception( 'not_agent_owned', 'The draft was not created by SmartCloud Agent Composer.' );
 			}
 			$assigned_agent_id = absint( $meta[ self::ASSIGNED_AGENT_META ] ?? 0 );
-			if ( 0 === $assigned_agent_id && get_current_user_id() === (int) $row['post_author'] ) {
+			$assigned_principal_id = trim( (string) ( $meta[ self::ASSIGNED_PRINCIPAL_META ] ?? '' ) );
+			if ( '' === $assigned_principal_id && 0 === $assigned_agent_id && get_current_user_id() > 0 && get_current_user_id() === (int) $row['post_author'] ) {
 				$assigned_agent_id = get_current_user_id();
 				update_post_meta( $post_id, self::ASSIGNED_AGENT_META, $assigned_agent_id );
+				update_post_meta( $post_id, self::ASSIGNED_PRINCIPAL_META, ActorIdentity::principal_id() );
 				update_post_meta( $post_id, self::ASSIGNMENT_SOURCE_META, 'created' );
 			}
-			if ( get_current_user_id() !== $assigned_agent_id ) {
+			if ( ! ActorIdentity::is_current( $assigned_principal_id, $assigned_agent_id ) ) {
 				throw new Execution_Exception( 'not_draft_owner', 'The current agent is not assigned to this draft.' );
 			}
 			if ( $expected_page_type !== sanitize_key( (string) ( $meta[ self::PAGE_TYPE_META ] ?? '' ) ) ) {
@@ -863,10 +891,15 @@ final class Draft_Service {
 			throw new Execution_Exception( 'content_read_not_allowed', 'The active Site Contract does not allow Composer to read this post type.' );
 		}
 		if ( ! current_user_can( 'read_post', $post_id ) ) {
+			$actor = ActorIdentity::context();
+			if ( $composer_owned && null !== $actor && 'publisher' === $actor->role() ) {
+				throw new Execution_Exception( 'publisher_handoff_tool_required', 'This Composer draft is assigned to another principal. For a publication review, call inspect-publishable-draft instead of inspect-content-item; it is the Publisher-only read boundary and does not transfer assignment.' );
+			}
 			throw new Execution_Exception( 'content_read_forbidden', 'The current user cannot read this content through Composer.' );
 		}
 		$content = (string) $post->post_content;
-		$localization = $this->localization->resolve( $post_id, $post->post_type );
+		$blueprint    = $this->config->get_blueprint( $page_type );
+		$localization = $this->localization->resolve_for_blueprint( $post_id, $post->post_type, $blueprint );
 		$validation   = $this->validator->validate( $page_type, $content );
 		if ( ! empty( $localization['content_language'] ) ) {
 			$validation['content_language'] = (string) $localization['content_language'];
@@ -888,6 +921,7 @@ final class Draft_Service {
 			'cloneable'     => ! $composer_owned && $access['clone'],
 			'proposable'    => 'publish' === $post->post_status && ! empty( $access['propose_updates'] ),
 			'validation'    => $validation,
+			'managed_document' => $this->document_state->public_state( $post_id ),
 		);
 	}
 
@@ -910,6 +944,7 @@ final class Draft_Service {
 		$target = $this->targets->resolve( $page_type );
 		$this->targets->assert_current_user_can_create( $target );
 		$user_id = get_current_user_id();
+		$principal_id = ActorIdentity::principal_id();
 		$key = $this->sanitize_idempotency_key( $input['idempotency_key'] ?? '' );
 		$title = isset( $input['title'] ) ? $this->sanitize_title( $input['title'] ) : $this->sanitize_title( 'Copy of ' . (string) $source['title'] );
 		$slug = isset( $input['slug'] ) ? $this->sanitize_slug( $input['slug'] ) : '';
@@ -920,9 +955,9 @@ final class Draft_Service {
 				array( 'content_language' => (string) $input['target_content_language'] )
 			);
 		}
-		$lock_name = $this->acquire_idempotency_lock( $user_id, $key );
+		$lock_name = $this->acquire_idempotency_lock( $principal_id, $key );
 		try {
-			$existing = $this->find_idempotent_draft( $user_id, $key, $page_type, $target );
+			$existing = $this->find_idempotent_draft( $principal_id, $user_id, $key, $page_type, $target );
 			if ( $existing ) {
 				return $this->describe( $existing, true );
 			}
@@ -936,7 +971,8 @@ final class Draft_Service {
 						'post_name'    => $slug,
 						'post_content' => (string) $source['content'],
 						'post_excerpt' => (string) $source['excerpt'],
-						'meta_input'   => array(
+						'meta_input'   => array_merge(
+							array(
 							self::OWNED_META              => '1',
 							self::PAGE_TYPE_META          => $page_type,
 							self::IDEMPOTENCY_META        => $key,
@@ -944,11 +980,14 @@ final class Draft_Service {
 							self::POST_TYPE_META          => $target['post_type'],
 							self::TEMPLATE_META           => $this->targets->template_identity( $target ),
 							self::ASSIGNED_AGENT_META     => $user_id,
+							self::ASSIGNED_PRINCIPAL_META => $principal_id,
 							self::ASSIGNMENT_SOURCE_META  => 'cloned',
 							self::CLONED_FROM_META        => (int) $source['post_id'],
 							self::CONTENT_LANGUAGE_META   => $content_language,
 							Target_Resolver::TEMPLATE_META => $this->targets->template_meta_value( $target ),
 							self::YOAST_METADESC_META     => (string) $source['meta_description'],
+							),
+							$this->document_state->metadata_for( (int) $source['post_id'], $page_type, (array) $source['validation'] )
 						),
 					)
 				),
@@ -1003,6 +1042,54 @@ final class Draft_Service {
 		return $this->preview_for_post( $this->get_owned_draft_for_preview_asset( $post_id ) );
 	}
 
+	/** Revalidate an exact Composer-owned draft for a human publish decision. */
+	public function validate_stored_draft_for_publish( int $post_id ): array {
+		$post = $this->get_publishable_composer_draft( $post_id );
+		return $this->preview_for_post( $post );
+	}
+
+	/**
+	 * Inspect an ordinary Composer-owned draft at the Publisher handoff boundary.
+	 *
+	 * This intentionally does not transfer assignment and must never be reused by
+	 * a mutation surface. The Publisher receives only a read snapshot plus the
+	 * exact concurrency tokens required by request-publish.
+	 */
+	public function inspect_publishable_draft_for_publisher( int $post_id ): array {
+		$post = $this->get_publishable_draft_for_publisher( $post_id );
+		$result = $this->describe( $post );
+		$result['content'] = (string) $post->post_content;
+		$result['validation'] = $this->preview_for_post( $post )['validation'];
+		$result['publisher_handoff'] = true;
+		$result['assignment_preserved'] = true;
+		return $result;
+	}
+
+	/** Return a read-only cross-principal draft for the protected Publisher path. */
+	public function get_publishable_draft_for_publisher( int $post_id ): \WP_Post {
+		$actor = ActorIdentity::context();
+		if ( null === $actor || 'publisher' !== $actor->role() ) {
+			throw new Execution_Exception( 'publish_request_denied', 'Only a protected Publisher actor may inspect another principal\'s draft for publication.' );
+		}
+		$post = $this->get_publishable_composer_draft( $post_id );
+		$page_type = sanitize_key( (string) get_post_meta( $post_id, self::PAGE_TYPE_META, true ) );
+		$target = $this->targets->resolve( $page_type );
+		$this->assert_post_contract( $post, $page_type, $target );
+		$this->targets->assert_current_user_can_edit( $post, true );
+		return $post;
+	}
+
+	private function get_publishable_composer_draft( int $post_id ): \WP_Post {
+		$post = $this->fresh_post( $post_id );
+		if ( ! $post instanceof \WP_Post || 'draft' !== $post->post_status || '1' !== (string) get_post_meta( $post_id, self::OWNED_META, true ) ) {
+			throw new Execution_Exception( 'publish_draft_not_found', 'The Composer draft selected for publication no longer exists.' );
+		}
+		if ( '' !== sanitize_key( (string) get_post_meta( $post_id, Content_Proposal_Service::STATE_META, true ) ) ) {
+			throw new Execution_Exception( 'publish_proposal_not_supported', 'Published-content proposals must use their dedicated human merge workflow.' );
+		}
+		return $post;
+	}
+
 	private function preview_for_post( \WP_Post $post ): array {
 		$page_type = (string) get_post_meta( $post->ID, self::PAGE_TYPE_META, true );
 		$target    = $this->targets->resolve( $page_type );
@@ -1037,6 +1124,18 @@ final class Draft_Service {
 		return $this->get_owned_draft_with_policy( $post_id, true );
 	}
 
+	public function assigned_principal_id( int $post_id ): string {
+		$value = trim( (string) get_post_meta( $post_id, self::ASSIGNED_PRINCIPAL_META, true ) );
+		return strlen( $value ) <= 96 ? $value : '';
+	}
+
+	public function is_assigned_to_current_actor( int $post_id ): bool {
+		return ActorIdentity::is_current(
+			$this->assigned_principal_id( $post_id ),
+			absint( get_post_meta( $post_id, self::ASSIGNED_AGENT_META, true ) )
+		);
+	}
+
 	private function get_owned_draft_with_policy( int $post_id, bool $preview_asset_read ): \WP_Post {
 		$post = $this->fresh_post( $post_id );
 		if ( ! $post instanceof \WP_Post ) {
@@ -1057,14 +1156,16 @@ final class Draft_Service {
 			throw new Execution_Exception( 'proposal_not_editable', 'A submitted or closed content proposal is read-only.' );
 		}
 		$assigned_agent_id = absint( get_post_meta( $post_id, self::ASSIGNED_AGENT_META, true ) );
-		if ( 0 === $assigned_agent_id && get_current_user_id() === (int) $post->post_author ) {
+		$assigned_principal_id = $this->assigned_principal_id( $post_id );
+		if ( '' === $assigned_principal_id && 0 === $assigned_agent_id && get_current_user_id() > 0 && get_current_user_id() === (int) $post->post_author ) {
 			$assigned_agent_id = get_current_user_id();
 			if ( ! $preview_asset_read ) {
 				update_post_meta( $post_id, self::ASSIGNED_AGENT_META, $assigned_agent_id );
+				update_post_meta( $post_id, self::ASSIGNED_PRINCIPAL_META, ActorIdentity::principal_id() );
 				update_post_meta( $post_id, self::ASSIGNMENT_SOURCE_META, 'created' );
 			}
 		}
-		if ( get_current_user_id() !== $assigned_agent_id ) {
+		if ( ! ActorIdentity::is_current( $assigned_principal_id, $assigned_agent_id ) ) {
 			throw new Execution_Exception( 'not_draft_owner', 'The current agent is not assigned to this draft.' );
 		}
 		$page_type = sanitize_key( (string) get_post_meta( $post_id, self::PAGE_TYPE_META, true ) );
@@ -1078,6 +1179,7 @@ final class Draft_Service {
 		$page_type = (string) get_post_meta( $post->ID, self::PAGE_TYPE_META, true );
 		$target    = $this->targets->resolve( $page_type );
 		$proposal_state = sanitize_key( (string) get_post_meta( $post->ID, Content_Proposal_Service::STATE_META, true ) );
+		$managed_document = $this->document_state->public_state( $post->ID );
 		return array(
 			'post_id'           => $post->ID,
 			'title'             => get_the_title( $post ),
@@ -1087,6 +1189,7 @@ final class Draft_Service {
 			'post_type'         => $post->post_type,
 			'post_author_id'    => (int) $post->post_author,
 			'assigned_agent_user_id' => absint( get_post_meta( $post->ID, self::ASSIGNED_AGENT_META, true ) ),
+			'assigned_principal_id' => $this->assigned_principal_id( $post->ID ),
 			'assignment_source' => sanitize_key( (string) get_post_meta( $post->ID, self::ASSIGNMENT_SOURCE_META, true ) ),
 			'proposal_state'    => $proposal_state,
 			'change_request_reason' => 'working' === $proposal_state ? sanitize_textarea_field( (string) get_post_meta( $post->ID, Content_Proposal_Service::CHANGE_REQUEST_REASON_META, true ) ) : '',
@@ -1100,13 +1203,15 @@ final class Draft_Service {
 			'meta_description'  => wp_strip_all_tags( (string) get_post_meta( $post->ID, self::YOAST_METADESC_META, true ) ),
 			'edit_url'          => get_edit_post_link( $post->ID, 'raw' ) ?: '',
 			'preview_url'       => $this->preview_url( $post ),
+			'managed_document'  => $managed_document,
 			'idempotent_replay' => $idempotent_replay,
 		);
 	}
 
 	private function summarize_list_item( \WP_Post $post, string $requested_page_type = '' ): array {
 		$assigned_agent_id = absint( get_post_meta( $post->ID, self::ASSIGNED_AGENT_META, true ) );
-		$current_user_id   = get_current_user_id();
+		$assigned_principal_id = $this->assigned_principal_id( $post->ID );
+		$assigned_to_current = ActorIdentity::is_current( $assigned_principal_id, $assigned_agent_id );
 		$composer_owned      = 'draft' === $post->post_status && '1' === (string) get_post_meta( $post->ID, self::OWNED_META, true );
 		$content_access      = $this->config->get_content_access( $post->post_type );
 		$page_type         = sanitize_key( (string) get_post_meta( $post->ID, self::PAGE_TYPE_META, true ) );
@@ -1123,10 +1228,11 @@ final class Draft_Service {
 		}
 		$template_identity = sanitize_text_field( (string) get_post_meta( $post->ID, self::TEMPLATE_META, true ) );
 		$proposal_state = sanitize_key( (string) get_post_meta( $post->ID, Content_Proposal_Service::STATE_META, true ) );
+		$managed_state = $this->document_state->public_state( $post->ID );
 		$assignment_state  = 'not-composer-owned';
-		if ( $composer_owned && $assigned_agent_id === $current_user_id ) {
+		if ( $composer_owned && $assigned_to_current ) {
 			$assignment_state = 'current-agent';
-		} elseif ( $composer_owned && 0 === $assigned_agent_id ) {
+		} elseif ( $composer_owned && '' === $assigned_principal_id && 0 === $assigned_agent_id ) {
 			$assignment_state = 'unassigned';
 		} elseif ( $composer_owned ) {
 			$assignment_state = 'other-agent';
@@ -1145,12 +1251,14 @@ final class Draft_Service {
 			'page_type'                => $page_type,
 			'assignment_state'         => $assignment_state,
 			'assigned_agent_user_id'   => $assigned_agent_id,
-			'assigned_to_current_agent' => $assigned_agent_id === $current_user_id,
+			'assigned_principal_id'     => $assigned_principal_id,
+			'assigned_to_current_agent' => $assigned_to_current,
 			'proposal_state'           => $proposal_state,
+			'composer_status'          => (string) $managed_state['status'],
 			'change_request_reason'    => 'working' === $proposal_state ? sanitize_textarea_field( (string) get_post_meta( $post->ID, Content_Proposal_Service::CHANGE_REQUEST_REASON_META, true ) ) : '',
 			'adoptable_by_current_agent' => 'draft' === $post->post_status
 				&& ( $composer_owned || $content_access['adopt_drafts'] )
-				&& ( 0 === $assigned_agent_id || $assigned_agent_id === $current_user_id ),
+				&& ( ( '' === $assigned_principal_id && 0 === $assigned_agent_id ) || $assigned_to_current ),
 			'readable_by_composer'       => $composer_owned || $content_access['read'],
 			'cloneable_by_composer'      => ! $composer_owned && $content_access['clone'],
 			'editable_by_current_user' => $this->can_list_post( $post ),
@@ -1178,8 +1286,9 @@ final class Draft_Service {
 			return false;
 		}
 		$assigned_agent_id = absint( get_post_meta( $post->ID, self::ASSIGNED_AGENT_META, true ) );
+		$assigned_principal_id = $this->assigned_principal_id( $post->ID );
 		return current_user_can( \SmartCloud\AgentComposer\Infrastructure\WordPress\Activation::CAP_USE )
-			&& ( 0 === $assigned_agent_id || get_current_user_id() === $assigned_agent_id );
+			&& ( ( '' === $assigned_principal_id && 0 === $assigned_agent_id ) || ActorIdentity::is_current( $assigned_principal_id, $assigned_agent_id ) );
 	}
 
 	private function preview_url( \WP_Post $post ): string {
@@ -1257,7 +1366,7 @@ final class Draft_Service {
 		return in_array( $orderby, array( 'modified', 'date', 'title', 'ID' ), true ) ? $orderby : 'modified';
 	}
 
-	private function find_idempotent_draft( int $user_id, string $key, string $page_type, array $target ): ?\WP_Post {
+	private function find_idempotent_draft( string $principal_id, int $user_id, string $key, string $page_type, array $target ): ?\WP_Post {
 		if ( '' === $key ) {
 			return null;
 		}
@@ -1276,12 +1385,15 @@ final class Draft_Service {
 					'relation' => 'AND',
 					array( 'key' => self::OWNED_META, 'value' => '1' ),
 					array( 'key' => self::IDEMPOTENCY_META, 'value' => $key ),
-					array( 'key' => self::ASSIGNED_AGENT_META, 'value' => $user_id, 'type' => 'NUMERIC' ),
+					array( 'key' => self::ASSIGNED_PRINCIPAL_META, 'value' => $principal_id ),
 				),
 			)
 		);
 		$post = $query->posts[0] ?? null;
 		if ( ! $post instanceof \WP_Post ) {
+			if ( $user_id < 1 ) {
+				return null;
+			}
 			$legacy_query = new \WP_Query(
 				array(
 					'post_type'              => $this->targets->registered_allowed_post_types(),
@@ -1307,6 +1419,7 @@ final class Draft_Service {
 				return null;
 			}
 			update_post_meta( $post->ID, self::ASSIGNED_AGENT_META, $user_id );
+			update_post_meta( $post->ID, self::ASSIGNED_PRINCIPAL_META, $principal_id );
 			update_post_meta( $post->ID, self::ASSIGNMENT_SOURCE_META, 'created' );
 		}
 		if ( $page_type !== (string) get_post_meta( $post->ID, self::PAGE_TYPE_META, true ) || (string) $target['post_type'] !== $post->post_type ) {
@@ -1369,6 +1482,7 @@ final class Draft_Service {
 			self::POST_TYPE_META      => get_post_meta( $post_id, self::POST_TYPE_META, true ),
 			self::TEMPLATE_META       => get_post_meta( $post_id, self::TEMPLATE_META, true ),
 			self::ASSIGNED_AGENT_META => get_post_meta( $post_id, self::ASSIGNED_AGENT_META, true ),
+			self::ASSIGNED_PRINCIPAL_META => get_post_meta( $post_id, self::ASSIGNED_PRINCIPAL_META, true ),
 		);
 		if (
 			'1' !== (string) $meta[ self::OWNED_META ]
@@ -1378,7 +1492,8 @@ final class Draft_Service {
 		}
 		$this->assert_adoption_meta_contract( $meta, $page_type, $target );
 		$assigned_agent_id = absint( $meta[ self::ASSIGNED_AGENT_META ] ?? 0 );
-		if ( 0 !== $assigned_agent_id && get_current_user_id() !== $assigned_agent_id ) {
+		$assigned_principal_id = trim( (string) ( $meta[ self::ASSIGNED_PRINCIPAL_META ] ?? '' ) );
+		if ( ( '' !== $assigned_principal_id || 0 !== $assigned_agent_id ) && ! ActorIdentity::is_current( $assigned_principal_id, $assigned_agent_id ) ) {
 			throw new Execution_Exception( 'draft_assigned_to_other_agent', 'This draft is already assigned to a different SmartCloud agent.' );
 		}
 		return $post;
@@ -1411,10 +1526,10 @@ final class Draft_Service {
 	/**
 	 * @return array{driver:string,name:string,value?:string}
 	 */
-	private function acquire_idempotency_lock( int $user_id, string $key ): array {
+	private function acquire_idempotency_lock( string $principal_id, string $key ): array {
 		global $wpdb;
 
-		$lock_name = 'wpsuite-agent-' . substr( hash( 'sha256', get_current_blog_id() . ':' . $user_id . ':' . $key ), 0, 48 );
+		$lock_name = 'wpsuite-agent-' . substr( hash( 'sha256', get_current_blog_id() . ':' . $principal_id . ':' . $key ), 0, 48 );
 		if ( $this->uses_sqlite_database() ) {
 			return $this->acquire_option_idempotency_lock( $lock_name );
 		}
@@ -1656,6 +1771,21 @@ final class Draft_Service {
 	private function excerpt_policy( string $page_type ): string {
 		$blueprint = $this->config->get_blueprint( $page_type );
 		return Excerpt_Policy::normalize( $blueprint['excerpt_policy'] ?? Excerpt_Policy::OPTIONAL );
+	}
+
+	private function validation_exception( array $validation, string $message ): Execution_Exception {
+		$violations = array_values(
+			array_filter(
+				(array) ( $validation['errors'] ?? array() ),
+				static fn( mixed $error ): bool => is_array( $error ) && 'composer_contract_violation' === ( $error['code'] ?? '' )
+			)
+		);
+		return new Execution_Exception(
+			empty( $violations ) ? 'validation_failed' : 'composer_contract_violation',
+			$message,
+			0,
+			empty( $violations ) ? array() : array( 'violations' => $violations )
+		);
 	}
 
 	private function sanitize_revision( mixed $revision ): string {

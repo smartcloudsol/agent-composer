@@ -32,6 +32,7 @@ namespace SmartCloud\AgentComposer\Execution {
 	require_once dirname(__DIR__) . '/src/Execution/Config_Repository.php';
 	require_once dirname(__DIR__) . '/src/Execution/Semantic_Slot_Materializer.php';
 	require_once dirname(__DIR__) . '/src/Execution/Content_Language_Validator.php';
+	require_once dirname(__DIR__) . '/src/Execution/Page_Validator.php';
 
 	function mode_assert(bool $condition, string $message): void {
 		if (! $condition) throw new RuntimeException($message);
@@ -68,6 +69,22 @@ namespace SmartCloud\AgentComposer\Execution {
 	$property->setValue($repository, $policy);
 	$normalize = new \ReflectionMethod(Config_Repository::class, 'normalize_blueprint');
 	$normalize->setAccessible(true);
+	$overlay = new \ReflectionMethod(Config_Repository::class, 'overlay_explicit');
+	$overlay->setAccessible(true);
+	$policy_overlay = $overlay->invoke(
+		$repository,
+		array(
+			'disallowed_blocks' => array('core/html', 'core/shortcode', 'core/embed'),
+			'constraints' => array('external_embeds' => false, 'custom_html' => false),
+		),
+		array(
+			'disallowed_blocks' => array('core/html', 'core/shortcode'),
+			'constraints' => array('external_embeds' => true),
+		)
+	);
+	mode_assert(array('core/html', 'core/shortcode') === $policy_overlay['disallowed_blocks'], 'An explicit Site Contract list must replace the default list without retaining trailing numeric entries.');
+	mode_assert(true === $policy_overlay['constraints']['external_embeds'], 'An explicit nested policy value must override its default.');
+	mode_assert(false === $policy_overlay['constraints']['custom_html'], 'An omitted nested policy value must remain inherited.');
 
 	$document = $normalize->invoke($repository, array(
 		'page_type' => 'article', 'composition_mode' => 'document', 'target_post_type' => 'post',
@@ -203,6 +220,29 @@ namespace SmartCloud\AgentComposer\Execution {
 	mode_assert(! empty($language->issues_for_policy($strict, 'This is the clear next step for your service and the people who use it.')), 'Substantial English text must fail strict hu-HU validation.');
 	mode_assert(empty($language->issues_for_policy($strict, 'A SmartCloud rendszer magyar nyelvű, ellenőrzött szakmai adatokat kezel.')), 'Approved brands in Hungarian copy must not create a false positive.');
 	mode_assert(empty($language->issues_for_policy($strict, 'A GasztroKlinika szakgyógyszerésze a terápiák áttekintésében is segít, és a páciensek kérdéseire is válaszol.')), 'Hungarian articles and the Hungarian word „is” must not count as English evidence.');
+
+	$GLOBALS['semantic_tree'] = array(
+		array(
+			'blockName' => 'smartcloud-ai-kit/kb-section',
+			'attrs' => array(),
+			'innerHTML' => '<div></div>',
+			'innerBlocks' => array(
+				array(
+					'blockName' => 'core/group',
+					'attrs' => array( 'metadata' => array( 'name' => 'smartcloud-agent-canvas/hero-service' ) ),
+					'innerHTML' => '<div></div>',
+					'innerBlocks' => array(),
+				),
+			),
+		),
+	);
+	$page_validator = (new \ReflectionClass(Page_Validator::class))->newInstanceWithoutConstructor();
+	$extract_sequence = new \ReflectionMethod(Page_Validator::class, 'extract_sequence');
+	$extract_sequence->setAccessible(true);
+	mode_assert(
+		array('smartcloud-agent-canvas/hero-service') === $extract_sequence->invoke($page_validator, 'nested-pattern-fixture'),
+		'Pattern sequence discovery must recurse through semantic wrapper blocks such as AI Kit KB sections.'
+	);
 
 	$draftSource = (string) file_get_contents(dirname(__DIR__) . '/src/Execution/Draft_Service.php');
 	$assemblerSource = (string) file_get_contents(dirname(__DIR__) . '/src/Execution/Pattern_Assembler.php');

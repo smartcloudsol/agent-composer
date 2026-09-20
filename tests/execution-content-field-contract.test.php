@@ -127,9 +127,12 @@ namespace SmartCloud\AgentComposer\Execution {
 	);
 
 	$source = file_get_contents(dirname(__DIR__) . '/src/Execution/Content_Field_Materializer.php');
+	field_assert_true(str_contains($source, "'label'       => sanitize_text_field"), 'Field contracts must expose registered human labels alongside descriptions.');
 	field_assert_true(is_string($source), 'The content field materializer source must be readable.');
 	field_assert_true(str_contains($source, "get_registered_meta_keys( 'post', \$post_type )"), 'Fields must come from the WordPress meta registry.');
 	field_assert_true(str_contains($source, 'get_content_field_access'), 'Every exposed field must pass the Site Contract allowlist.');
+	field_assert_true(str_contains($source, "'proposal-only' ===") && str_contains($source, 'Activation::CAP_PROPOSE_UPDATES'), 'Published field reads must require both proposal policy gates and the dedicated proposal capability.');
+	field_assert_true(str_contains($source, "'published-proposal-source'"), 'Published proposal-source field inspection must identify its read boundary.');
 	field_assert_true(str_contains($source, 'update_owned_meta_fields'), 'Writes must cross the owned-draft concurrency boundary.');
 	field_assert_true(! preg_match('/gasztro|gk_|orvosok|asszisztensek/i', $source), 'The generic Composer field gate must not contain site-specific identifiers.');
 	$config_source = file_get_contents(dirname(__DIR__) . '/src/Execution/Config_Repository.php');

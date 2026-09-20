@@ -254,6 +254,7 @@ try {
 	$discovery_data = $discovery_response->get_data();
 	$assert( isset( $discovery_data['registered_blocks'] ) && is_array( $discovery_data['registered_blocks'] ), 'Discovery must expose the registered block inventory.' );
 	$assert( isset( $discovery_data['registered_patterns'] ) && is_array( $discovery_data['registered_patterns'] ), 'Discovery must expose the registered pattern inventory.' );
+	$assert( isset( $discovery_data['synced_pattern_records'] ) && is_array( $discovery_data['synced_pattern_records'] ), 'Discovery must expose native synced pattern records separately from the registered pattern inventory.' );
 	$assert( isset( $discovery_data['registered_templates'] ) && is_array( $discovery_data['registered_templates'] ), 'Discovery must expose the registered block-template inventory.' );
 
 	$presets_response = rest_do_request( new WP_REST_Request( 'GET', '/smartcloud-agent-composer/v1/presets' ) );

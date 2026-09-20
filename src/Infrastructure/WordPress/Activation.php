@@ -5,9 +5,11 @@ namespace SmartCloud\AgentComposer\Infrastructure\WordPress;
 use SmartCloud\AgentComposer\Domain\Configuration\EntityType;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\AuditTable;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\WordPressConfigurationRepository;
+use SmartCloud\AgentComposer\Infrastructure\Persistence\PublishApprovalTable;
 
 final class Activation {
-	private const ROLE_SCHEMA_VERSION = '4';
+	private const ROLE_SCHEMA_VERSION = '7';
+	private const DB_SCHEMA_VERSION = '3';
 	public const ROLE                = 'smartcloud_agent';
 	public const CAP_USE             = 'smartcloud_agent_use';
 	public const CAP_VIEW_STATUS     = 'smartcloud_composer_view_status';
@@ -22,6 +24,9 @@ final class Activation {
 	public const CAP_CREATE_TERMS    = 'smartcloud_composer_create_terms';
 	public const CAP_PROPOSE_UPDATES = 'smartcloud_composer_propose_published_updates';
 	public const CAP_MERGE_PROPOSALS = 'smartcloud_composer_merge_content_proposals';
+	public const CAP_MANAGE_STRUCTURE = 'manage_agent_composer_structure';
+	public const CAP_RUN_MIGRATIONS = 'run_agent_composer_migrations';
+	public const CAP_APPROVE_PUBLISH = 'smartcloud_composer_approve_publish';
 
 	public static function activate( bool $network_wide = false ): void {
 		if ( is_multisite() && $network_wide ) {
@@ -39,15 +44,22 @@ final class Activation {
 		EntityPostType::register();
 		self::install_roles();
 		AuditTable::install();
+		PublishApprovalTable::install();
 		self::migrate_legacy_role_users();
 		self::migrate_blueprint_entity_keys();
 		update_option( 'smartcloud_composer_db_version', SMARTCLOUD_COMPOSER_VERSION, false );
+		update_option( 'smartcloud_composer_db_schema_version', self::DB_SCHEMA_VERSION, false );
 		update_option( 'smartcloud_composer_role_schema_version', self::ROLE_SCHEMA_VERSION, false );
 		flush_rewrite_rules( false );
 	}
 
 	public static function maybe_upgrade(): void {
 		self::migrate_blueprint_entity_keys();
+		if ( (string) get_option( 'smartcloud_composer_db_schema_version', '' ) !== self::DB_SCHEMA_VERSION ) {
+			AuditTable::install();
+			PublishApprovalTable::install();
+			update_option( 'smartcloud_composer_db_schema_version', self::DB_SCHEMA_VERSION, false );
+		}
 		if ( (string) get_option( 'smartcloud_composer_db_version', '' ) !== SMARTCLOUD_COMPOSER_VERSION ) {
 			self::activate_site();
 			return;
@@ -130,6 +142,9 @@ final class Activation {
 			self::CAP_CREATE_TERMS,
 			self::CAP_PROPOSE_UPDATES,
 			self::CAP_MERGE_PROPOSALS,
+			self::CAP_MANAGE_STRUCTURE,
+			self::CAP_RUN_MIGRATIONS,
+			self::CAP_APPROVE_PUBLISH,
 		);
 	}
 

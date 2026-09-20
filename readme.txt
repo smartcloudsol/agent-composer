@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.2.6
+Stable tag: 1.3.0
 License: MIT
 License URI: https://mit-license.org/
 
@@ -15,6 +15,8 @@ Governed configuration, validation, drafts, and human-reviewed update proposals 
 SmartCloud Agent Composer adds a controlled WordPress layer for agent-assisted Gutenberg workflows. Administrators define versioned Config Sets with site contracts, page-type Blueprints, approved patterns, structured fields, relations, media policy, and safety rules. Agents can create or revise only validated, Composer-owned drafts, or prepare a separate working proposal for a human-reviewed published-content update.
 
 Composer registers its governed Abilities through the separate WordPress MCP Adapter at `/wp-json/mcp/smartcloud-agent-composer`. A compatible authenticated MCP client can connect directly; an OpenAI Connector tunnel is optional and is not bundled.
+
+For remote or multi-user clients, Composer can validate Amazon Cognito access tokens and intersect group roles, per-App-Client role ceilings, granted Composer scopes, and the active content contract. This protected mode does not create shadow WordPress users. The backward-compatible dedicated WordPress user path remains available when MCP protection is Open.
 
 Core operation runs inside WordPress without requiring a WP Suite account, subscription, hosted service, provider plugin, or proprietary theme. Optional integrations are disclosed under **External Services**.
 
@@ -34,6 +36,13 @@ Core operation runs inside WordPress without requiring a WP Suite account, subsc
 * Provider-neutral language discovery that distinguishes authored-language policy from actual site language switching.
 * Optional Polylang and WPML draft-language assignment and explicit linking of separately authored translations without publishing them.
 * Human review can return the same update proposal for changes with an audited instruction, without creating another draft.
+* Versioned Structure Contracts protect semantic Gutenberg structure while keeping approved content and extension slots editable.
+* Synced structural patterns use native Pattern Overrides so shared layout can evolve without copying per-page values.
+* Single-item and bounded bulk Blueprint migrations produce deterministic previews and separate review proposals instead of rewriting published content.
+* Optional or required WP-admin creation policy starts human-created CPT items from a validated managed Blueprint instead of an ungoverned blank document.
+* Optional fail-closed Cognito MCP access with public OAuth discovery, PKCE S256, group roles, per-client ceilings, Composer scopes, filtered tools, and redacted audit evidence.
+* Publisher-only handoff lets an authorized reviewer inspect and submit another principal's ordinary Composer-owned draft without taking edit ownership.
+* Revision-bound inline MCP App approval in compatible clients, with human-only decision controls and a WordPress-admin fallback.
 
 Documentation: https://wpsuite.io/docs/
 
@@ -41,9 +50,9 @@ This plugin is not affiliated with or endorsed by the WordPress Foundation. All 
 
 == Usage Notice ==
 
-Composer does not grant anonymous access or general WordPress administration. The dedicated `smartcloud_agent` role has no publishing, normal-content deletion, plugin, theme, user, arbitrary media-upload, or unfiltered-HTML capabilities.
+Composer does not grant anonymous access or general WordPress administration. Protected MCP access validates signed Cognito access tokens without provisioning WordPress users. In backward-compatible Open mode, the dedicated `smartcloud_agent` role has no publishing, normal-content deletion, plugin, theme, user, arbitrary media-upload, or unfiltered-HTML capabilities.
 
-Composer never publishes agent-created content. It deletes only expired, Composer-owned temporary previews. Optional remote ingestion is restricted to allowlisted HTTPS hosts and Composer-owned drafts; it is not a general Media Library API.
+The model never publishes agent-created content. An authorized human may approve one exact, locked revision through the inline MCP App or WordPress fallback; any intervening draft change invalidates the request. Composer deletes only expired, Composer-owned temporary previews. Optional remote ingestion is restricted to allowlisted HTTPS hosts and Composer-owned drafts; it is not a general Media Library API.
 
 == Installation ==
 
@@ -51,7 +60,8 @@ Composer never publishes agent-created content. It deletes only expired, Compose
 2. Open **SmartCloud -> Agent Composer** and review runtime, theme, and provider status.
 3. Create or import an inactive Config Set, review its Site Contract and Blueprints, then validate and explicitly activate it.
 4. Install and activate the separate WordPress MCP Adapter if an MCP client will use Composer.
-5. Create a dedicated WordPress user with the `smartcloud_agent` role and configure the client to authenticate as that user.
+5. For remote or multi-user MCP access, configure **MCP Access** with a Cognito User Pool, Hosted UI domain, public authorization-code plus PKCE App Client, exact client callback, external MCP resource URI, group-role mappings, client ceiling, and optional URI-bound Composer scopes. Keep protection Open until the OAuth round trip succeeds.
+6. For the backward-compatible Open path only, create a dedicated WordPress user with the `smartcloud_agent` role and store its Application Password in the client secret store.
 
 Composer requires WordPress 6.9 or newer and PHP 8.1 or newer.
 
@@ -59,11 +69,11 @@ Composer requires WordPress 6.9 or newer and PHP 8.1 or newer.
 
 = Can Composer publish or delete site content? =
 
-No. Agent-facing operations create and update drafts only. Normal content cannot be published or deleted through Composer. Only expired, Composer-owned temporary previews are removed automatically.
+The model cannot publish or delete normal content. A Publisher may request human approval for one exact Composer-owned draft revision, including a draft assigned to another Composer principal, without receiving edit ownership. Publication occurs only after an authorized person explicitly approves the still-current revision in the inline MCP App or WordPress fallback. Only expired, Composer-owned temporary previews are removed automatically.
 
 = How does an agent connect? =
 
-Install the WordPress MCP Adapter, use a dedicated authenticated WordPress user, and connect a compatible MCP client to `/wp-json/mcp/smartcloud-agent-composer`. An optional Connector tunnel can expose the same endpoint without changing Composer's WordPress authorization boundary. The `get-rendered-preview` tool returns a sanitized content-scoped HTML snapshot. MCP Apps clients can display it inline when WordPress MCP Adapter 0.6.1 or newer is installed; other clients still receive the structured result. The preview app privately retrieves bounded local images, WOFF/WOFF2 fonts, sanitized local stylesheets, and their bounded local imports through the authenticated MCP connection, so it does not need direct browser access to a firewalled WordPress origin.
+Install WordPress MCP Adapter 0.6.1 or newer and connect to `/wp-json/mcp/smartcloud-agent-composer`. For protected remote access, configure Cognito access-token validation and use a public authorization-code plus PKCE client; a firewalled site needs an HTTP Secure MCP Tunnel profile because STDIO cannot forward the OAuth challenge or bearer token. Use the tunnel client's OAuth/DCR HTTP profile for protected access and its remote-no-auth HTTP profile while Composer intentionally remains Open without an identity provider. Open mode may instead use a dedicated authenticated WordPress user. The `get-rendered-preview` tool returns a sanitized content-scoped HTML snapshot. Compatible MCP Apps clients can display it inline, and its bounded local image, WOFF/WOFF2 font, stylesheet, and import bridge does not require direct browser access to a private WordPress origin.
 
 = How does media handling work? =
 
@@ -142,6 +152,24 @@ https://www.npmjs.com/package/@smart-cloud/agent-composer-core
 The distributed JavaScript and CSS are built from public `admin/src` and `core` sources. PHP owns registration, authorization, persistence, audit, portability, and execution. The release assembler adds the shared Hub runtime, verifies the package, normalizes timestamps, and records SHA-256 checksums.
 
 == Changelog ==
+
+= 1.3.0 =
+* MCP security boundary: Add optional Cognito access-token validation, group roles, per-client ceilings, optional scopes, filtered discovery, invocation enforcement, principal-bound ownership, and actor-aware audit context on WordPress MCP Adapter hooks.
+* Human publication: Add Publisher-only, revision/hash-bound requests, cross-principal read-only handoff, an inline MCP App with app-private human decision tools, and a WordPress-admin fallback; agents never receive direct publication or model-visible approval tools.
+* MCP administration: Add a guided MCP Access screen, automatic Cognito provider discovery with manual override, Site Contract-required authenticated mode, and fail-closed status guidance.
+* MCP OAuth discovery: Advertise protected-resource metadata, PKCE S256, public-client token authentication, and Cognito authorization-code plus refresh-token grants for direct and HTTP-tunneled clients.
+* OAuth resource binding: Configure the exact external MCP resource URI, advertise its URI-bound scopes, and reject access tokens whose audience does not match that resource.
+* MCP diagnostics: Record token-free transport denial details, including the stable validation error and whether an Authorization header was present, in the append-only audit chain.
+* MCP audit trail: Record accepted MCP requests and completed tool calls without storing bearer values, request arguments, or tool results.
+* Structure Contracts: Add independently versioned semantic structure policy, protected editor projection, managed baselines, typed override manifests, drift detection, and machine-readable violations.
+* Semantic agent editing: Add contract and document reads plus field, media, and extension-slot operations that use stable semantic IDs instead of serialized Gutenberg paths.
+* Synced patterns: Materialize approved local synced patterns with native Pattern Overrides and validate their expanded structure without copying shared markup into each post.
+* Versioned migrations: Add exact source/target baselines, historical contract verification, deterministic section and field operations, override-aware rebasing, zero-write previews, and plan-bound update proposals.
+* Bulk migrations: Add bounded planning and compatibility reports for up to 100 items per page and idempotent proposal creation for up to 25 explicitly reviewed items.
+* Administration and documentation: Clearly separate human Migration guidance from executable migration policy and document the complete what, why, how, and recovery workflow.
+* Administration feedback: Keep refreshed content in place, use dimension-preserving skeletons for initial data loads, and show pending state on the button that started each operation.
+* Pattern diagnostics: Distinguish registry patterns from synced structural wp_block records and reserve Missing for genuinely unavailable sources.
+* Site Contract policy: Treat explicit list values as replacements, so removing a default block prohibition such as `core/embed` no longer leaves a trailing numeric-list entry active.
 
 = 1.2.6 =
 * WP Suite Solution workflow: Enable human-reviewed published-content update proposals in the Solution Blueprint and Site Contract.
@@ -232,14 +260,17 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 
 == Upgrade Notice ==
 
+= 1.3.0 =
+Install MCP Adapter 0.6.1+. The upgrade adds approval storage/capability but leaves MCP protection Open. Validate and activate a Structure Contract Config Set, synchronize its local patterns, restart MCP, reconnect compatible clients so they discover the inline approval App, and refresh tools. Existing content is not migrated automatically. Before enabling Protected Required, configure a Cognito Hosted UI domain and public code-plus-PKCE client with the exact callback, map groups and client ceilings, migrate any external tunnel from STDIO to HTTP, copy the exact external MCP resource URI into Composer, and complete a test OAuth round trip. Enable scope enforcement only after Cognito uses that same URI as its resource-server identifier and App Client scopes.
+
 = 1.2.6 =
-To enable Solution update proposals, import, validate, and explicitly activate the bundled wpsuite-site-contract-8-theme-1-0-59 Config Set, then restart the MCP runtime and refresh the client tool catalogue. Existing localized proposals also gain correct rendered-preview language recovery after the runtime restart.
+To enable Solution update proposals, activate the bundled theme 1.0.59 Config Set, restart MCP, and refresh tools. The restart also enables rendered-preview language recovery for localized proposals.
 
 = 1.2.5 =
-Restart the MCP runtime and refresh the client tool catalogue after upgrading. Existing Config Sets remain fail-closed and require rendered preview; to make it optional, clone and activate a validated Config Set with design_policy.rendered_preview_policy set to optional. A supplied token is still validated against the exact proposal revision. Sites that localize links during block rendering should consume the request-scoped smartcloud_composer_rendered_preview_content_language filter; the WP Suite theme 1.0.68 includes this integration.
+Restart MCP and refresh tools. Existing Config Sets still require rendered previews. To make them optional, clone, validate, and activate a Config Set with design_policy.rendered_preview_policy set to optional. Theme 1.0.68 supports localized preview links.
 
 = 1.2.4 =
-Restart the MCP runtime and refresh the client tool and resource catalogue so the v3 rendered-preview template and required submission token schema are loaded. Import, validate, and explicitly activate the updated WP Suite Config Set to allow homepage and product-page update proposals; existing active Config Sets remain unchanged.
+Restart MCP and refresh tools/resources to load the v3 preview and token schema. Activate the updated WP Suite Config Set to allow homepage and product-page proposals; existing active Config Sets remain unchanged.
 
 = 1.2.3 =
 Import, validate, and explicitly activate the new WP Suite Config Set if the site uses the bundled theme 1.0.59 contract. Existing active Config Sets remain unchanged.

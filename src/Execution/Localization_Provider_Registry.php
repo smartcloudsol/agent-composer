@@ -12,6 +12,7 @@ namespace SmartCloud\AgentComposer\Execution;
  */
 final class Localization_Provider_Registry {
 	public const FILTER = 'smartcloud_composer_localization_providers';
+	private const CONTENT_LANGUAGE_META = '_wpsuite_agent_content_language';
 
 	private const REQUIRED_SUFFIXES = array(
 		'/get-localization-capabilities',
@@ -122,6 +123,42 @@ final class Localization_Provider_Registry {
 			'source_language_code' => sanitize_key( (string) ( $result['source_language_code'] ?? '' ) ),
 			'translations'       => $translations,
 		);
+	}
+
+	/**
+	 * Resolve an item's authored language without confusing the WordPress UI
+	 * locale with a monolingual Blueprint's content language.
+	 *
+	 * A real localization provider remains authoritative. Without one, an
+	 * explicitly stored Composer language wins, followed by the Blueprint's
+	 * concrete content_language. The WordPress locale is only the final
+	 * fallback for legacy configurations that declare no authored language.
+	 */
+	public function resolve_for_blueprint( int $post_id, string $post_type, array $blueprint ): array {
+		$context = $this->resolve( $post_id, $post_type );
+		if ( 'wordpress' !== (string) ( $context['provider'] ?? '' ) ) {
+			$context['language_source'] = 'localization-provider';
+			return $context;
+		}
+
+		$allowed = (array) ( $blueprint['allowed_content_languages'] ?? array() );
+		$stored  = trim( (string) get_post_meta( $post_id, self::CONTENT_LANGUAGE_META, true ) );
+		$declared = trim( (string) ( $blueprint['content_language'] ?? '' ) );
+		$language = '';
+		$source   = 'wordpress-locale';
+		if ( $this->valid_content_language( $stored ) && Content_Language_Validator::is_allowed_language( $allowed, $stored ) ) {
+			$language = $stored;
+			$source   = 'composer-metadata';
+		} elseif ( '*' !== $declared && $this->valid_content_language( $declared ) && Content_Language_Validator::is_allowed_language( $allowed, $declared ) ) {
+			$language = $declared;
+			$source   = 'blueprint';
+		}
+		if ( '' !== $language ) {
+			$context['content_language'] = $language;
+			$context['language_code']    = sanitize_key( (string) strtok( $language, '-' ) );
+		}
+		$context['language_source'] = $source;
+		return $context;
 	}
 
 	public function languages(): array {
@@ -297,7 +334,11 @@ final class Localization_Provider_Registry {
 		}
 		if ( 'wordpress' === $provider_id ) {
 			$source = get_post( $source_id );
-			$current = $source instanceof \WP_Post ? $this->resolve( $source_id, $source->post_type ) : array();
+			$page_type = sanitize_key( (string) get_post_meta( $proposal_id, '_wpsuite_agent_page_type', true ) );
+			$blueprint = '' !== $page_type ? $this->config->get_blueprint( $page_type ) : array();
+			$current = $source instanceof \WP_Post
+				? $this->resolve_for_blueprint( $source_id, $source->post_type, $blueprint )
+				: array();
 			if ( 'wordpress' !== (string) ( $current['provider'] ?? '' )
 				|| ! hash_equals( (string) ( $context['localization_group'] ?? '' ), (string) ( $current['localization_group'] ?? '' ) )
 				|| ! hash_equals( strtolower( (string) ( $context['content_language'] ?? '' ) ), strtolower( (string) ( $current['content_language'] ?? '' ) ) ) ) {
@@ -344,6 +385,10 @@ final class Localization_Provider_Registry {
 		}
 		$url = esc_url_raw( (string) ( $result['preview_url'] ?? '' ), array( 'http', 'https' ) );
 		return '' !== $url ? $url : $fallback;
+	}
+
+	private function valid_content_language( string $language ): bool {
+		return 1 === preg_match( '/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/', $language );
 	}
 
 	private function active_provider(): ?array {

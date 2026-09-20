@@ -106,6 +106,8 @@ function smartcloud_composer_uninstall_site(): void {
 		'smartcloud_composer_create_terms',
 		'smartcloud_composer_propose_published_updates',
 		'smartcloud_composer_merge_content_proposals',
+		'manage_agent_composer_structure',
+		'run_agent_composer_migrations',
 	);
 	$administrator = get_role( 'administrator' );
 	if ( $administrator ) {

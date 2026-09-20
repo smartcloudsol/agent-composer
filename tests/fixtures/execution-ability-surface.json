@@ -3,6 +3,19 @@
   "canonical_prefix": "smartcloud-agent-composer/",
   "operations": [
     "get-page-blueprint",
+    "get-contract",
+    "get-document",
+    "set-field",
+    "replace-media",
+    "insert-slot-block",
+    "update-slot-block",
+    "move-slot-block",
+    "remove-slot-block",
+    "validate-proposal",
+    "preview-blueprint-migration",
+    "create-blueprint-migration-proposal",
+    "plan-blueprint-migration",
+    "create-blueprint-migration-proposals",
     "get-design-context",
     "get-runtime-capabilities",
     "list-supported-content-languages",
@@ -42,7 +55,9 @@
     "get-draft",
     "get-preview",
     "get-rendered-preview",
-    "get-rendered-preview-asset"
+    "get-rendered-preview-asset",
+    "inspect-publishable-draft",
+    "request-publish"
   ],
   "preferred_aliases": [
     "materialize-image",

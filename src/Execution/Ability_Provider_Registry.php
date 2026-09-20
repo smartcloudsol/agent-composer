@@ -113,12 +113,55 @@ final class Ability_Provider_Registry {
 			}
 		}
 		if ( count( $matches ) > 1 ) {
-			throw new Execution_Exception(
+			throw new Execution_Exception( // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Structured provider validation context is returned through the API, not rendered.
 				'provider_namespace_conflict',
 				'More than one registered ability provider claims the same block namespace.'
 			);
 		}
 		return $matches[0] ?? null;
+	}
+
+	/**
+	 * Materialize one semantic product component through its owning provider.
+	 *
+	 * The caller never accepts provider markup directly. The provider must return
+	 * canonical parsed blocks and must validate the exact tree it produced.
+	 */
+	public function materialize_component( string $provider_id, string $component, array $spec ): array {
+		$provider_id = sanitize_key( $provider_id );
+		$component   = sanitize_key( $component );
+		$provider    = $this->all()[ $provider_id ] ?? null;
+		if ( ! is_array( $provider ) ) {
+			throw new Execution_Exception( 'component_provider_unavailable', 'The requested component provider is not available.' );
+		}
+		if ( '' === $component ) {
+			throw new Execution_Exception( 'component_name_invalid', 'A provider component name is required.' );
+		}
+
+		$ability_name = $this->ability_with_suffix( $provider['ability_names'], '/materialize-component' );
+		$ability      = null !== $ability_name && wp_has_ability( $ability_name ) ? wp_get_ability( $ability_name ) : null;
+		if ( ! is_object( $ability ) || ! method_exists( $ability, 'execute' ) ) {
+			throw new Execution_Exception( 'provider_materialization_unavailable', 'The component provider materialization ability is not registered.' );
+		}
+		$result = $ability->execute( array( 'component' => $component, 'spec' => $spec ) );
+		if ( is_wp_error( $result ) ) {
+			throw new Execution_Exception( 'provider_materialization_failed', 'The component provider rejected the semantic component specification.' );
+		}
+		$blocks = is_array( $result ) && is_array( $result['blocks'] ?? null ) ? array_values( $result['blocks'] ) : array();
+		if ( 1 !== count( $blocks ) || ! is_array( $blocks[0] ) ) {
+			throw new Execution_Exception( 'provider_component_root_invalid', 'A semantic slot component must materialize exactly one root block.' );
+		}
+
+		$validation = $this->validate_block_trees( $blocks );
+		if ( ! $validation['valid'] ) {
+			throw new Execution_Exception(
+				'provider_materialization_invalid',
+				'The component provider did not validate the block tree it materialized.',
+				0,
+				array( 'errors' => $validation['errors'] ) // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Structured provider errors are returned through the API, not rendered.
+			);
+		}
+		return $blocks;
 	}
 
 	/**

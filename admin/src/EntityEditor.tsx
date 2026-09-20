@@ -156,6 +156,8 @@ function BlueprintFields({ payload, update, immutable, blocks, help }: FieldsPro
       <Select label={__("Published update workflow", TEXT_DOMAIN)} description={fieldDescription(__("Allow this Blueprint to create a separate review proposal for an existing published item. Only a human reviewer can merge it.", TEXT_DOMAIN), "blueprint-safety", help)} value={stringAt(payload, ["published_update_policy"]) || "disabled"}
         data={[{ value: "disabled", label: __("Disabled", TEXT_DOMAIN) }, { value: "proposal-only", label: __("Proposal only (human merge)", TEXT_DOMAIN) }]}
         onChange={(value) => update(["published_update_policy"], value || "disabled")} readOnly={immutable} />
+      <TextInput label={__("Structure Contract ID", TEXT_DOMAIN)} description={fieldDescription(__("Optional machine-enforced contract defined by the Site Contract. Clear this field to keep the Blueprint in legacy-document mode.", TEXT_DOMAIN), "blueprint-safety", help)} placeholder="solution-editor" value={stringAt(payload, ["structure_contract", "id"])} onChange={(event) => { const value = event.currentTarget.value; update(value.trim() ? ["structure_contract", "id"] : ["structure_contract"], value.trim() ? value : null); }} readOnly={immutable} />
+      <NumberInput label={__("Structure Contract version", TEXT_DOMAIN)} description={fieldDescription(__("Exact independently versioned contract baseline required by this Blueprint.", TEXT_DOMAIN), "blueprint-safety", help)} placeholder="1" min={1} value={numberAt(payload, ["structure_contract", "version"]) || ""} onChange={(value) => update(["structure_contract", "version"], Number(value) || 0)} readOnly={immutable} />
       <TagsInput label={__("Allowed content languages", TEXT_DOMAIN)} description={fieldDescription(__("BCP 47 languages this Blueprint may author; use * only when the Site Contract also allows every configured provider language.", TEXT_DOMAIN), "site-language", help)} placeholder="en-US or *" value={stringsAt(payload, ["allowed_content_languages"])} onChange={(value) => update(["allowed_content_languages"], value)} readOnly={immutable} clearable />
       <TextInput label={__("Visual variant", TEXT_DOMAIN)} description={fieldDescription(__("Stable semantic presentation family, not a CSS class.", TEXT_DOMAIN), "blueprint-identity", help)} placeholder="service-detail" value={stringAt(payload, ["visual_variant"])} onChange={(event) => update(["visual_variant"], event.currentTarget.value)} readOnly={immutable} />
       <Select label={__("Excerpt policy", TEXT_DOMAIN)} description={fieldDescription(__("Required, optional, or empty for this page type.", TEXT_DOMAIN), "blueprint-safety", help)} value={stringAt(payload, ["excerpt_policy"]) || stringAt(payload, ["excerpt"]) || "optional"}
@@ -178,8 +180,8 @@ function BlueprintFields({ payload, update, immutable, blocks, help }: FieldsPro
       {constraintFields.map(([key, label]) => <Switch key={key} label={label} checked={booleanAt(payload, ["constraints", key])} onChange={(event) => { if (!immutable) update(["constraints", key], event.currentTarget.checked); }} readOnly={immutable} />)}
     </SimpleGrid>
     <LongList label={__("Layout rules", TEXT_DOMAIN)} description={__("One observable, enforceable layout rule per line.", TEXT_DOMAIN)} placeholder={__("Use one full-width hero before the main content sections.\nKeep explanatory media inside the content rail.\nUse only theme preset colors and spacing values.", TEXT_DOMAIN)} topic="blueprint-layout" help={help} value={stringsAt(payload, ["layout_contract"])} change={(value) => update(["layout_contract"], value)} readOnly={immutable} />
-    <LongList label={__("Content rules", TEXT_DOMAIN)} description={__("One editorial, evidence, or reader-safety requirement per line.", TEXT_DOMAIN)} placeholder={__("Use one descriptive H1 and a clear heading hierarchy.\nSupport factual claims with an approved source.\nEnd with one relevant next step for the reader.", TEXT_DOMAIN)} topic="blueprint-content" help={help} value={stringsAt(payload, ["content_contract"])} change={(value) => update(["content_contract"], value)} readOnly={immutable} />
-    <LongList label={__("Migration rules", TEXT_DOMAIN)} description={__("How existing content is preserved and mapped; leave empty for new content only.", TEXT_DOMAIN)} placeholder={__("Preserve the existing slug, topic, and supported factual claims.\nMap legacy sections to the closest approved pattern.\nRetain relevant media and source attribution.", TEXT_DOMAIN)} topic="blueprint-migration" help={help} value={stringsAt(payload, ["migration_contract"])} change={(value) => update(["migration_contract"], value)} readOnly={immutable} />
+    <LongList label={__("Content rules", TEXT_DOMAIN)} description={__("Human-readable editorial guidance only. Structural enforcement comes from the referenced Structure Contract.", TEXT_DOMAIN)} placeholder={__("Use one descriptive H1 and a clear heading hierarchy.\nSupport factual claims with an approved source.\nEnd with one relevant next step for the reader.", TEXT_DOMAIN)} topic="blueprint-content" help={help} value={stringsAt(payload, ["content_contract"])} change={(value) => update(["content_contract"], value)} readOnly={immutable} />
+    <LongList label={__("Migration guidance", TEXT_DOMAIN)} description={__("Human-readable guidance for content decisions. Executable version-to-version migrations are registered and validated separately in the Site Contract.", TEXT_DOMAIN)} placeholder={__("Preserve the existing slug, topic, and supported factual claims.\nRetain relevant media and source attribution.\nFlag unsupported legacy claims for human review.", TEXT_DOMAIN)} topic="blueprint-migration" help={help} value={stringsAt(payload, ["migration_contract"])} change={(value) => update(["migration_contract"], value)} readOnly={immutable} />
     <TagsInput label={__("Reference URLs", TEXT_DOMAIN)} description={fieldDescription(__("Approved context sources; never copied blindly.", TEXT_DOMAIN), "blueprint-references", help)} placeholder="https://example.com/authoritative-source/" value={stringsAt(payload, ["reference_urls"])} onChange={(value) => update(["reference_urls"], value)} readOnly={immutable} clearable />
   </Stack>;
 }
@@ -206,6 +208,10 @@ function SiteContractFields({ payload, update, immutable, help, postTypes, bluep
   }
   return <Stack gap="md">
     <EditorIntro title={__("Site Contract", TEXT_DOMAIN)} text={__("Sets site-wide policy and the defaults inherited by Blueprints that do not define explicit page-type values.", TEXT_DOMAIN)} />
+    <Card withBorder radius="sm" p="sm"><Stack gap="xs">
+      <Switch label={__("Require authenticated MCP access", TEXT_DOMAIN)} description={__("Fail closed unless MCP Access has a complete Cognito provider, group-role mapping, and allowed OAuth client. Leave off for backward-compatible Open mode; direct agent publishing remains impossible either way.", TEXT_DOMAIN)} checked={booleanAt(payload, ["security", "mcp", "requireAuthentication"])} onChange={(event) => { if (!immutable) update(["security", "mcp", "requireAuthentication"], event.currentTarget.checked); }} readOnly={immutable} />
+      <Text size="xs" c="dimmed">{__("Identity, group and client values are configured separately under MCP Access so they are not copied into portable Site Contracts.", TEXT_DOMAIN)}</Text>
+    </Stack></Card>
     <SimpleGrid cols={{ base: 1, sm: 2 }}>
       <TextInput label={__("Contract label", TEXT_DOMAIN)} description={fieldDescription(__("Human-readable name of the site-wide contract.", TEXT_DOMAIN), "site-identity", help)} placeholder={__("Public site content contract", TEXT_DOMAIN)} value={stringAt(payload, ["label"])} onChange={(event) => update(["label"], event.currentTarget.value)} readOnly={immutable} />
       <TextInput label={__("Policy name", TEXT_DOMAIN)} description={fieldDescription(__("Stable machine-readable design policy name.", TEXT_DOMAIN), "site-identity", help)} placeholder="site-design-policy" value={stringAt(payload, ["design_policy", "policy_name"])} onChange={(event) => update(["design_policy", "policy_name"], event.currentTarget.value)} readOnly={immutable} />
@@ -245,7 +251,8 @@ function ContentAccessFields({ payload, update, immutable, postTypes, blueprints
   const fieldAccess = objectAt(policy, ["content_field_access"]);
   const taxonomyAccess = objectAt(policy, ["content_taxonomy_access"]);
   const contract = objectAt(policy, ["post_type_contract"]);
-  const configured = new Set([...Object.values(contract), ...Object.keys(access), ...Object.keys(fieldAccess), ...Object.keys(taxonomyAccess)].filter((value): value is string => typeof value === "string"));
+  const adminCreation = objectAt(policy, ["admin_creation"]);
+  const configured = new Set([...Object.values(contract), ...Object.keys(access), ...Object.keys(fieldAccess), ...Object.keys(taxonomyAccess), ...Object.keys(adminCreation)].filter((value): value is string => typeof value === "string"));
   const known = new Map(postTypes.map((item) => [item.name, item]));
   for (const name of configured) {
     if (!known.has(name)) known.set(name, { name, label: name, builtin: false, public: false, show_ui: false, show_in_rest: false, supports_editor: false, current_user_can_edit: false, registered_taxonomies: [], registered_meta: [] });
@@ -319,6 +326,15 @@ function ContentAccessFields({ payload, update, immutable, postTypes, blueprints
     update(["design_policy"], nextPolicy);
   };
 
+  const setAdminCreation = (postType: string, mode: string, defaultPageType: string) => {
+    const nextPolicy = { ...policy };
+    const nextAdminCreation = { ...adminCreation };
+    if (mode === "off") delete nextAdminCreation[postType];
+    else nextAdminCreation[postType] = { mode, default_page_type: defaultPageType };
+    nextPolicy.admin_creation = nextAdminCreation;
+    update(["design_policy"], nextPolicy);
+  };
+
   const setTaxonomyRules = (postType: string, taxonomy: string, patch: Record<string, unknown>) => {
     const nextPolicy = { ...policy };
     const nextTaxonomyAccess = { ...taxonomyAccess };
@@ -356,9 +372,20 @@ function ContentAccessFields({ payload, update, immutable, postTypes, blueprints
       const safe = postType.public && postType.show_ui && postType.show_in_rest && postType.supports_editor && postType.current_user_can_edit;
       const enabled = !immutable && safe && pageTypes.length > 0;
       const rules = objectAt(access, [postType.name]);
+      const creationRule = objectAt(adminCreation, [postType.name]);
+      const creationMode = typeof creationRule.mode === "string" ? creationRule.mode : "off";
+      const defaultPageType = typeof creationRule.default_page_type === "string" && pageTypes.includes(creationRule.default_page_type) ? creationRule.default_page_type : (pageTypes[0] || "");
       return <Card key={postType.name} withBorder radius="sm" p="sm"><Stack gap="xs">
         <Group justify="space-between" align="flex-start" wrap="wrap"><div><Text fw={700}>{postType.label}</Text><Code>{postType.name}</Code></div><Text size="xs" c={enabled || immutable ? "dimmed" : "orange.8"}>{pageTypes.length ? `${__("Blueprints", TEXT_DOMAIN)}: ${pageTypes.join(", ")}` : __("Add a Blueprint targeting this post type first.", TEXT_DOMAIN)}</Text></Group>
         {!safe && <Alert color="yellow">{__("Composer requires a public, wp-admin-visible, REST/Gutenberg-enabled post type and the current user's edit capability.", TEXT_DOMAIN)}</Alert>}
+        <SimpleGrid cols={{ base: 1, sm: 2 }}>
+          <Select label={__("WP-admin Add New", TEXT_DOMAIN)} description={__("Required starts every new item from its Composer Blueprint. Optional keeps normal WordPress creation available.", TEXT_DOMAIN)} value={creationMode} data={[
+            { value: "off", label: __("Off", TEXT_DOMAIN) },
+            { value: "optional", label: __("Optional", TEXT_DOMAIN) },
+            { value: "required", label: __("Required", TEXT_DOMAIN) }
+          ]} disabled={!enabled} onChange={(value) => setAdminCreation(postType.name, value || "off", defaultPageType)} />
+          <Select label={__("Starting Blueprint", TEXT_DOMAIN)} description={__("Canonical Blueprint used to create the initial synced-pattern document and managed baseline.", TEXT_DOMAIN)} value={defaultPageType} data={pageTypes} disabled={!enabled || creationMode === "off"} onChange={(value) => setAdminCreation(postType.name, creationMode, value || defaultPageType)} />
+        </SimpleGrid>
         <SimpleGrid cols={{ base: 1, sm: 2, lg: 5 }}>
           <Checkbox label={__("Discover in lists", TEXT_DOMAIN)} description={__("Show metadata without body content.", TEXT_DOMAIN)} checked={rules.discover === true} disabled={!enabled} onChange={(event) => setRule(postType.name, "discover", event.currentTarget.checked, pageTypes)} />
           <Checkbox label={__("Read content", TEXT_DOMAIN)} description={__("Inspect body content for analysis.", TEXT_DOMAIN)} checked={rules.read === true} disabled={!enabled} onChange={(event) => setRule(postType.name, "read", event.currentTarget.checked, pageTypes)} />

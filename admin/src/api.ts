@@ -14,6 +14,45 @@ import apiFetch from "@wordpress/api-fetch";
 export interface ComposerRuntimeStatus extends ComposerStatus {
   mcp_endpoint: string;
   localization_providers: RegisteredLocalizationProviderManifest[];
+  mcp_security: McpSecurityStatus | null;
+}
+
+export interface McpSecurityStatus {
+  mode: "OPEN" | "PROTECTED" | "PROTECTED_REQUIRED";
+  identity_configured: boolean;
+  access_ready: boolean;
+  identity_source: "provider" | "manual" | "none";
+  region: string;
+  user_pool_id: string;
+  issuer: string;
+  jwks_url: string;
+  provider_configured: boolean;
+  provider_region: string;
+  provider_user_pool_id: string;
+  group_role_count: number;
+  client_count: number;
+  enforce_scopes: boolean;
+  oauth_resource_uri: string;
+  audience_validation: boolean;
+  resource_bound_scopes: string[];
+  unknown_client_policy: "deny" | "human-role";
+  approval_ttl_seconds: number;
+}
+
+export interface McpSecuritySettings {
+  identity_provider: { provider: "amazon-cognito"; prefer_manual: boolean; manual: { region: string; user_pool_id: string } };
+  group_roles: Record<string, "reader" | "contributor" | "publisher">;
+  clients: Array<{ label: string; client_id: string; role_ceiling: "reader" | "contributor" | "publisher"; scopes: string[] }>;
+  oauth_resource_uri: string;
+  enforce_scopes: boolean;
+  unknown_client_policy: "deny" | "human-role";
+  approval_ttl_seconds: number;
+}
+
+export interface McpAccessConfiguration {
+  settings: McpSecuritySettings;
+  status: McpSecurityStatus;
+  invariants: { direct_agent_publish: false; human_confirmation_required: true; supported_roles: string[]; supported_scopes: string[] };
 }
 
 export interface ConfigEntity {
@@ -105,6 +144,12 @@ export interface ProviderDiscovery {
     block_types: string[];
     source: string;
   }>;
+  synced_pattern_records: Array<{
+    post_id: number;
+    post_name: string;
+    title: string;
+    post_status: string;
+  }>;
   registered_templates: Array<{
     slug: string;
     title: string;
@@ -161,10 +206,14 @@ export interface AuditEvent {
   id: number;
   event_uuid: string;
   created_gmt: string;
+  request_id: string;
   actor_user_id: number;
   event_type: string;
   outcome: string;
+  config_set_id: number;
+  entity_id: number;
   context: Record<string, unknown>;
+  previous_hash: string;
   event_hash: string;
 }
 
@@ -174,6 +223,12 @@ const root = "/smartcloud-agent-composer/v1";
 
 export const loadComposerStatus = (): Promise<ComposerRuntimeStatus> =>
   apiFetch<ComposerRuntimeStatus>({ path: `${root}/status` });
+
+export const loadMcpAccess = (): Promise<McpAccessConfiguration> =>
+  apiFetch<McpAccessConfiguration>({ path: `${root}/mcp-access` });
+
+export const saveMcpAccess = (settings: McpSecuritySettings): Promise<McpAccessConfiguration> =>
+  apiFetch<McpAccessConfiguration>({ path: `${root}/mcp-access`, method: "POST", data: settings });
 
 export const listConfigSets = (): Promise<ConfigSetList> =>
   apiFetch<ConfigSetList>({ path: `${root}/config-sets` });

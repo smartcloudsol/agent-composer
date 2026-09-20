@@ -51,7 +51,7 @@ import type { SectionProps } from "../feature-contract";
 
 const TEXT_DOMAIN = "smartcloud-agent-composer";
 
-export function ConfigSetsPanel({ sets, selectedId, selectedSet, chooseSet, run, refreshSets, setNotice, status }: SectionProps) {
+export function ConfigSetsPanel({ sets, selectedId, selectedSet, chooseSet, run, pendingAction, refreshSets, setNotice, status, showDocs }: SectionProps) {
   const [label, setLabel] = useState("");
   const [validation, setValidation] = useState<ValidationReport | null>(null);
   const [diff, setDiff] = useState<ConfigDiff | null>(null);
@@ -73,7 +73,7 @@ export function ConfigSetsPanel({ sets, selectedId, selectedSet, chooseSet, run,
   useEffect(() => { listPresets().then((result) => setPresets(result.items)).catch(() => undefined); }, []);
 
   return <Stack gap="md">
-    <SectionHeading title={__("Config sets", TEXT_DOMAIN)} description={__("Manage the complete validated configuration lifecycle.", TEXT_DOMAIN)} icon={<IconSettings size={21} />} />
+    <SectionHeading title={__("Config sets", TEXT_DOMAIN)} description={__("Manage the complete validated configuration lifecycle.", TEXT_DOMAIN)} icon={<IconSettings size={21} />} openDocumentation={() => showDocs()} />
     <Card withBorder radius="md" p="md"><Stack gap="sm">
       <Group justify="space-between" align="flex-start" wrap="wrap">
         <Box style={{ flex: "1 1 420px", minWidth: 0 }}><Title order={3}>{__("Start from a preset", TEXT_DOMAIN)}</Title>
@@ -109,12 +109,12 @@ export function ConfigSetsPanel({ sets, selectedId, selectedSet, chooseSet, run,
               </Box>
               {preset.theme && <Text size="xs" c="dimmed">{`${__("Active theme", TEXT_DOMAIN)}: ${preset.theme.name} ${preset.theme.version}`}</Text>}
               {!preset.available && preset.availability_reason && <Alert color="yellow" variant="light" p="sm">{preset.availability_reason}</Alert>}
-              <Button variant="default" disabled={!preset.available} onClick={() => run(async () => {
+              <Button variant="default" disabled={!preset.available} loading={pendingAction === `create-preset-${preset.id}`} onClick={() => run(async () => {
                 const result = await instantiatePreset(preset.id, presetLabel);
                 setPresetLabel("");
                 await refreshSets(result.config_set.config_set);
                 setNotice(__("Preset copied to a new inactive, editable Config Set.", TEXT_DOMAIN));
-              })}>{preset.available ? __("Create editable set", TEXT_DOMAIN) : __("Unavailable for this theme", TEXT_DOMAIN)}</Button>
+              }, `create-preset-${preset.id}`)}>{preset.available ? __("Create editable set", TEXT_DOMAIN) : __("Unavailable for this theme", TEXT_DOMAIN)}</Button>
             </Stack></Card>;
             })}
           </SimpleGrid>
@@ -139,8 +139,8 @@ export function ConfigSetsPanel({ sets, selectedId, selectedSet, chooseSet, run,
       {pageCount > 1 && <Pagination value={Math.min(page, pageCount)} onChange={setPage} total={pageCount} withEdges />}
       <Group align="end" wrap="wrap">
         <TextInput label={__("New set or clone label", TEXT_DOMAIN)} value={label} onChange={(event) => setLabel(event.currentTarget.value)} style={{ flex: 1, minWidth: 240 }} />
-        <Button variant="default" onClick={() => run(async () => { const created = await createConfigSet(label); setLabel(""); await refreshSets(created.config_set); setNotice(__("Editable Config Set created.", TEXT_DOMAIN)); })}>{__("New", TEXT_DOMAIN)}</Button>
-        <Button variant="default" disabled={!selectedId} onClick={() => run(async () => { const cloned = await cloneConfigSet(selectedId, label); setLabel(""); await refreshSets(cloned.config_set); setNotice(__("Immutable copy created.", TEXT_DOMAIN)); })}>{__("Clone", TEXT_DOMAIN)}</Button>
+        <Button variant="default" loading={pendingAction === "create-config-set"} onClick={() => run(async () => { const created = await createConfigSet(label); setLabel(""); await refreshSets(created.config_set); setNotice(__("Editable Config Set created.", TEXT_DOMAIN)); }, "create-config-set")}>{__("New", TEXT_DOMAIN)}</Button>
+        <Button variant="default" disabled={!selectedId} loading={pendingAction === "clone-config-set"} onClick={() => run(async () => { const cloned = await cloneConfigSet(selectedId, label); setLabel(""); await refreshSets(cloned.config_set); setNotice(__("Immutable copy created.", TEXT_DOMAIN)); }, "clone-config-set")}>{__("Clone", TEXT_DOMAIN)}</Button>
       </Group>
     </Stack></Card>
 
@@ -155,11 +155,11 @@ export function ConfigSetsPanel({ sets, selectedId, selectedSet, chooseSet, run,
         {`${__("Restoring this set will revalidate it, make it active, and archive the currently active set", TEXT_DOMAIN)} “${activeSet?.label || status.active_config_set}”.`}
       </Alert>}
       <Group wrap="wrap">
-        <Button onClick={() => run(async () => { const report = await validateConfigSet(selectedId); setValidation(report); await refreshSets(selectedId); })}>{__("Validate", TEXT_DOMAIN)}</Button>
-        <Button color="teal" disabled={selectedSet.lifecycle === "active"} onClick={() => run(async () => { await activateConfigSet(selectedId); await refreshSets(selectedId); setNotice(__("Config set validated again and activated atomically.", TEXT_DOMAIN)); })}>{__("Activate", TEXT_DOMAIN)}</Button>
+        <Button loading={pendingAction === "validate-config-set"} onClick={() => run(async () => { const report = await validateConfigSet(selectedId); setValidation(report); await refreshSets(selectedId); }, "validate-config-set")}>{__("Validate", TEXT_DOMAIN)}</Button>
+        <Button color="teal" disabled={selectedSet.lifecycle === "active"} loading={pendingAction === "activate-config-set"} onClick={() => run(async () => { await activateConfigSet(selectedId); await refreshSets(selectedId); setNotice(__("Config set validated again and activated atomically.", TEXT_DOMAIN)); }, "activate-config-set")}>{__("Activate", TEXT_DOMAIN)}</Button>
         <Button variant="default" disabled={selectedSet.lifecycle !== "archived"} onClick={() => setRollbackOpened(true)}>{__("Restore archived as active", TEXT_DOMAIN)}</Button>
-        <Button variant="default" disabled={!status.active_config_set || status.active_config_set === selectedId} onClick={() => run(async () => setDiff(await diffConfigSet(status.active_config_set, selectedId)))}>{__("Compare to active", TEXT_DOMAIN)}</Button>
-        <Button variant="default" onClick={() => run(async () => { downloadJson(`${selectedId}.json`, await exportConfigSet(selectedId)); setNotice(__("Checksum-protected package exported.", TEXT_DOMAIN)); })}>{__("Export", TEXT_DOMAIN)}</Button>
+        <Button variant="default" disabled={!status.active_config_set || status.active_config_set === selectedId} loading={pendingAction === "compare-config-set"} onClick={() => run(async () => setDiff(await diffConfigSet(status.active_config_set, selectedId)), "compare-config-set")}>{__("Compare to active", TEXT_DOMAIN)}</Button>
+        <Button variant="default" loading={pendingAction === "export-config-set"} onClick={() => run(async () => { downloadJson(`${selectedId}.json`, await exportConfigSet(selectedId)); setNotice(__("Checksum-protected package exported.", TEXT_DOMAIN)); }, "export-config-set")}>{__("Export", TEXT_DOMAIN)}</Button>
         {selectedSet.lifecycle === "active"
           ? <Button variant="outline" color="red" leftSection={<IconPower size={16} />} onClick={() => { setMaintenanceConfirmation(""); setMaintenanceAcknowledged(false); setMaintenanceAction("deactivate"); }}>{__("Deactivate Composer", TEXT_DOMAIN)}</Button>
           : <Button variant="outline" color="red" leftSection={<IconTrash size={16} />} onClick={() => { setMaintenanceConfirmation(""); setMaintenanceAcknowledged(false); setMaintenanceAction("delete"); }}>{__("Delete Config Set", TEXT_DOMAIN)}</Button>}
@@ -174,7 +174,7 @@ export function ConfigSetsPanel({ sets, selectedId, selectedSet, chooseSet, run,
         <Text>{`${__("Currently active", TEXT_DOMAIN)}: ${activeSet?.label || status.active_config_set}`}</Text>
         <Alert color="yellow">{__("Composer will validate the archived target against the current theme and providers before changing anything. If validation fails, the active configuration stays unchanged.", TEXT_DOMAIN)}</Alert>
         <Group justify="flex-end"><Button variant="default" onClick={() => setRollbackOpened(false)}>{__("Cancel", TEXT_DOMAIN)}</Button>
-          <Button color="teal" onClick={() => run(async () => { await rollbackConfigSet(selectedId); setRollbackOpened(false); await refreshSets(selectedId); setNotice(__("Archived set revalidated and restored as the active configuration.", TEXT_DOMAIN)); })}>{__("Validate and restore", TEXT_DOMAIN)}</Button></Group>
+          <Button color="teal" loading={pendingAction === "rollback-config-set"} onClick={() => run(async () => { await rollbackConfigSet(selectedId); setRollbackOpened(false); await refreshSets(selectedId); setNotice(__("Archived set revalidated and restored as the active configuration.", TEXT_DOMAIN)); }, "rollback-config-set")}>{__("Validate and restore", TEXT_DOMAIN)}</Button></Group>
       </Stack>
     </Modal>
     <Modal opened={maintenanceAction !== null} onClose={() => setMaintenanceAction(null)} title={maintenanceAction === "deactivate" ? __("Deactivate Composer configuration?", TEXT_DOMAIN) : __("Permanently delete Config Set?", TEXT_DOMAIN)} centered>
@@ -188,7 +188,7 @@ export function ConfigSetsPanel({ sets, selectedId, selectedSet, chooseSet, run,
         <TextInput value={maintenanceConfirmation} onChange={(event) => setMaintenanceConfirmation(event.currentTarget.value)} autoComplete="off" />
         <Checkbox checked={maintenanceAcknowledged} onChange={(event) => setMaintenanceAcknowledged(event.currentTarget.checked)} label={maintenanceAction === "deactivate" ? __("I understand that Composer will remain inactive until another Config Set is activated.", TEXT_DOMAIN) : __("I understand that this Config Set and all of its entities will be permanently deleted.", TEXT_DOMAIN)} />
         <Group justify="flex-end"><Button variant="default" onClick={() => setMaintenanceAction(null)}>{__("Cancel", TEXT_DOMAIN)}</Button>
-          <Button color="red" disabled={!selectedSet || maintenanceConfirmation !== selectedId || !maintenanceAcknowledged} onClick={() => run(async () => {
+          <Button color="red" disabled={!selectedSet || maintenanceConfirmation !== selectedId || !maintenanceAcknowledged} loading={pendingAction === "maintain-config-set"} onClick={() => run(async () => {
             if (!selectedSet || !maintenanceAction) return;
             if (maintenanceAction === "deactivate") {
               await deactivateConfigSet(selectedId, selectedSet.config_hash, maintenanceConfirmation);
@@ -203,7 +203,7 @@ export function ConfigSetsPanel({ sets, selectedId, selectedSet, chooseSet, run,
             setValidation(null);
             setDiff(null);
             await refreshSets("");
-          })}>{maintenanceAction === "deactivate" ? __("Deactivate", TEXT_DOMAIN) : __("Delete permanently", TEXT_DOMAIN)}</Button></Group>
+          }, "maintain-config-set")}>{maintenanceAction === "deactivate" ? __("Deactivate", TEXT_DOMAIN) : __("Delete permanently", TEXT_DOMAIN)}</Button></Group>
       </Stack>
     </Modal>
   </Stack>;

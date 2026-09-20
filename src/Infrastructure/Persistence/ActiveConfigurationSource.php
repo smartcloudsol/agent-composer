@@ -44,6 +44,23 @@ final class ActiveConfigurationSource {
 		return null;
 	}
 
+	public function security_policy(): ?array {
+		foreach ( $this->entities()[ EntityType::SITE_CONTRACT ] ?? array() as $payload ) {
+			if ( ! is_array( $payload ) ) {
+				continue;
+			}
+			$security = $payload['security'] ?? null;
+			if ( is_array( $security ) ) {
+				return $security;
+			}
+			$design_policy = is_array( $payload['design_policy'] ?? null ) ? $payload['design_policy'] : array();
+			if ( is_array( $design_policy['security'] ?? null ) ) {
+				return $design_policy['security'];
+			}
+		}
+		return null;
+	}
+
 	public function reset(): void {
 		$this->entities = null;
 	}

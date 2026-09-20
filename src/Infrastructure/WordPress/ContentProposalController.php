@@ -128,7 +128,11 @@ final class ContentProposalController {
 		} catch ( Execution_Exception $error ) {
 			$code = $error->get_execution_code();
 			$status = str_contains( $code, 'conflict' ) || 'edit_conflict' === $code ? 409 : ( str_contains( $code, 'denied' ) ? 403 : 400 );
-			return new WP_Error( 'smartcloud_composer_' . $code, $error->getMessage(), array( 'status' => $status ) );
+			return new WP_Error(
+				'smartcloud_composer_' . $code,
+				$error->getMessage(),
+				array_merge( $error->get_execution_data(), array( 'status' => $status ) )
+			);
 		} catch ( Throwable $error ) {
 			do_action( 'smartcloud_composer_internal_error', $error );
 			return new WP_Error( 'smartcloud_composer_internal_error', 'Composer could not complete the proposal operation.', array( 'status' => 500 ) );

@@ -356,8 +356,9 @@ final class Localized_Draft_Service {
 	}
 
 	private function translation_list( mixed $requested, string $role ): array {
+		$role = sanitize_key( $role );
 		if ( ! is_array( $requested ) || ! array_is_list( $requested ) || empty( $requested ) || count( $requested ) > 20 ) {
-			throw new Execution_Exception( 'localized_group_snapshot_invalid', 'The ' . $role . ' group must provide a non-empty exact translation list.' );
+			throw new Execution_Exception( 'localized_group_snapshot_invalid', 'The translation group must provide a non-empty exact translation list.' );
 		}
 		$translations = array();
 		foreach ( $requested as $item ) {
@@ -402,9 +403,10 @@ final class Localized_Draft_Service {
 	}
 
 	private function assert_group_snapshot_current( array $snapshot, string $role ): void {
+		$role = sanitize_key( $role );
 		if ( ! hash_equals( (string) $snapshot['expected_localization_group'], (string) $snapshot['current_localization_group'] )
 			|| ! $this->same_translation_map( $snapshot['translations'], $snapshot['current_translations'] ) ) {
-			throw new Execution_Exception( 'localized_group_snapshot_conflict', 'The ' . $role . ' translation group changed after it was inspected.' );
+			throw new Execution_Exception( 'localized_group_snapshot_conflict', 'The translation group changed after it was inspected.' );
 		}
 	}
 

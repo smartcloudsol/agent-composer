@@ -3,28 +3,36 @@
 
 namespace SmartCloud\AgentComposer\Execution;
 
+use SmartCloud\AgentComposer\Domain\Structure\StructureDocumentValidator;
+
 final class Page_Validator {
 	private Config_Repository $config;
 	private Block_Catalog $catalog;
 	private Block_Tree_Service $trees;
 	private Semantic_Slot_Materializer $slots;
 	private Content_Language_Validator $language;
+	private StructureDocumentValidator $structure;
+	private Synced_Structural_Pattern_Service $synced_patterns;
 
 	public function __construct(
 		Config_Repository $config,
 		Block_Catalog $catalog,
 		Block_Tree_Service $trees,
 		Semantic_Slot_Materializer $slots,
-		Content_Language_Validator $language
+		Content_Language_Validator $language,
+		StructureDocumentValidator $structure,
+		Synced_Structural_Pattern_Service $synced_patterns
 	) {
 		$this->config  = $config;
 		$this->catalog = $catalog;
 		$this->trees   = $trees;
 		$this->slots   = $slots;
 		$this->language = $language;
+		$this->structure = $structure;
+		$this->synced_patterns = $synced_patterns;
 	}
 
-	public function validate( string $page_type, string $content ): array {
+	public function validate( string $page_type, string $content, ?string $previous_content = null, array $context = array() ): array {
 		$blueprint = $this->config->get_blueprint( $page_type );
 		$policy    = $this->config->get_design_policy();
 		$errors    = array();
@@ -51,7 +59,25 @@ final class Page_Validator {
 			$errors[] = $this->issue( 'php_content_forbidden', 'PHP code is forbidden in every block.' );
 		}
 
-		$blocks = parse_blocks( $content );
+		$raw_blocks = parse_blocks( $content );
+		$blocks = $raw_blocks;
+		$previous_blocks = null === $previous_content ? null : parse_blocks( $previous_content );
+		try {
+			$blocks = $this->synced_patterns->expand_blocks( $raw_blocks, $blueprint );
+			$previous_blocks = null === $previous_blocks ? null : $this->synced_patterns->expand_blocks( $previous_blocks, $blueprint );
+		} catch ( Execution_Exception $error ) {
+			$errors[] = $this->issue( $error->get_execution_code(), $error->getMessage() );
+		}
+		$structure_validation = null;
+		if ( 'enforced' === (string) ( $blueprint['structure_contract_mode'] ?? '' ) ) {
+			$structure_validation = $this->structure->validate(
+				(array) ( $blueprint['resolved_structure_contract'] ?? array() ),
+				$blocks,
+				$previous_blocks,
+				true === ( $context['allow_structure_change'] ?? false )
+			);
+			$errors = array_merge( $errors, $structure_validation['errors'] );
+		}
 		$stats  = array( 'h1' => 0, 'blocks' => 0, 'block_names' => array() );
 		$this->validate_blocks( $blocks, $blueprint, $policy, $errors, $stats );
 		if ( $this->contains_extension_blocks( $stats['block_names'] ) ) {
@@ -71,7 +97,8 @@ final class Page_Validator {
 			$errors[] = $this->issue( 'invalid_h1_count', 'The page must contain exactly one H1 heading.', array( 'found' => $stats['h1'] ) );
 		}
 
-		$word_count = str_word_count( wp_strip_all_tags( strip_shortcodes( $content ) ) );
+		$validation_content = serialize_blocks( $blocks );
+		$word_count = str_word_count( wp_strip_all_tags( strip_shortcodes( $validation_content ) ) );
 		$maximum    = (int) $blueprint['constraints']['maximum_words'];
 		if ( $word_count > $maximum ) {
 			$errors[] = $this->issue( 'maximum_words_exceeded', 'The page exceeds its maximum word count.', array( 'found' => $word_count, 'maximum' => $maximum ) );
@@ -97,7 +124,7 @@ final class Page_Validator {
 			$errors[] = $this->issue( (string) $issue['code'], (string) $issue['message'] );
 		}
 
-		return array(
+		$result = array(
 			'valid'       => empty( $errors ),
 			'errors'      => array_values( $errors ),
 			'warnings'    => array_values( $warnings ),
@@ -111,6 +138,19 @@ final class Page_Validator {
 			'composition_mode' => 'document',
 			'content_language' => $blueprint['content_language'],
 		);
+		if ( null !== $structure_validation ) {
+			$result['structure_contract'] = array(
+				'id'         => $structure_validation['contract']['id'],
+				'version'    => $structure_validation['contract']['version'],
+				'valid'      => $structure_validation['valid'],
+				'operations' => $structure_validation['operations'],
+				'contract_hash' => $structure_validation['contract_hash'],
+				'structural_fingerprint' => $structure_validation['structural_fingerprint'],
+			);
+		} else {
+			$result['structure_contract'] = array( 'mode' => 'legacy-document' );
+		}
+		return $result;
 	}
 
 	private function validate_blocks( array $blocks, array $blueprint, array $policy, array &$errors, array &$stats ): void {
@@ -211,19 +251,7 @@ final class Page_Validator {
 
 	private function extract_sequence( string $content ): array {
 		$sequence = array();
-		foreach ( parse_blocks( $content ) as $block ) {
-			if ( null === ( $block['blockName'] ?? null ) ) {
-				continue;
-			}
-
-			$metadata = isset( $block['attrs']['metadata'] ) && is_array( $block['attrs']['metadata'] )
-				? $block['attrs']['metadata']
-				: array();
-			$name = isset( $metadata['name'] ) ? strtolower( trim( (string) $metadata['name'] ) ) : '';
-			if ( preg_match( '/^[a-z0-9-]+\/[a-z0-9-]+$/', $name ) ) {
-				$sequence[] = $name;
-			}
-		}
+		$this->collect_pattern_sequence( parse_blocks( $content ), $sequence );
 
 		if ( ! empty( $sequence ) ) {
 			return $sequence;
@@ -232,6 +260,32 @@ final class Page_Validator {
 		// Backward compatibility for drafts created before 0.2.1.
 		preg_match_all( '/<!--\s*wpsuite-agent-section:([a-z0-9-]+\/[a-z0-9-]+)\s*-->/', $content, $matches );
 		return isset( $matches[1] ) ? array_values( $matches[1] ) : array();
+	}
+
+	private function collect_pattern_sequence( array $blocks, array &$sequence ): void {
+		foreach ( $blocks as $block ) {
+			if ( null === ( $block['blockName'] ?? null ) ) {
+				continue;
+			}
+
+			$metadata = isset( $block['attrs']['metadata'] ) && is_array( $block['attrs']['metadata'] )
+				? $block['attrs']['metadata']
+				: array();
+			$namespaced = isset( $metadata['wpsuiteAgentComposer'] ) && is_array( $metadata['wpsuiteAgentComposer'] )
+				? $metadata['wpsuiteAgentComposer']
+				: array();
+			$name = isset( $namespaced['patternName'] )
+				? strtolower( trim( (string) $namespaced['patternName'] ) )
+				: ( isset( $metadata['patternName'] )
+					? strtolower( trim( (string) $metadata['patternName'] ) )
+					: ( isset( $metadata['name'] ) ? strtolower( trim( (string) $metadata['name'] ) ) : '' ) );
+			if ( preg_match( '/^[a-z0-9-]+\/[a-z0-9-]+$/', $name ) ) {
+				$sequence[] = $name;
+			}
+			if ( ! empty( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ) {
+				$this->collect_pattern_sequence( $block['innerBlocks'], $sequence );
+			}
+		}
 	}
 
 	private function contains_required_subsequence( array $required, array $actual ): bool {

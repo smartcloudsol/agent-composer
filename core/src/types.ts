@@ -1,4 +1,5 @@
 import type {
+  ADMIN_CREATION_MODES,
   CONTENT_PROPOSAL_STATES,
   ENTITY_TYPES,
   EXCERPT_POLICIES,
@@ -9,6 +10,7 @@ import type {
 export type EntityType = (typeof ENTITY_TYPES)[number];
 export type ExcerptPolicy = (typeof EXCERPT_POLICIES)[number];
 export type PublishedUpdatePolicy = (typeof PUBLISHED_UPDATE_POLICIES)[number];
+export type AdminCreationMode = (typeof ADMIN_CREATION_MODES)[number];
 export type ContentProposalState = (typeof CONTENT_PROPOSAL_STATES)[number];
 export type LocalizationProviderOperation = (typeof LOCALIZATION_PROVIDER_OPERATIONS)[number];
 export type Bcp47LanguageTag = string;
@@ -82,6 +84,7 @@ export interface SiteContractDesignPolicy extends Record<string, unknown> {
   content_language_exceptions?: string[];
   localization?: LocalizationPolicy;
   content_access?: Record<string, ContentAccessPolicy>;
+  admin_creation?: Record<string, { mode: AdminCreationMode; default_page_type: string }>;
 }
 
 export interface LocalizationProviderManifestDeclaration {
@@ -332,7 +335,18 @@ export interface ContentProposalSummary {
 
 export interface ContentProposalDetail extends ContentProposalSummary {
   changes: string[];
+  change_details: ContentProposalChangeDetail[];
   validation: ContentProposalValidationReport;
+}
+
+export interface ContentProposalChangeDetail {
+  path: string;
+  scope: "content" | "meta" | "taxonomy";
+  key: string;
+  label: string;
+  description: string;
+  before: unknown;
+  after: unknown;
 }
 
 export type ContentProposal = ContentProposalSummary | ContentProposalDetail;

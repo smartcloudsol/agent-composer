@@ -4,6 +4,8 @@
 namespace SmartCloud\AgentComposer\Execution;
 
 use SmartCloud\AgentComposer\Integration\Mcp\ComposerMcpServer;
+use SmartCloud\AgentComposer\Security\McpAccessGuard;
+use SmartCloud\AgentComposer\Security\PublishApprovalService;
 
 final class Abilities {
 	public const CATEGORY = 'smartcloud-agent-composer';
@@ -24,6 +26,11 @@ final class Abilities {
 	private Localization_Provider_Registry $localization;
 	private Localized_Draft_Service $localized_drafts;
 	private Rendered_Preview_Service $rendered_previews;
+	private Semantic_Document_Service $semantic_documents;
+	private Blueprint_Migration_Service $migrations;
+	private Bulk_Blueprint_Migration_Service $bulk_migrations;
+	private ?McpAccessGuard $access_guard;
+	private ?PublishApprovalService $publish_approvals;
 
 	public function __construct(
 		Config_Repository $config,
@@ -39,7 +46,12 @@ final class Abilities {
 		Content_Proposal_Service $proposals,
 		Localization_Provider_Registry $localization,
 		Localized_Draft_Service $localized_drafts,
-		Rendered_Preview_Service $rendered_previews
+		Rendered_Preview_Service $rendered_previews,
+		Semantic_Document_Service $semantic_documents,
+		Blueprint_Migration_Service $migrations,
+		Bulk_Blueprint_Migration_Service $bulk_migrations,
+		?McpAccessGuard $access_guard = null,
+		?PublishApprovalService $publish_approvals = null
 	) {
 		$this->config    = $config;
 		$this->drafts    = $drafts;
@@ -55,11 +67,29 @@ final class Abilities {
 		$this->localization   = $localization;
 		$this->localized_drafts = $localized_drafts;
 		$this->rendered_previews = $rendered_previews;
+		$this->semantic_documents = $semantic_documents;
+		$this->migrations = $migrations;
+		$this->bulk_migrations = $bulk_migrations;
+		$this->access_guard = $access_guard;
+		$this->publish_approvals = $publish_approvals;
 	}
 
 	public static function names(): array {
 		return array(
 			self::PREFIX . 'get-page-blueprint',
+			self::PREFIX . 'get-contract',
+			self::PREFIX . 'get-document',
+			self::PREFIX . 'set-field',
+			self::PREFIX . 'replace-media',
+			self::PREFIX . 'insert-slot-block',
+			self::PREFIX . 'update-slot-block',
+			self::PREFIX . 'move-slot-block',
+			self::PREFIX . 'remove-slot-block',
+			self::PREFIX . 'validate-proposal',
+			self::PREFIX . 'preview-blueprint-migration',
+			self::PREFIX . 'create-blueprint-migration-proposal',
+			self::PREFIX . 'plan-blueprint-migration',
+			self::PREFIX . 'create-blueprint-migration-proposals',
 			self::PREFIX . 'get-design-context',
 			self::PREFIX . 'get-runtime-capabilities',
 			self::PREFIX . 'list-supported-content-languages',
@@ -100,6 +130,11 @@ final class Abilities {
 			self::PREFIX . 'get-preview',
 			self::PREFIX . 'get-rendered-preview',
 			self::PREFIX . 'get-rendered-preview-asset',
+			self::PREFIX . 'inspect-publishable-draft',
+			self::PREFIX . 'request-publish',
+			self::PREFIX . 'open-publish-approval',
+			self::PREFIX . 'get-publish-approval-asset',
+			self::PREFIX . 'decide-publish-approval',
 		);
 	}
 
@@ -110,6 +145,11 @@ final class Abilities {
 			self::PREFIX . 'rendered-preview-app-v3',
 			self::PREFIX . 'rendered-preview-app-v2',
 			self::PREFIX . 'rendered-preview-app-v1',
+			self::PREFIX . 'publish-approval-app',
+			self::PREFIX . 'publish-approval-app-v4',
+			self::PREFIX . 'publish-approval-app-v3',
+			self::PREFIX . 'publish-approval-app-v2',
+			self::PREFIX . 'publish-approval-app-v1',
 		);
 	}
 
@@ -143,6 +183,110 @@ final class Abilities {
 			$this->page_type_schema(),
 			array( $this, 'get_page_blueprint' ),
 			true
+		);
+		$this->register_ability(
+			'get-contract',
+			'Get semantic Structure Contract',
+			'Returns the exact versioned Structure Contract, semantic field IDs, and extension-slot IDs for an enforced Blueprint. Serialized Gutenberg markup is not exposed.',
+			$this->page_type_schema(),
+			array( $this, 'get_contract' ),
+			true
+		);
+		$this->register_ability(
+			'get-document',
+			'Get semantic document',
+			'Reads a Composer-owned assigned draft as stable semantic fields and identity-addressed extension-slot blocks. It returns fresh optimistic-concurrency tokens and never exposes full post_content.',
+			$this->post_id_schema(),
+			array( $this, 'get_document' ),
+			true
+		);
+		$this->register_ability(
+			'set-field',
+			'Set semantic field',
+			'Updates one Structure Contract-declared instance-content field by stable semantic ID. It resolves Gutenberg nesting server-side and uses the same ownership, optimistic-concurrency, and whole-document validation boundary as governed block updates.',
+			$this->semantic_field_update_schema(),
+			array( $this, 'set_field' ),
+			false
+		);
+		$this->register_ability(
+			'replace-media',
+			'Replace semantic media',
+			'Replaces one Structure Contract-declared core/image field using a readable Media Library attachment ID. Composer resolves the image source, alt text, title, dimensions, and link while preserving the field presentation and caption.',
+			$this->semantic_media_update_schema(),
+			array( $this, 'replace_media' ),
+			false
+		);
+		$this->register_ability(
+			'insert-slot-block',
+			'Insert semantic slot block',
+			'Inserts one supported core block or approved provider component into a Structure Contract extension slot. Composer assigns stable ownership identity and resolves all Gutenberg paths internally.',
+			$this->semantic_slot_insert_schema(),
+			array( $this, 'insert_slot_block' ),
+			false
+		);
+		$this->register_ability(
+			'update-slot-block',
+			'Update semantic slot block',
+			'Rematerializes one user-owned extension-slot block by stable user_block_id while preserving that identity and validating the whole managed document.',
+			$this->semantic_slot_update_schema(),
+			array( $this, 'update_slot_block' ),
+			false
+		);
+		$this->register_ability(
+			'move-slot-block',
+			'Move semantic slot block',
+			'Reorders one direct user-owned extension-slot child by stable identity. Cross-slot moves and physical Gutenberg paths are not accepted.',
+			$this->semantic_slot_move_schema(),
+			array( $this, 'move_slot_block' ),
+			false
+		);
+		$this->register_ability(
+			'remove-slot-block',
+			'Remove semantic slot block',
+			'Removes one user-owned extension-slot block by stable identity. Slot cardinality and the complete Structure Contract remain enforced atomically.',
+			$this->semantic_slot_remove_schema(),
+			array( $this, 'remove_slot_block' ),
+			false
+		);
+		$this->register_ability(
+			'validate-proposal',
+			'Validate semantic content proposal',
+			'Validates the exact current published-content proposal revision, including Structure Contract, Blueprint editorial fields, and source conflict status, without submitting or changing it.',
+			$this->content_proposal_validate_schema(),
+			array( $this, 'validate_proposal' ),
+			true
+		);
+		$this->register_ability(
+			'preview-blueprint-migration',
+			'Preview Blueprint migration',
+			'Calculates one exact, version-gated structural migration for a published managed item. It reports target validation and preserved, rebased, conflicting, review-required, and detached overrides without writing WordPress content.',
+			$this->blueprint_migration_preview_schema(),
+			array( $this, 'preview_blueprint_migration' ),
+			true
+		);
+		$this->register_ability(
+			'create-blueprint-migration-proposal',
+			'Create Blueprint migration proposal',
+			'Recalculates an exact reviewed migration plan and creates one inactive agent-owned update proposal. It never rewrites the published source; normal preview, submission, and human merge remain mandatory.',
+			$this->blueprint_migration_proposal_schema(),
+			array( $this, 'create_blueprint_migration_proposal' ),
+			false
+		);
+		$this->register_ability(
+			'plan-blueprint-migration',
+			'Plan Blueprint migration batch',
+			'Classifies one bounded page of exact-baseline published items as automatic, review-required, or incompatible. It returns per-item migration hashes and reports without writing WordPress content.',
+			$this->bulk_blueprint_migration_plan_schema(),
+			array( $this, 'plan_blueprint_migration' ),
+			true
+		);
+		$this->register_ability(
+			'create-blueprint-migration-proposals',
+			'Create Blueprint migration proposals in bulk',
+			'Recalculates up to 25 explicitly reviewed item plans and creates separate update proposals. Item failures are reported independently, retries are idempotent, and published source content is never rewritten.',
+			$this->bulk_blueprint_migration_create_schema(),
+			array( $this, 'create_blueprint_migration_proposals' ),
+			false
 		);
 		$this->register_ability(
 			'get-design-context',
@@ -331,7 +475,7 @@ final class Abilities {
 		$this->register_ability(
 			'inspect-content-item',
 			'Inspect existing content item',
-			'Returns content and validation details only when the active Site Contract grants read access for the post type and the current WordPress user can read the item.',
+			'Returns content and validation details for ordinary readable site content and for Composer drafts available to the current principal. Do NOT use this tool when a Publisher needs to review a Composer-owned draft assigned to another principal for publication: use inspect-publishable-draft instead. This general inspection never bypasses draft assignment.',
 			$this->content_inspection_schema(),
 			array( $this, 'inspect_content_item' ),
 			true
@@ -505,12 +649,93 @@ final class Abilities {
 				),
 			)
 		);
+		if ( null !== $this->publish_approvals ) {
+			$this->register_ability(
+				'inspect-publishable-draft',
+				'Inspect draft for publication',
+				'Use this tool, not inspect-content-item, whenever a protected Publisher reviews an ordinary Composer-owned draft for publication, especially when another principal created or owns it. This Publisher-only inspection preserves assignment and returns the exact current content, validation, modified_gmt, and revision. It never adopts, edits, or publishes the draft.',
+				$this->post_id_schema(),
+				array( $this, 'inspect_publishable_draft' ),
+				true
+			);
+			$this->register_ability(
+				'request-publish',
+				'Request human publication approval',
+				'Publisher-only request for a short-lived human review of an ordinary Composer-owned draft, including one assigned to another principal. A post_id is sufficient: Composer validates and locks the exact current revision atomically. If inspect-publishable-draft already returned expected_modified_gmt and expected_revision, pass both for an additional optimistic-concurrency check; never use inspect-content-item for a cross-principal publication handoff. This request never publishes content. The protected inline approval app is displayed in MCP Apps-capable clients, and the model cannot invoke its decision tool.',
+				$this->publish_request_schema(),
+				array( $this, 'request_publish' ),
+				false,
+				null,
+				array(
+					'_meta' => array(
+						'ui' => array( 'resourceUri' => ComposerMcpServer::PUBLISH_APPROVAL_RESOURCE_URI ),
+						'openai/outputTemplate' => ComposerMcpServer::PUBLISH_APPROVAL_RESOURCE_URI,
+						'openai/toolInvocation/invoking' => 'Preparing publication review…',
+						'openai/toolInvocation/invoked' => 'Publication review ready',
+					),
+				)
+			);
+			$this->register_publish_approval_private_abilities();
+			$this->register_publish_approval_resource();
+		}
 		$this->register_rendered_preview_asset_ability();
 		$this->register_rendered_preview_resource();
 	}
 
 	public function get_page_blueprint( array $input ): array|\WP_Error {
 		return $this->execute( 'get-page-blueprint', $input, fn() => $this->config->get_blueprint( (string) $input['page_type'] ) );
+	}
+
+	public function get_contract( array $input ): array|\WP_Error {
+		return $this->execute( 'get-contract', $input, fn() => $this->semantic_documents->get_contract( $input ) );
+	}
+
+	public function get_document( array $input ): array|\WP_Error {
+		return $this->execute( 'get-document', $input, fn() => $this->semantic_documents->get_document( $input ) );
+	}
+
+	public function set_field( array $input ): array|\WP_Error {
+		return $this->execute( 'set-field', $input, fn() => $this->semantic_documents->set_field( $input ) );
+	}
+
+	public function replace_media( array $input ): array|\WP_Error {
+		return $this->execute( 'replace-media', $input, fn() => $this->semantic_documents->replace_media( $input ) );
+	}
+
+	public function insert_slot_block( array $input ): array|\WP_Error {
+		return $this->execute( 'insert-slot-block', $input, fn() => $this->semantic_documents->insert_slot_block( $input ) );
+	}
+
+	public function update_slot_block( array $input ): array|\WP_Error {
+		return $this->execute( 'update-slot-block', $input, fn() => $this->semantic_documents->update_slot_block( $input ) );
+	}
+
+	public function move_slot_block( array $input ): array|\WP_Error {
+		return $this->execute( 'move-slot-block', $input, fn() => $this->semantic_documents->move_slot_block( $input ) );
+	}
+
+	public function remove_slot_block( array $input ): array|\WP_Error {
+		return $this->execute( 'remove-slot-block', $input, fn() => $this->semantic_documents->remove_slot_block( $input ) );
+	}
+
+	public function validate_proposal( array $input ): array|\WP_Error {
+		return $this->execute( 'validate-proposal', $input, fn() => $this->proposals->validate( $input ) );
+	}
+
+	public function preview_blueprint_migration( array $input ): array|\WP_Error {
+		return $this->execute( 'preview-blueprint-migration', $input, fn() => $this->migrations->preview( $input ) );
+	}
+
+	public function create_blueprint_migration_proposal( array $input ): array|\WP_Error {
+		return $this->execute( 'create-blueprint-migration-proposal', $input, fn() => $this->migrations->create_proposal( $input ) );
+	}
+
+	public function plan_blueprint_migration( array $input ): array|\WP_Error {
+		return $this->execute( 'plan-blueprint-migration', $input, fn() => $this->bulk_migrations->plan( $input ) );
+	}
+
+	public function create_blueprint_migration_proposals( array $input ): array|\WP_Error {
+		return $this->execute( 'create-blueprint-migration-proposals', $input, fn() => $this->bulk_migrations->create_proposals( $input ) );
 	}
 
 	public function get_design_context( array $input = array() ): array|\WP_Error {
@@ -643,8 +868,26 @@ final class Abilities {
 			$input,
 			function () use ( $input ): array {
 				$blueprint = $this->config->get_blueprint( (string) $input['page_type'] );
+				$synced_definitions = (array) ( $this->config->get_design_policy()['synced_structural_patterns'] ?? array() );
 				$result    = array();
 				foreach ( $blueprint['allowed_patterns'] as $name ) {
+					if ( in_array( $name, (array) ( $blueprint['synced_patterns'] ?? array() ), true ) ) {
+						$definition = $synced_definitions[ $name ] ?? null;
+						$post_name  = is_array( $definition ) ? (string) ( $definition['post_name'] ?? '' ) : '';
+						$stored     = '' === $post_name ? null : get_page_by_path( $post_name, OBJECT, 'wp_block' );
+						$result[] = array(
+							'name'                 => $name,
+							'registered'           => $stored instanceof \WP_Post && 'publish' === $stored->post_status,
+							'wordpress_registered' => $stored instanceof \WP_Post && 'publish' === $stored->post_status,
+							'source'               => 'synced-wp-block',
+							'synced'               => true,
+							'pattern_version'       => is_array( $definition ) ? (int) ( $definition['version'] ?? 0 ) : 0,
+							'fields'                => is_array( $definition ) ? (array) ( $definition['overrides'] ?? array() ) : array(),
+							'semantic_slots'        => array(),
+							'error'                 => is_array( $definition ) && $stored instanceof \WP_Post && 'publish' === $stored->post_status ? '' : 'synced_pattern_not_resolvable',
+						);
+						continue;
+					}
 					$pattern = $this->patterns->resolve_approved( $name, $blueprint );
 					if ( ! is_array( $pattern ) ) {
 						$result[] = array(
@@ -672,6 +915,7 @@ final class Abilities {
 						'categories'                => array_values( array_map( 'sanitize_key', (array) ( $pattern['categories'] ?? array() ) ) ),
 						'fields'                    => $fields,
 						'semantic_slots'            => $this->semantic_slots->slots_for_pattern( $name ),
+						'synced'                    => false,
 					);
 				}
 				return array(
@@ -700,14 +944,10 @@ final class Abilities {
 					throw new Execution_Exception( 'reference_not_found', 'The reference content does not exist or uses a disallowed post type.' );
 				}
 				$is_approved_reference = in_array( $post_id, $blueprint['reference_page_ids'], true ) && 'publish' === $post->post_status;
-				$assigned_agent_id     = absint( get_post_meta( $post_id, Draft_Service::ASSIGNED_AGENT_META, true ) );
 				$is_owned_draft        = 'draft' === $post->post_status
 					&& '1' === (string) get_post_meta( $post_id, Draft_Service::OWNED_META, true )
 					&& $blueprint['page_type'] === (string) get_post_meta( $post_id, Draft_Service::PAGE_TYPE_META, true )
-					&& (
-						get_current_user_id() === $assigned_agent_id
-						|| ( 0 === $assigned_agent_id && get_current_user_id() === (int) $post->post_author )
-					);
+					&& $this->drafts->is_assigned_to_current_actor( $post_id );
 				if ( ! $is_approved_reference && ! $is_owned_draft ) {
 					throw new Execution_Exception( 'reference_not_allowed', 'This content item is not an approved reference or a draft assigned to this agent.' );
 				}
@@ -1069,13 +1309,142 @@ final class Abilities {
 		return $this->execute( 'get-rendered-preview-asset', $input, fn() => $this->rendered_previews->get_asset( $input ) );
 	}
 
-	public function check_permission( mixed $input = null ): bool {
+	public function request_publish( array $input ): array|\WP_Error {
+		return $this->execute(
+			'request-publish',
+			$input,
+			fn(): array => null !== $this->publish_approvals
+				? $this->publish_approvals->request( $input )
+				: throw new Execution_Exception( 'publish_approval_unavailable', 'Publish approval is unavailable.' )
+		);
+	}
+
+	public function inspect_publishable_draft( array $input ): array|\WP_Error {
+		return $this->execute(
+			'inspect-publishable-draft',
+			$input,
+			fn(): array => $this->drafts->inspect_publishable_draft_for_publisher( absint( $input['post_id'] ?? 0 ) )
+		);
+	}
+
+	public function get_publish_approval_asset( array $input ): array|\WP_Error {
+		return $this->execute(
+			'get-publish-approval-asset',
+			$input,
+			function () use ( $input ): array {
+				if ( null === $this->publish_approvals ) {
+					throw new Execution_Exception( 'publish_approval_unavailable', 'Publish approval is unavailable.' );
+				}
+				$asset = $this->publish_approvals->asset_from_app(
+					sanitize_text_field( (string) ( $input['id'] ?? '' ) ),
+					sanitize_text_field( (string) ( $input['token'] ?? '' ) ),
+					sanitize_text_field( (string) ( $input['asset_id'] ?? '' ) )
+				);
+				if ( 'stylesheet' === $asset['kind'] ) {
+					return array(
+						'type' => 'resource',
+						'resource' => array( 'uri' => 'approval-asset://smartcloud-agent-composer/' . $input['asset_id'], 'mimeType' => 'text/css', 'text' => $asset['content'] ),
+					);
+				}
+				if ( 'font' === $asset['kind'] ) {
+					return array(
+						'type' => 'resource',
+						'resource' => array( 'uri' => 'approval-asset://smartcloud-agent-composer/' . $input['asset_id'], 'mimeType' => $asset['mime_type'], 'blob' => base64_encode( $asset['content'] ) ),
+					);
+				}
+				return array( 'type' => 'image', 'results' => $asset['content'], 'mimeType' => $asset['mime_type'] );
+			}
+		);
+	}
+
+	public function open_publish_approval( array $input ): array|\WP_Error {
+		return $this->execute(
+			'open-publish-approval',
+			$input,
+			fn(): array => null !== $this->publish_approvals
+				? $this->publish_approvals->open_from_app( $input )
+				: throw new Execution_Exception( 'publish_approval_unavailable', 'Publish approval is unavailable.' )
+		);
+	}
+
+	public function decide_publish_approval( array $input ): array|\WP_Error {
+		return $this->execute(
+			'decide-publish-approval',
+			$input,
+			fn(): array => null !== $this->publish_approvals
+				? $this->publish_approvals->decide_from_app( $input )
+				: throw new Execution_Exception( 'publish_approval_unavailable', 'Publish approval is unavailable.' )
+		);
+	}
+
+	private function publish_request_schema(): array {
+		return array(
+			'type' => 'object',
+			'properties' => array(
+				'post_id'               => array( 'type' => 'integer', 'minimum' => 1, 'description' => 'Composer-owned ordinary draft to submit. A protected Publisher may submit a draft assigned to another principal.' ),
+				'expected_modified_gmt' => array( 'type' => 'string', 'format' => 'date-time', 'description' => 'Optional exact modified_gmt returned by inspect-publishable-draft. Supply together with expected_revision or omit both.' ),
+				'expected_revision'     => array( 'type' => 'string', 'format' => 'uuid', 'description' => 'Optional exact revision returned by inspect-publishable-draft. Supply together with expected_modified_gmt or omit both.' ),
+			),
+			'required' => array( 'post_id' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	private function publish_approval_asset_schema(): array {
+		return array(
+			'type' => 'object',
+			'properties' => array(
+				'id'       => array( 'type' => 'string', 'format' => 'uuid' ),
+				'token'    => array( 'type' => 'string', 'pattern' => '^[A-Za-z0-9_-]{43}$' ),
+				'asset_id' => array( 'type' => 'string', 'pattern' => '^pa_[A-Za-z0-9_-]{43}$' ),
+			),
+			'required' => array( 'id', 'token', 'asset_id' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	private function publish_approval_open_schema(): array {
+		return array(
+			'type' => 'object',
+			'properties' => array( 'id' => array( 'type' => 'string', 'format' => 'uuid' ) ),
+			'required' => array( 'id' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	private function publish_approval_decision_schema(): array {
+		return array(
+			'type' => 'object',
+			'properties' => array(
+				'id'               => array( 'type' => 'string', 'format' => 'uuid' ),
+				'token'            => array( 'type' => 'string', 'pattern' => '^[A-Za-z0-9_-]{43}$' ),
+				'decision'         => array( 'type' => 'string', 'enum' => array( 'approve', 'reject' ) ),
+				'confirm_decision' => array( 'type' => 'boolean', 'enum' => array( true ) ),
+			),
+			'required' => array( 'id', 'token', 'decision', 'confirm_decision' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	public function check_permission( mixed $input = null ): bool|\WP_Error {
+		unset( $input );
+		return $this->check_permission_for( self::PREFIX . 'create-content-draft' );
+	}
+
+	public function check_permission_for( string $ability_name ): bool|\WP_Error {
+		if ( null !== $this->access_guard ) {
+			return $this->access_guard->authorize_ability( $ability_name );
+		}
 		return is_user_logged_in()
 			&& current_user_can( \SmartCloud\AgentComposer\Infrastructure\WordPress\Activation::CAP_USE )
 			&& current_user_can( \SmartCloud\AgentComposer\Infrastructure\WordPress\Activation::CAP_EXECUTE_DRAFTS )
 			&& current_user_can( 'read' )
 			&& current_user_can( 'edit_pages' )
 			&& current_user_can( 'edit_posts' );
+	}
+
+	public function permission_callback_for( string $ability_name ): callable {
+		return fn( mixed $input = null ): bool|\WP_Error => $this->check_permission_for( $ability_name );
 	}
 
 	private function register_ability( string $slug, string $label, string $description, array $input_schema, callable $callback, bool $read_only, ?array $output_schema = null, array $mcp_meta = array() ): void {
@@ -1088,7 +1457,7 @@ final class Abilities {
 				'input_schema'        => $input_schema,
 				'output_schema'       => $output_schema ?? array( 'type' => 'object', 'additionalProperties' => true ),
 				'execute_callback'    => $callback,
-				'permission_callback' => array( $this, 'check_permission' ),
+				'permission_callback' => $this->permission_callback_for( self::PREFIX . $slug ),
 				'meta'                => array(
 					'show_in_rest' => false,
 					'mcp'          => array_merge( array( 'public' => false ), $mcp_meta ),
@@ -1097,7 +1466,7 @@ final class Abilities {
 						'destructive' => false,
 						'idempotent'  => $read_only || in_array(
 							$slug,
-							array( 'create-page-draft', 'create-content-draft', 'create-content-proposal', 'submit-content-proposal', 'adopt-content-draft', 'assign-featured-image', 'ingest-remote-media', 'create-taxonomy-term', 'assign-taxonomy-terms', 'link-content-draft-translations', 'attach-content-draft-to-translation-group', 'attach-content-to-translation-group', 'merge-content-translation-groups' ),
+							array( 'create-page-draft', 'create-content-draft', 'create-content-proposal', 'create-blueprint-migration-proposal', 'create-blueprint-migration-proposals', 'submit-content-proposal', 'adopt-content-draft', 'assign-featured-image', 'ingest-remote-media', 'create-taxonomy-term', 'assign-taxonomy-terms', 'link-content-draft-translations', 'attach-content-draft-to-translation-group', 'attach-content-to-translation-group', 'merge-content-translation-groups' ),
 							true
 						),
 					),
@@ -1119,7 +1488,7 @@ final class Abilities {
 				'category'            => self::CATEGORY,
 				'input_schema'        => $this->rendered_preview_asset_input_schema(),
 				'execute_callback'    => array( $this, 'get_rendered_preview_asset' ),
-				'permission_callback' => array( $this, 'check_permission' ),
+				'permission_callback' => $this->permission_callback_for( $name ),
 				'meta'                => array(
 					'show_in_rest' => false,
 					'mcp'          => array(
@@ -1139,6 +1508,152 @@ final class Abilities {
 				),
 			)
 		);
+	}
+
+	private function register_publish_approval_private_abilities(): void {
+		$abilities = array(
+			'open-publish-approval' => array(
+				'label'       => 'Open publication approval session',
+				'description' => 'Private app-only helper that authenticates the requesting Publisher and returns the short-lived review session to the inline app without exposing it to the model-facing request result.',
+				'schema'      => $this->publish_approval_open_schema(),
+				'callback'    => array( $this, 'open_publish_approval' ),
+				'readonly'    => true,
+			),
+			'get-publish-approval-asset' => array(
+				'label'       => 'Get publication approval preview asset',
+				'description' => 'Private app-only helper that returns one exact revision-bound asset for the inline publication review.',
+				'schema'      => $this->publish_approval_asset_schema(),
+				'callback'    => array( $this, 'get_publish_approval_asset' ),
+				'readonly'    => true,
+			),
+			'decide-publish-approval' => array(
+				'label'       => 'Decide publication approval',
+				'description' => 'Private app-only human decision for one short-lived, exact revision-bound publication request. It is never exposed to the model.',
+				'schema'      => $this->publish_approval_decision_schema(),
+				'callback'    => array( $this, 'decide_publish_approval' ),
+				'readonly'    => false,
+			),
+		);
+		foreach ( $abilities as $slug => $definition ) {
+			$name = self::PREFIX . $slug;
+			if ( function_exists( 'wp_has_ability' ) && wp_has_ability( $name ) ) {
+				continue;
+			}
+			$arguments = array(
+				'label'               => $definition['label'],
+				'description'         => $definition['description'],
+				'category'            => self::CATEGORY,
+				'input_schema'        => $definition['schema'],
+				'execute_callback'    => $definition['callback'],
+				'permission_callback' => $this->permission_callback_for( $name ),
+				'meta'                => array(
+					'show_in_rest' => false,
+					'mcp' => array(
+						'public' => false,
+						'_meta' => array(
+							'ui'                      => array( 'visibility' => array( 'app' ) ),
+							'openai/visibility'       => 'private',
+							'openai/widgetAccessible' => true,
+						),
+					),
+					'annotations' => array(
+						'readonly'      => $definition['readonly'],
+						'destructive'   => ! $definition['readonly'],
+						'idempotent'    => $definition['readonly'],
+						'openWorldHint' => false,
+					),
+				),
+			);
+			if ( 'get-publish-approval-asset' === $slug ) {
+				unset( $arguments['output_schema'] );
+			}
+			wp_register_ability( $name, $arguments );
+		}
+	}
+
+	private function register_publish_approval_resource(): void {
+		$resources = array(
+			self::PREFIX . 'publish-approval-app'    => ComposerMcpServer::PUBLISH_APPROVAL_RESOURCE_URI,
+			self::PREFIX . 'publish-approval-app-v4' => ComposerMcpServer::PUBLISH_APPROVAL_RESOURCE_URI_V4,
+			self::PREFIX . 'publish-approval-app-v3' => ComposerMcpServer::PUBLISH_APPROVAL_RESOURCE_URI_V3,
+			self::PREFIX . 'publish-approval-app-v2' => ComposerMcpServer::PUBLISH_APPROVAL_RESOURCE_URI_V2,
+			self::PREFIX . 'publish-approval-app-v1' => ComposerMcpServer::PUBLISH_APPROVAL_RESOURCE_URI_V1,
+		);
+		foreach ( $resources as $name => $uri ) {
+			if ( function_exists( 'wp_has_ability' ) && wp_has_ability( $name ) ) {
+				continue;
+			}
+			wp_register_ability(
+				$name,
+				array(
+					'label'               => 'Publication approval app',
+					'description'         => 'MCP Apps UI resource for exact revision-bound human publication review, terminal status display, and decision.',
+					'category'            => self::CATEGORY,
+					'output_schema'       => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'additionalProperties' => true ) ),
+					'execute_callback'    => fn( array $input = array() ): array => $this->publish_approval_resource_for_uri( $uri, $input ),
+					'permission_callback' => $this->permission_callback_for( $name ),
+					'meta'                => array(
+						'show_in_rest' => false,
+						'mcp' => array(
+							'public'      => false,
+							'type'        => 'resource',
+							'uri'         => $uri,
+							'name'        => 'Composer publication approval',
+							'title'       => 'Composer publication approval',
+							'description' => 'Displays an exact locked revision, its current approval status, and human-only actions while pending.',
+							'mimeType'    => 'text/html;profile=mcp-app',
+							'_meta'       => array( 'ui' => $this->publish_approval_ui_meta() ),
+							'annotations' => array( 'audience' => array( 'user' ), 'priority' => 1.0 ),
+						),
+					),
+				)
+			);
+		}
+	}
+
+	public function publish_approval_resource( array $input = array() ): array {
+		return $this->publish_approval_resource_for_uri( ComposerMcpServer::PUBLISH_APPROVAL_RESOURCE_URI, $input );
+	}
+
+	private function publish_approval_resource_for_uri( string $uri, array $input = array() ): array {
+		unset( $input );
+		return array(
+			array(
+				'uri'      => $uri,
+				'mimeType' => 'text/html;profile=mcp-app',
+				'text'     => $this->publish_approval_app_html(),
+				'_meta'    => array( 'ui' => $this->publish_approval_ui_meta() ),
+			),
+		);
+	}
+
+	private function publish_approval_ui_meta(): array {
+		return array(
+			'prefersBorder' => true,
+			'csp' => array( 'connectDomains' => array(), 'resourceDomains' => array(), 'frameDomains' => array() ),
+		);
+	}
+
+	private function publish_approval_app_html(): string {
+		return <<<'HTML'
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+:root{color-scheme:light dark;font:14px/1.45 system-ui,sans-serif}body{margin:0;padding:16px;background:transparent;color:CanvasText}body[data-modal="true"]{overflow:hidden}.header{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.header h2{margin:0;font-size:18px}.status{padding:3px 8px;border-radius:999px;background:color-mix(in srgb,#00a32a 18%,Canvas);font-size:12px;font-weight:700}.status[data-status="rejected"],.status[data-status="invalidated"],.status[data-status="expired"]{background:color-mix(in srgb,#b32d2e 16%,Canvas)}.notice{margin:12px 0;padding:10px 12px;border-left:4px solid #dba617;background:color-mix(in srgb,#dba617 12%,Canvas)}.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;margin:12px 0}.meta div{padding:8px;border:1px solid color-mix(in srgb,CanvasText 14%,transparent);border-radius:8px}.meta small{display:block;color:GrayText}.preview{contain:layout paint style;isolation:isolate;overflow:auto;height:clamp(320px,55vh,600px);border:1px solid color-mix(in srgb,CanvasText 16%,transparent);border-radius:12px;background:Canvas}.actions,.confirm-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:12px}button{border:0;border-radius:7px;padding:9px 14px;font-weight:700;cursor:pointer}button:disabled{cursor:not-allowed;opacity:.55}.reject{color:#b32d2e}.approve{background:#00a32a;color:white}.confirm-action.reject{background:#b32d2e;color:white}.fallback{margin-right:auto;color:LinkText;background:transparent;text-decoration:underline}.confirm-backdrop{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:color-mix(in srgb,CanvasText 38%,transparent);backdrop-filter:blur(2px)}.confirm-dialog{box-sizing:border-box;width:min(460px,100%);padding:18px;border:1px solid color-mix(in srgb,#dba617 55%,Canvas);border-radius:12px;background:Canvas;box-shadow:0 18px 48px color-mix(in srgb,CanvasText 28%,transparent)}.confirm-dialog strong{display:block;font-size:16px}.confirm-dialog p{margin:8px 0 0}.message{margin-top:10px;color:GrayText}.error{color:#b32d2e}[hidden]{display:none!important}
+</style></head><body><header class="header"><div><h2 id="title">Publication review</h2><div id="subtitle"></div></div><span id="status" class="status">Pending</span></header><p class="notice">This decision is bound to the exact revision and content hash shown below. Any draft change invalidates it.</p><section id="meta" class="meta"></section><main id="preview" class="preview"></main><div class="actions"><button id="fallback" class="fallback" type="button">Open WordPress fallback</button><button id="reject" class="reject" type="button">Reject</button><button id="approve" class="approve" type="button">Approve and publish</button></div><section id="confirmation" class="confirm-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-copy" hidden><div class="confirm-dialog"><strong id="confirm-title"></strong><p id="confirm-copy"></p><div class="confirm-actions"><button id="cancel-decision" type="button">Cancel</button><button id="confirm-decision" class="confirm-action" type="button"></button></div></div></section><div id="message" class="message" aria-live="polite"></div><script>
+const preview=document.getElementById('preview');const root=preview.attachShadow({mode:'open'});const title=document.getElementById('title');const subtitle=document.getElementById('subtitle');const statusEl=document.getElementById('status');const meta=document.getElementById('meta');const message=document.getElementById('message');const approve=document.getElementById('approve');const reject=document.getElementById('reject');const fallback=document.getElementById('fallback');const confirmation=document.getElementById('confirmation');const confirmTitle=document.getElementById('confirm-title');const confirmCopy=document.getElementById('confirm-copy');const cancelDecision=document.getElementById('cancel-decision');const confirmDecision=document.getElementById('confirm-decision');const pending=new Map();const blobUrls=new Set();let requestId=1;let current=null;let pendingDecision=null;let confirmationTrigger=null;let lastRequestId='';
+const chromeCss=':host{display:block;padding:clamp(16px,4vw,40px);color:CanvasText;background:Canvas}:host([dir="rtl"]){direction:rtl}body.smartcloud-composer-preview-document{box-sizing:border-box;width:100%;height:auto!important;overflow:visible!important}img{max-width:100%;height:auto}table{display:block;max-width:100%;overflow:auto}a{color:LinkText}.preview-empty{box-sizing:border-box;display:grid;place-items:center;min-height:240px;padding:32px;text-align:center;color:GrayText}.preview-empty strong{display:block;margin-bottom:6px;color:CanvasText;font-size:16px}';
+function post(value){window.parent.postMessage(value,'*')}function request(method,params){const id=requestId++;post({jsonrpc:'2.0',id,method,params});return new Promise((resolve,reject)=>pending.set(id,{resolve,reject}))}function notify(method,params){post({jsonrpc:'2.0',method,...(params===undefined?{}:{params})})}
+function resultData(payload){const result=payload?.structuredContent??payload;return result?.document?result:(result?.result??result)}function contentBlocks(payload){for(const candidate of [payload,payload?.result,payload?.result?.result])if(Array.isArray(candidate?.content))return candidate.content;return[]}
+function sanitize(html){const parsed=new DOMParser().parseFromString(String(html||''),'text/html');parsed.querySelectorAll('script,iframe,object,embed,base,meta,link,style,form,input,button,textarea,select,audio,video,source,track,picture').forEach(node=>node.remove());parsed.querySelectorAll('*').forEach(node=>{for(const attr of [...node.attributes])if(attr.name.toLowerCase().startsWith('on')||['srcdoc','srcset','poster'].includes(attr.name.toLowerCase()))node.removeAttribute(attr.name)});const fragment=document.createDocumentFragment();fragment.append(...parsed.body.childNodes);return fragment}
+function clearBlobs(){for(const url of blobUrls)URL.revokeObjectURL(url);blobUrls.clear()}function decodeBlob(data,mime){const binary=atob(String(data||''));const bytes=new Uint8Array(binary.length);for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);return new Blob([bytes],{type:mime||'application/octet-stream'})}
+async function callTool(name,args){if(window.openai?.callTool)return window.openai.callTool(name,args);return request('tools/call',{name,arguments:args})}
+async function loadAsset(asset){const response=await callTool('smartcloud-agent-composer-get-publish-approval-asset',{id:current.id,token:current.approval_token,asset_id:asset.asset_id});const blocks=contentBlocks(response);if(asset.kind==='stylesheet'){const block=blocks.find(item=>item.type==='resource'&&String(item.resource?.mimeType||'').startsWith('text/css'));return{asset,css:String(block?.resource?.text||'')}}if(asset.kind==='font'){const block=blocks.find(item=>item.type==='resource'&&item.resource?.blob);return{asset,blob:decodeBlob(block?.resource?.blob,block?.resource?.mimeType)}}const block=blocks.find(item=>item.type==='image');return{asset,blob:decodeBlob(block?.data,block?.mimeType)}}
+function statusMessage(state){return state==='approved'?'Published successfully.':state==='rejected'?'Publication request rejected.':state==='expired'?'This publication request expired.':state==='invalidated'?'This publication request was invalidated by a draft or contract change.':''}function showStatus(state){const value=String(state||'pending').toLowerCase();statusEl.textContent=value.charAt(0).toUpperCase()+value.slice(1);statusEl.dataset.status=value;return value}
+async function render(payload){const data=resultData(payload);if(!data?.document||!data?.id)return;approve.disabled=reject.disabled=true;fallback.hidden=true;confirmation.hidden=true;document.body.removeAttribute('data-modal');pendingDecision=null;confirmationTrigger=null;message.classList.remove('error');message.textContent='Opening the protected approval session…';try{const session=resultData(await callTool('smartcloud-agent-composer-open-publish-approval',{id:data.id}));if(!session?.status)throw new Error('The approval session could not be opened.');current={...data,...session};const state=showStatus(current.status);const isPending=state==='pending'&&Boolean(current.approval_token);approve.disabled=reject.disabled=!isPending;fallback.hidden=!isPending||!current.approval_url;message.textContent=isPending?'':statusMessage(state)}catch(error){message.classList.add('error');message.textContent=error?.message||'The approval session could not be opened.';return}const doc=data.document;title.textContent=doc.title||'Publication review';subtitle.textContent='WordPress ID '+data.post_id;meta.replaceChildren();for(const [label,value] of [['Revision',doc.revision],['Validation',data.validation?.valid?'Valid':'Invalid'],['Expires',current.expires_gmt+' UTC'],['Assigned creator',current.assigned_principal_id||'Unassigned']]){const item=document.createElement('div');const small=document.createElement('small');small.textContent=label;item.append(small,document.createTextNode(String(value||'')));meta.append(item)}clearBlobs();root.replaceChildren();const base=document.createElement('style');base.textContent=chromeCss;root.append(base);const fragment=sanitize(doc.html);const article=fragment.querySelector('article');const shell=document.createElement('body');shell.className=article?.getAttribute('data-smartcloud-preview-body-classes')||'';shell.classList.add('smartcloud-composer-preview-document');article?.removeAttribute('data-smartcloud-preview-body-classes');const site=document.createElement('div');site.className='wp-site-blocks';const main=document.createElement('main');const content=document.createElement('div');content.className='wp-block-post-content';const hasRenderableBody=String(fragment.textContent||'').trim()!==''||Boolean(fragment.querySelector('img,figure,hr,table,ul,ol,blockquote,pre,details,canvas,svg'));if(hasRenderableBody){content.append(fragment)}else{const empty=document.createElement('div');empty.className='preview-empty';const copy=document.createElement('div');const heading=document.createElement('strong');heading.textContent='No body content';const detail=document.createElement('span');detail.textContent='This draft contains only its WordPress title, shown above.';copy.append(heading,detail);empty.append(copy);content.append(empty)}main.append(content);site.append(main);shell.append(site);root.append(shell);root.host.setAttribute('dir',doc.direction==='rtl'?'rtl':'ltr');const loaded=[];if(current.approval_token)for(const asset of [...(doc.assets||[])].sort((a,b)=>(a.order||0)-(b.order||0))){try{loaded.push(await loadAsset(asset))}catch(error){message.textContent='Some preview assets could not be loaded.'}}const urls=new Map();for(const item of loaded)if(item.blob){const url=URL.createObjectURL(item.blob);blobUrls.add(url);urls.set(item.asset.asset_id,url);if(item.asset.kind==='image')for(const image of root.querySelectorAll('img[data-smartcloud-preview-asset="'+CSS.escape(item.asset.asset_id)+'"]'))image.src=url}for(const item of loaded)if(item.css!==undefined){let css=item.css;for(const [id,url] of urls)css=css.split('smartcloud-preview-asset://'+id).join(url);css=css.replace(/smartcloud-preview-asset:\/\/pa_[A-Za-z0-9_-]{43}/g,'data:,');const style=document.createElement('style');style.textContent=css;root.insertBefore(style,shell)}}
+function askDecision(decision){if(!current?.approval_token)return;confirmationTrigger=document.activeElement;pendingDecision=decision;const publishing=decision==='approve';confirmTitle.textContent=publishing?'Confirm publication':'Confirm rejection';confirmCopy.textContent=publishing?'Publish this exact locked revision now? This cannot be undone from this approval card.':'Reject this publication request? The draft will remain unpublished and unchanged.';confirmDecision.textContent=publishing?'Confirm publication':'Confirm rejection';confirmDecision.className='confirm-action '+(publishing?'approve':'reject');confirmation.hidden=false;document.body.dataset.modal='true';approve.disabled=reject.disabled=true;confirmDecision.disabled=cancelDecision.disabled=false;confirmDecision.focus()}function cancelConfirmation(){if(cancelDecision.disabled)return;pendingDecision=null;confirmation.hidden=true;document.body.removeAttribute('data-modal');if(current?.approval_token)approve.disabled=reject.disabled=false;if(confirmationTrigger instanceof HTMLElement)confirmationTrigger.focus();confirmationTrigger=null}
+async function decide(decision){if(!current?.approval_token||decision!==pendingDecision)return;confirmDecision.disabled=cancelDecision.disabled=true;message.classList.remove('error');message.textContent=decision==='approve'?'Publishing the locked revision…':'Rejecting the publication request…';try{const response=await callTool('smartcloud-agent-composer-decide-publish-approval',{id:current.id,token:current.approval_token,decision,confirm_decision:true});const data=resultData(response)||response?.result?.result||response;const state=data?.status||data?.result?.status;if(!['approved','rejected'].includes(state))throw new Error('The decision was not accepted.');current={...current,...data,approval_token:null,approval_url:null};pendingDecision=null;confirmationTrigger=null;confirmation.hidden=true;document.body.removeAttribute('data-modal');showStatus(state);fallback.hidden=true;message.textContent=statusMessage(state)}catch(error){confirmDecision.disabled=cancelDecision.disabled=false;message.classList.add('error');message.textContent=error?.message||'The decision could not be applied.'}}
+approve.addEventListener('click',()=>askDecision('approve'));reject.addEventListener('click',()=>askDecision('reject'));cancelDecision.addEventListener('click',cancelConfirmation);confirmDecision.addEventListener('click',()=>decide(pendingDecision));confirmation.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();cancelConfirmation();return}if(event.key!=='Tab')return;const first=cancelDecision;const last=confirmDecision;if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus()}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}});fallback.addEventListener('click',()=>{if(!current?.approval_url)return;if(window.openai?.openExternal)window.openai.openExternal({href:current.approval_url});else window.open(current.approval_url,'_blank','noopener,noreferrer')});root.addEventListener('click',event=>{if(event.target.closest('a'))event.preventDefault()},{capture:true});window.addEventListener('pagehide',clearBlobs,{passive:true});window.addEventListener('message',event=>{if(event.source!==window.parent)return;const msg=event.data;if(!msg||msg.jsonrpc!=='2.0')return;if(msg.id!==undefined&&pending.has(msg.id)){const waiter=pending.get(msg.id);pending.delete(msg.id);msg.error?waiter.reject(new Error(msg.error.message||'MCP Apps request failed')):waiter.resolve(msg.result);return}if(msg.method==='ui/notifications/tool-result')render(msg.params)},{passive:true});if(window.openai?.toolOutput)render(window.openai.toolOutput);window.addEventListener('openai:set_globals',event=>{const output=event.detail?.globals?.toolOutput;if(output!==undefined)render(output)},{passive:true});(async()=>{try{await request('ui/initialize',{appInfo:{name:'Composer publication approval',version:'5.0.0'},appCapabilities:{tools:{}},protocolVersion:'2026-01-26'});notify('ui/notifications/initialized')}catch(error){message.textContent='The approval host bridge is unavailable.'}})();
+</script></body></html>
+HTML;
 	}
 
 	private function register_rendered_preview_resource(): void {
@@ -1164,7 +1679,7 @@ final class Abilities {
 						unset( $input );
 						return $this->rendered_preview_resource_for_uri( $uri );
 					},
-					'permission_callback' => array( $this, 'check_permission' ),
+					'permission_callback' => $this->permission_callback_for( $name ),
 					'meta'                => array(
 						'show_in_rest' => false,
 						'mcp'          => array(
@@ -1244,9 +1759,14 @@ HTML;
 	private function execute( string $slug, array $input, callable $callback ): array|\WP_Error {
 		$operation = self::PREFIX . $slug;
 		$this->audit->begin_operation();
-		if ( ! $this->check_permission( $input ) ) {
+		$permission = $this->check_permission_for( $operation );
+		if ( is_wp_error( $permission ) ) {
+			$this->audit->log( $operation, 'denied', $input, 0, $permission->get_error_code() );
+			return $permission;
+		}
+		if ( true !== $permission ) {
 			$this->audit->log( $operation, 'denied', $input, 0, 'permission_denied' );
-			return new \WP_Error( 'smartcloud_agent_permission_denied', 'The authenticated WordPress user is not an authorized SmartCloud agent.', array( 'status' => 403, 'request_id' => $this->audit->get_request_id() ) );
+			return new \WP_Error( 'smartcloud_agent_permission_denied', 'The current Composer actor is not authorized for this operation.', array( 'status' => 403, 'request_id' => $this->audit->get_request_id() ) );
 		}
 
 		try {
@@ -1261,13 +1781,20 @@ HTML;
 			$post_id  = absint( $input['post_id'] ?? 0 );
 			$conflict = in_array(
 				$error->get_execution_code(),
-				array( 'edit_conflict', 'draft_assigned_to_other_agent', 'taxonomy_term_conflict', 'proposal_creation_conflict', 'proposal_assigned_to_other_agent', 'localization_context_conflict', 'localized_content_group_conflict', 'localized_group_snapshot_conflict', 'localized_group_language_slot_conflict', 'localized_group_member_conflict' ),
+				array( 'edit_conflict', 'document_read_conflict', 'draft_assigned_to_other_agent', 'taxonomy_term_conflict', 'proposal_creation_conflict', 'proposal_assigned_to_other_agent', 'localization_context_conflict', 'localized_content_group_conflict', 'localized_group_snapshot_conflict', 'localized_group_language_slot_conflict', 'localized_group_member_conflict' ),
 				true
 			);
 			$this->audit->log( $operation, 'error', $input, $post_id, $error->get_execution_code(), array( 'conflict' => $conflict ) );
-			$denied = in_array( $error->get_execution_code(), array( 'taxonomy_term_create_denied', 'taxonomy_assignment_denied', 'proposal_create_denied', 'proposal_source_read_denied', 'localization_content_read_denied', 'localized_content_edit_forbidden' ), true );
+			$denied = in_array( $error->get_execution_code(), array( 'taxonomy_term_create_denied', 'taxonomy_assignment_denied', 'proposal_create_denied', 'proposal_source_read_denied', 'localization_content_read_denied', 'localized_content_edit_forbidden', 'migration_permission_denied' ), true );
 			$status = $conflict ? 409 : ( $denied ? 403 : 400 );
-			return new \WP_Error( 'smartcloud_agent_' . $error->get_execution_code(), $error->getMessage(), array( 'status' => $status, 'request_id' => $this->audit->get_request_id() ) );
+			return new \WP_Error(
+				'smartcloud_agent_' . $error->get_execution_code(),
+				$error->getMessage(),
+				array_merge(
+					$error->get_execution_data(),
+					array( 'status' => $status, 'request_id' => $this->audit->get_request_id() )
+				)
+			);
 		} catch ( \Throwable $error ) {
 			$this->audit->log( $operation, 'error', $input, absint( $input['post_id'] ?? 0 ), 'internal_error' );
 			do_action( 'smartcloud_composer_internal_error', $error, $operation );
@@ -1505,6 +2032,109 @@ HTML;
 			'type'                 => 'object',
 			'properties'           => array( 'post_id' => array( 'type' => 'integer', 'minimum' => 1 ) ),
 			'required'             => array( 'post_id' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	public function semantic_field_update_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'post_id'               => array( 'type' => 'integer', 'minimum' => 1 ),
+				'expected_modified_gmt' => array( 'type' => 'string', 'format' => 'date-time' ),
+				'expected_revision'     => array( 'type' => 'string', 'format' => 'uuid' ),
+				'field'                 => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 128, 'pattern' => '^[a-z][a-z0-9._-]{0,127}$' ),
+				'attribute'             => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 128, 'pattern' => '^[A-Za-z][A-Za-z0-9_-]{0,127}$' ),
+				'value'                 => array( 'type' => array( 'string', 'number', 'integer', 'boolean', 'object', 'array', 'null' ) ),
+				'confirm_update'        => array( 'type' => 'boolean', 'enum' => array( true ) ),
+			),
+			'required'             => array( 'post_id', 'expected_modified_gmt', 'expected_revision', 'field', 'value', 'confirm_update' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	public function semantic_media_update_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'post_id'               => array( 'type' => 'integer', 'minimum' => 1 ),
+				'expected_modified_gmt' => array( 'type' => 'string', 'format' => 'date-time' ),
+				'expected_revision'     => array( 'type' => 'string', 'format' => 'uuid' ),
+				'field'                 => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 128, 'pattern' => '^[a-z][a-z0-9._-]{0,127}$' ),
+				'attachment_id'         => array( 'type' => 'integer', 'minimum' => 1 ),
+				'size_slug'             => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 64, 'pattern' => '^[a-z0-9_-]+$' ),
+				'confirm_update'        => array( 'type' => 'boolean', 'enum' => array( true ) ),
+			),
+			'required'             => array( 'post_id', 'expected_modified_gmt', 'expected_revision', 'field', 'attachment_id', 'confirm_update' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	public function semantic_slot_insert_schema(): array {
+		$schema = $this->semantic_slot_mutation_base_schema();
+		$schema['properties']['position'] = array( 'type' => 'string', 'enum' => array( 'start', 'end', 'before', 'after' ), 'default' => 'end' );
+		$schema['properties']['reference_user_block_id'] = $this->user_block_id_schema();
+		$schema['properties']['block'] = $this->semantic_slot_block_schema();
+		$schema['required'][] = 'block';
+		return $schema;
+	}
+
+	public function semantic_slot_update_schema(): array {
+		$schema = $this->semantic_slot_mutation_base_schema();
+		$schema['properties']['user_block_id'] = $this->user_block_id_schema();
+		$schema['properties']['block'] = $this->semantic_slot_block_schema();
+		$schema['required'] = array_merge( $schema['required'], array( 'user_block_id', 'block' ) );
+		return $schema;
+	}
+
+	public function semantic_slot_move_schema(): array {
+		$schema = $this->semantic_slot_mutation_base_schema();
+		$schema['properties']['user_block_id'] = $this->user_block_id_schema();
+		$schema['properties']['position'] = array( 'type' => 'string', 'enum' => array( 'start', 'end', 'before', 'after' ) );
+		$schema['properties']['reference_user_block_id'] = $this->user_block_id_schema();
+		$schema['required'] = array_merge( $schema['required'], array( 'user_block_id', 'position' ) );
+		return $schema;
+	}
+
+	public function semantic_slot_remove_schema(): array {
+		$schema = $this->semantic_slot_mutation_base_schema();
+		$schema['properties']['user_block_id'] = $this->user_block_id_schema();
+		$schema['required'][] = 'user_block_id';
+		return $schema;
+	}
+
+	private function semantic_slot_mutation_base_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'post_id'               => array( 'type' => 'integer', 'minimum' => 1 ),
+				'expected_modified_gmt' => array( 'type' => 'string', 'format' => 'date-time' ),
+				'expected_revision'     => array( 'type' => 'string', 'format' => 'uuid' ),
+				'slot'                  => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 128, 'pattern' => '^[a-z][a-z0-9._-]{0,127}$' ),
+				'confirm_update'        => array( 'type' => 'boolean', 'enum' => array( true ) ),
+			),
+			'required'             => array( 'post_id', 'expected_modified_gmt', 'expected_revision', 'slot', 'confirm_update' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	private function user_block_id_schema(): array {
+		return array( 'type' => 'string', 'minLength' => 13, 'maxLength' => 63, 'pattern' => '^user-[a-z0-9-]{8,58}$' );
+	}
+
+	private function semantic_slot_block_schema(): array {
+		return array(
+			'type'                 => 'object',
+			'properties'           => array(
+				'name'          => array( 'type' => 'string', 'enum' => array( 'core/paragraph', 'core/heading', 'core/button', 'core/image', 'core/separator', 'core/spacer' ) ),
+				'attributes'    => array( 'type' => 'object', 'maxProperties' => 50, 'additionalProperties' => true ),
+				'content'       => array( 'type' => 'string', 'maxLength' => 250000 ),
+				'attachment_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+				'size_slug'     => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 64, 'pattern' => '^[a-z0-9_-]+$' ),
+				'provider'      => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 64, 'pattern' => '^[a-z0-9][a-z0-9-]{0,63}$' ),
+				'component'     => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 64, 'pattern' => '^[a-z0-9][a-z0-9-]{0,63}$' ),
+				'spec'          => array( 'type' => 'object', 'maxProperties' => 200, 'additionalProperties' => true ),
+			),
 			'additionalProperties' => false,
 		);
 	}
@@ -2123,6 +2753,79 @@ HTML;
 		return $schema;
 	}
 
+	public function blueprint_migration_preview_schema(): array {
+		return array(
+			'type' => 'object',
+			'properties' => array(
+				'post_id'      => array( 'type' => 'integer', 'minimum' => 1 ),
+				'page_type'    => array( 'type' => 'string', 'pattern' => '^[a-z0-9-]{1,64}$' ),
+				'migration_id' => array( 'type' => 'string', 'pattern' => '^[a-z][a-z0-9-]{0,63}$' ),
+			),
+			'required' => array( 'post_id', 'page_type', 'migration_id' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	public function blueprint_migration_proposal_schema(): array {
+		$schema = $this->blueprint_migration_preview_schema();
+		$schema['properties']['content_language'] = $this->string_property( 'Exact approved BCP 47 language of the localized source.', 2, 35 );
+		$schema['properties']['expected_modified_gmt'] = array( 'type' => 'string', 'format' => 'date-time' );
+		$schema['properties']['expected_content_hash'] = array( 'type' => 'string', 'pattern' => '^[a-f0-9]{64}$' );
+		$schema['properties']['expected_migration_plan_hash'] = array( 'type' => 'string', 'pattern' => '^sha256:[a-f0-9]{64}$' );
+		$schema['properties']['idempotency_key'] = array( 'type' => 'string', 'minLength' => 8, 'maxLength' => 128, 'pattern' => '^[A-Za-z0-9._:-]+$' );
+		$schema['properties']['confirm_proposal'] = array( 'type' => 'boolean', 'enum' => array( true ) );
+		$schema['required'] = array_merge(
+			$schema['required'],
+			array( 'content_language', 'expected_modified_gmt', 'expected_content_hash', 'expected_migration_plan_hash', 'idempotency_key', 'confirm_proposal' )
+		);
+		return $schema;
+	}
+
+	public function bulk_blueprint_migration_plan_schema(): array {
+		return array(
+			'type' => 'object',
+			'properties' => array(
+				'page_type'    => array( 'type' => 'string', 'pattern' => '^[a-z0-9-]{1,64}$' ),
+				'migration_id' => array( 'type' => 'string', 'pattern' => '^[a-z][a-z0-9-]{0,63}$' ),
+				'page'         => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 100000, 'default' => 1 ),
+				'per_page'     => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 100, 'default' => 25 ),
+			),
+			'required' => array( 'page_type', 'migration_id' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	public function bulk_blueprint_migration_create_schema(): array {
+		return array(
+			'type' => 'object',
+			'properties' => array(
+				'page_type'    => array( 'type' => 'string', 'pattern' => '^[a-z0-9-]{1,64}$' ),
+				'migration_id' => array( 'type' => 'string', 'pattern' => '^[a-z][a-z0-9-]{0,63}$' ),
+				'items' => array(
+					'type' => 'array',
+					'minItems' => 1,
+					'maxItems' => 25,
+					'items' => array(
+						'type' => 'object',
+						'properties' => array(
+							'post_id'                       => array( 'type' => 'integer', 'minimum' => 1 ),
+							'content_language'              => $this->string_property( 'Exact source language returned by bulk migration planning.', 2, 35 ),
+							'expected_modified_gmt'         => array( 'type' => 'string', 'format' => 'date-time' ),
+							'expected_content_hash'         => array( 'type' => 'string', 'pattern' => '^[a-f0-9]{64}$' ),
+							'expected_migration_plan_hash'  => array( 'type' => 'string', 'pattern' => '^sha256:[a-f0-9]{64}$' ),
+							'idempotency_key'               => array( 'type' => 'string', 'minLength' => 8, 'maxLength' => 128, 'pattern' => '^[A-Za-z0-9._:-]+$' ),
+						),
+						'required' => array( 'post_id', 'content_language', 'expected_modified_gmt', 'expected_content_hash', 'expected_migration_plan_hash', 'idempotency_key' ),
+						'additionalProperties' => false,
+					),
+				),
+				'confirm_bulk_proposals' => array( 'type' => 'boolean', 'enum' => array( true ) ),
+			),
+			'required' => array( 'page_type', 'migration_id', 'items', 'confirm_bulk_proposals' ),
+			'additionalProperties' => false,
+		);
+	}
+
 	public function content_proposal_submit_schema(): array {
 		$schema = array(
 			'type' => 'object',
@@ -2145,6 +2848,19 @@ HTML;
 			$schema['required'][] = 'rendered_preview_token';
 		}
 		return $schema;
+	}
+
+	public function content_proposal_validate_schema(): array {
+		return array(
+			'type' => 'object',
+			'properties' => array(
+				'post_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+				'expected_modified_gmt' => array( 'type' => 'string', 'format' => 'date-time' ),
+				'expected_revision' => array( 'type' => 'string', 'format' => 'uuid' ),
+			),
+			'required' => array( 'post_id', 'expected_modified_gmt', 'expected_revision' ),
+			'additionalProperties' => false,
+		);
 	}
 
 	public function adoption_inspection_schema(): array {

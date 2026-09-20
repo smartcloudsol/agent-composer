@@ -17,6 +17,7 @@ test("core exposes only shared runtime constants", () => {
   assert.equal(core.ENTITY_TYPES.length, 7);
   assert.deepEqual(core.EXCERPT_POLICIES, ["required", "optional", "disabled"]);
   assert.deepEqual(core.PUBLISHED_UPDATE_POLICIES, ["disabled", "proposal-only"]);
+  assert.deepEqual(core.ADMIN_CREATION_MODES, ["off", "optional", "required"]);
   assert.deepEqual(core.CONTENT_PROPOSAL_STATES, [
     "working",
     "ready-for-review",

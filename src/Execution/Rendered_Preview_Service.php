@@ -3,6 +3,8 @@
 
 namespace SmartCloud\AgentComposer\Execution;
 
+use SmartCloud\AgentComposer\Security\ActorIdentity;
+
 final class Rendered_Preview_Service {
 	private const MAX_HTML_BYTES       = 500000;
 	private const MAX_ASSETS           = 250;
@@ -108,6 +110,41 @@ final class Rendered_Preview_Service {
 	}
 
 	/**
+	 * Return one asset collected by the most recent build_document() call.
+	 *
+	 * The publish-approval surface uses this instead of inventing a second
+	 * renderer. Callers must authorize and revalidate the exact approval before
+	 * building the document and reading an asset.
+	 *
+	 * @return array{kind:string,mime_type:string,content:string}
+	 */
+	public function built_asset_payload( string $asset_id ): array {
+		if ( ! preg_match( self::ASSET_ID_PATTERN, $asset_id ) ) {
+			throw new Execution_Exception( 'rendered_preview_asset_invalid', 'The rendered preview asset identifier is invalid.' );
+		}
+		$source = $this->asset_sources[ $asset_id ] ?? null;
+		if ( ! is_array( $source ) ) {
+			throw new Execution_Exception( 'rendered_preview_asset_not_found', 'The rendered preview asset is not part of this exact draft revision.' );
+		}
+		if ( 'stylesheet' === ( $source['kind'] ?? '' ) ) {
+			return array( 'kind' => 'stylesheet', 'mime_type' => 'text/css', 'content' => (string) $source['content'] );
+		}
+
+		$kind = (string) ( $source['kind'] ?? '' );
+		$path = (string) ( $source['path'] ?? '' );
+		$size = '' !== $path && is_file( $path ) && is_readable( $path ) ? filesize( $path ) : false;
+		$max_size = 'font' === $kind ? self::MAX_FONT_BYTES : self::MAX_IMAGE_BYTES;
+		if ( false === $size || $size < 1 || $size > $max_size || $size !== ( $source['byte_length'] ?? -1 ) ) {
+			throw new Execution_Exception( 'rendered_preview_asset_changed', 'The rendered preview binary asset changed after the asset manifest was created.' );
+		}
+		$bytes = file_get_contents( $path );
+		if ( false === $bytes || ! hash_equals( (string) $source['sha256'], hash( 'sha256', $bytes ) ) ) {
+			throw new Execution_Exception( 'rendered_preview_asset_changed', 'The rendered preview binary asset changed after the asset manifest was created.' );
+		}
+		return array( 'kind' => $kind, 'mime_type' => (string) $source['mime_type'], 'content' => $bytes );
+	}
+
+	/**
 	 * Build the transport-safe static document after draft access is authorized.
 	 */
 	public function build_document( \WP_Post $post, array $preview, string $content_language, bool $issue_submission_token = true ): array {
@@ -170,7 +207,7 @@ final class Rendered_Preview_Service {
 			),
 		);
 		if ( $issue_submission_token ) {
-			$result['rendered_preview_token'] = self::issue_submission_token( $post->ID, $modified_gmt, $revision, self::current_user_id() );
+			$result['rendered_preview_token'] = self::issue_submission_token( $post->ID, $modified_gmt, $revision, ActorIdentity::principal_id() );
 		}
 		return $result;
 	}
@@ -214,7 +251,7 @@ final class Rendered_Preview_Service {
 	/**
 	 * Verify that the assigned agent rendered this exact proposal revision.
 	 */
-	public static function assert_submission_token( string $token, int $post_id, string $modified_gmt, string $revision, int $user_id ): void {
+	public static function assert_submission_token( string $token, int $post_id, string $modified_gmt, string $revision, int|string $principal ): void {
 		if ( ! preg_match( self::SUBMISSION_TOKEN_PATTERN, $token ) ) {
 			throw new Execution_Exception( 'rendered_preview_required', 'Render the final proposal revision before submitting it for review.' );
 		}
@@ -223,25 +260,30 @@ final class Rendered_Preview_Service {
 		if ( $expires < time() ) {
 			throw new Execution_Exception( 'rendered_preview_expired', 'The rendered preview token expired. Render the current proposal revision again before submitting it.' );
 		}
-		$expected = self::submission_signature( $post_id, $modified_gmt, $revision, $user_id, $expires );
+		$expected = self::submission_signature( $post_id, $modified_gmt, $revision, self::normalize_principal( $principal ), $expires );
 		if ( ! hash_equals( $expected, (string) ( $parts[2] ?? '' ) ) ) {
 			throw new Execution_Exception( 'rendered_preview_required', 'The supplied preview token does not attest to this exact proposal revision. Render it again before submitting it.' );
 		}
 	}
 
-	private static function issue_submission_token( int $post_id, string $modified_gmt, string $revision, int $user_id ): string {
+	private static function issue_submission_token( int $post_id, string $modified_gmt, string $revision, string $principal ): string {
 		$expires = time() + self::SUBMISSION_TOKEN_TTL;
-		return 'pv1.' . $expires . '.' . self::submission_signature( $post_id, $modified_gmt, $revision, $user_id, $expires );
+		return 'pv1.' . $expires . '.' . self::submission_signature( $post_id, $modified_gmt, $revision, $principal, $expires );
 	}
 
-	private static function submission_signature( int $post_id, string $modified_gmt, string $revision, int $user_id, int $expires ): string {
+	private static function submission_signature( int $post_id, string $modified_gmt, string $revision, string $principal, int $expires ): string {
 		$secret = function_exists( 'wp_salt' ) ? wp_salt( 'auth' ) : __CLASS__;
-		$bytes  = hash_hmac( 'sha256', "preview-submit-v1\n{$post_id}\n{$modified_gmt}\n{$revision}\n{$user_id}\n{$expires}", $secret, true );
+		$bytes  = hash_hmac( 'sha256', "preview-submit-v1\n{$post_id}\n{$modified_gmt}\n{$revision}\n{$principal}\n{$expires}", $secret, true );
 		return rtrim( strtr( base64_encode( $bytes ), '+/', '-_' ), '=' );
 	}
 
 	private static function current_user_id(): int {
 		return function_exists( 'get_current_user_id' ) ? get_current_user_id() : 0;
+	}
+
+	private static function normalize_principal( int|string $principal ): string {
+		$value = (string) $principal;
+		return preg_match( '/^[0-9]+$/', $value ) ? 'wp-user:' . $value : $value;
 	}
 
 	private static function strip_gutenberg_serialization( string $html ): string {
@@ -308,7 +350,7 @@ final class Rendered_Preview_Service {
 			array(
 				'version'  => self::ASSET_SNAPSHOT_VERSION,
 				'post_id'  => $post_id,
-				'user_id'  => self::current_user_id(),
+				'principal_id' => ActorIdentity::principal_id(),
 				'revision' => strtolower( $revision ),
 				'sources'  => $sources,
 			),
@@ -326,7 +368,7 @@ final class Rendered_Preview_Service {
 			! is_array( $snapshot )
 			|| self::ASSET_SNAPSHOT_VERSION !== (int) ( $snapshot['version'] ?? 0 )
 			|| $post_id !== (int) ( $snapshot['post_id'] ?? 0 )
-			|| self::current_user_id() !== (int) ( $snapshot['user_id'] ?? 0 )
+			|| ! hash_equals( ActorIdentity::principal_id(), (string) ( $snapshot['principal_id'] ?? '' ) )
 			|| ! hash_equals( strtolower( $revision ), strtolower( (string) ( $snapshot['revision'] ?? '' ) ) )
 			|| ! is_array( $snapshot['sources'] ?? null )
 			|| count( $snapshot['sources'] ) > self::MAX_ASSETS
@@ -338,7 +380,7 @@ final class Rendered_Preview_Service {
 
 	private function asset_snapshot_key( int $post_id, string $revision ): string {
 		$secret = function_exists( 'wp_salt' ) ? wp_salt( 'auth' ) : __CLASS__;
-		$digest = hash_hmac( 'sha256', "preview-assets-v1\n{$post_id}\n{$revision}\n" . self::current_user_id(), $secret );
+		$digest = hash_hmac( 'sha256', "preview-assets-v1\n{$post_id}\n{$revision}\n" . ActorIdentity::principal_id(), $secret );
 		return 'smartcloud_ac_preview_assets_' . $digest;
 	}
 

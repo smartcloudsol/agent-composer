@@ -56,11 +56,12 @@ final class Block_Catalog {
 			? $extensions['registered_block_contracts']
 			: array();
 		$has_registered_contract = isset( $registered_contracts[ $name ] ) && is_array( $registered_contracts[ $name ] );
+		$is_contract_internal = $this->is_contract_internal_block( $name, $blueprint );
 
 		// Non-core blocks require either their provider Ability profile or an
 		// explicit registered-block contract. Registration and namespace opt-in
 		// alone never grant Composer access.
-		if ( ! $core && ! $this->is_provider_block( $name ) && ! $has_registered_contract ) {
+		if ( ! $core && ! $this->is_provider_block( $name ) && ! $has_registered_contract && ! $is_contract_internal ) {
 			return false;
 		}
 
@@ -81,6 +82,7 @@ final class Block_Catalog {
 		$namespace = strstr( $name, '/', true );
 		if (
 			! $core
+			&& ! $is_contract_internal
 			&& (
 				false === $namespace
 				|| ! in_array( $namespace, $extensions['allowed_plugin_namespaces'], true )
@@ -103,7 +105,7 @@ final class Block_Catalog {
 		 * them.
 		 */
 		if ( null !== $blueprint ) {
-			if ( ! in_array( $name, $blueprint['allowed_blocks'], true ) ) {
+			if ( ! $is_contract_internal && ! in_array( $name, $blueprint['allowed_blocks'], true ) ) {
 				return false;
 			}
 			return $this->is_registered( $name );
@@ -126,8 +128,26 @@ final class Block_Catalog {
 		// provider component. The final draft validator still applies the
 		// selected blueprint before any write.
 		return null === $blueprint
-			&& $core
+			&& ( $core || $is_contract_internal )
 			&& $this->is_registered( $name );
+	}
+
+	private function is_contract_internal_block( string $name, ?array $blueprint ): bool {
+		if ( 'smartcloud-agent-composer/extension-slot' !== $name ) {
+			return false;
+		}
+		if ( null === $blueprint ) {
+			return true;
+		}
+		if ( 'enforced' !== (string) ( $blueprint['structure_contract_mode'] ?? '' ) ) {
+			return false;
+		}
+		foreach ( (array) ( $blueprint['resolved_structure_contract']['nodes'] ?? array() ) as $node ) {
+			if ( is_array( $node ) && 'slot' === (string) ( $node['mode'] ?? '' ) && $name === (string) ( $node['block'] ?? '' ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	public function defaults( string $name ): array {

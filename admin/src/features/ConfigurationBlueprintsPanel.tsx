@@ -11,7 +11,7 @@ import type { SectionProps } from "../feature-contract";
 
 const TEXT_DOMAIN = "smartcloud-agent-composer";
 
-export function ConfigurationBlueprintsPanel({ status, selectedSet, selectedId, run, refreshSets, setNotice, setEntityChangesPending, showDocs }: SectionProps) {
+export function ConfigurationBlueprintsPanel({ status, selectedSet, selectedId, run, pendingAction, refreshSets, setNotice, setEntityChangesPending, showDocs }: SectionProps) {
   const baseEntities = selectedSet?.entities || [];
   const [editorEntityId, setEditorEntityId] = useState<string | null>(null);
   const [editorDirty, setEditorDirty] = useState(false);
@@ -106,12 +106,12 @@ export function ConfigurationBlueprintsPanel({ status, selectedSet, selectedId, 
       clearStaged();
       await refreshSets(selectedId);
       setNotice(`${__("Modifications applied as one Config Set changeset", TEXT_DOMAIN)}: ${result.summary.created} ${__("added", TEXT_DOMAIN)}, ${result.summary.updated} ${__("updated", TEXT_DOMAIN)}, ${result.summary.deleted} ${__("deleted", TEXT_DOMAIN)}.`);
-    });
+    }, "apply-configuration-changes");
     if (applied) setPage(1);
   };
 
   return <Stack gap="md">
-    <SectionHeading title={__("Configuration & blueprints", TEXT_DOMAIN)} description={__("Review the selected Config Set manifest and its single Site Contract, then manage the page-type Blueprints governed by them.", TEXT_DOMAIN)} icon={<IconFileDescription size={21} />} />
+    <SectionHeading title={__("Configuration & blueprints", TEXT_DOMAIN)} description={__("Review the selected Config Set manifest and its single Site Contract, then manage the page-type Blueprints governed by them.", TEXT_DOMAIN)} icon={<IconFileDescription size={21} />} openDocumentation={() => showDocs()} />
     {!selectedSet && <Alert color="yellow">{__("Select or create a config set first.", TEXT_DOMAIN)}</Alert>}
     {selectedSet && <>
       <Card withBorder radius="md" p="md" bg="blue.0">
@@ -210,7 +210,7 @@ export function ConfigurationBlueprintsPanel({ status, selectedSet, selectedId, 
           <div><Text fw={700}>{stagedCount > 0 ? __("Pending Config Set modifications", TEXT_DOMAIN) : __("No pending modifications", TEXT_DOMAIN)}</Text>
             <Text size="sm" c="dimmed">{`${stagedCreates.length} ${__("added", TEXT_DOMAIN)} · ${Object.keys(stagedUpdates).length} ${__("modified", TEXT_DOMAIN)} · ${stagedDeletes.size} ${__("marked for deletion", TEXT_DOMAIN)}`}</Text></div>
           <Group><Button variant="default" disabled={stagedCount === 0} onClick={() => setDiscardAllOpened(true)}>{__("Discard", TEXT_DOMAIN)}</Button>
-            <Button disabled={stagedCount === 0} onClick={() => void applyStaged()}>{__("Apply modifications", TEXT_DOMAIN)}</Button></Group>
+            <Button disabled={stagedCount === 0} loading={pendingAction === "apply-configuration-changes"} onClick={() => void applyStaged()}>{__("Apply modifications", TEXT_DOMAIN)}</Button></Group>
         </Group>
       </Card>
 

@@ -3,6 +3,8 @@
 namespace SmartCloud\AgentComposer\Application\Configuration;
 
 use SmartCloud\AgentComposer\Domain\Configuration\EntityType;
+use SmartCloud\AgentComposer\Domain\Structure\StructureContract;
+use SmartCloud\AgentComposer\Domain\Structure\StructureMigration;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\AuditTable;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\WordPressConfigurationRepository;
 use SmartCloud\AgentComposer\Integration\Providers\ProviderRegistry;
@@ -35,6 +37,19 @@ final class ConfigSetValidator {
 			$errors[] = $this->issue( 'blueprint-missing', 'At least one page blueprint is required.' );
 		}
 
+		$site_contract      = ( $by_type[ EntityType::SITE_CONTRACT ][0]['payload'] ?? array() );
+		$site_contract      = is_array( $site_contract ) ? $site_contract : array();
+		$design_policy      = is_array( $site_contract['design_policy'] ?? null ) ? $site_contract['design_policy'] : array();
+		$structure_registry = StructureContract::normalize_registry( $design_policy['structure_contracts'] ?? array() );
+		foreach ( $structure_registry['errors'] as $error ) {
+			$errors[] = $this->issue( (string) $error['code'], (string) $error['message'], (string) $error['path'] );
+		}
+		$this->validate_synced_structural_patterns( $design_policy, $by_type[ EntityType::BLUEPRINT ] ?? array(), $errors );
+		$migration_registry = StructureMigration::normalize_registry( $design_policy['structure_migrations'] ?? array() );
+		foreach ( $migration_registry['errors'] as $error ) {
+			$errors[] = $this->issue( (string) $error['code'], (string) $error['message'], (string) $error['path'] );
+		}
+
 		$page_types = array();
 		foreach ( $by_type[ EntityType::BLUEPRINT ] ?? array() as $blueprint ) {
 			$payload     = $blueprint['payload'];
@@ -59,39 +74,51 @@ final class ConfigSetValidator {
 			}
 			$this->validate_blueprint_constraints( $payload, (string) $blueprint['key'], $errors );
 			$this->validate_target_template( $payload, (string) $blueprint['key'], $errors );
+			$this->validate_structure_contract_reference( $payload, (string) $blueprint['key'], $mode, $structure_registry['value'], $errors );
 		}
+		$this->validate_admin_creation_policy(
+			$design_policy,
+			$by_type[ EntityType::BLUEPRINT ] ?? array(),
+			$errors
+		);
+		$this->validate_structure_migration_targets(
+			$migration_registry['value'],
+			$by_type[ EntityType::BLUEPRINT ] ?? array(),
+			$structure_registry['value'],
+			$errors
+		);
 
-		$site_contract = ( $by_type[ EntityType::SITE_CONTRACT ][0]['payload'] ?? array() );
 		$this->validate_language_policy(
-			is_array( $site_contract ) ? $site_contract : array(),
+			$site_contract,
 			$by_type[ EntityType::BLUEPRINT ] ?? array(),
 			$errors
 		);
 		$this->validate_rendered_preview_policy(
-			is_array( $site_contract ) ? $site_contract : array(),
+			$site_contract,
 			$errors
 		);
+		$this->validate_mcp_security_policy( $site_contract, $errors );
 		$this->validate_proposal_policy(
-			is_array( $site_contract ) ? $site_contract : array(),
+			$site_contract,
 			$by_type[ EntityType::BLUEPRINT ] ?? array(),
 			$errors
 		);
 		$this->validate_content_field_access(
-			is_array( $site_contract ) ? $site_contract : array(),
+			$site_contract,
 			$by_type[ EntityType::BLUEPRINT ] ?? array(),
 			$errors
 		);
 		$this->validate_content_taxonomy_access(
-			is_array( $site_contract ) ? $site_contract : array(),
+			$site_contract,
 			$by_type[ EntityType::BLUEPRINT ] ?? array(),
 			$errors
 		);
 		$this->validate_remote_media_policy(
-			is_array( $site_contract ) ? $site_contract : array(),
+			$site_contract,
 			$errors
 		);
 		$this->validate_registered_block_contracts(
-			is_array( $site_contract ) ? $site_contract : array(),
+			$site_contract,
 			$by_type[ EntityType::BLUEPRINT ] ?? array(),
 			$errors
 		);
@@ -140,6 +167,41 @@ final class ConfigSetValidator {
 		return $result;
 	}
 
+	private function validate_structure_migration_targets( array $migrations, array $blueprints, array $contracts, array &$errors ): void {
+		$by_page_type = array();
+		foreach ( $blueprints as $blueprint ) {
+			$payload   = is_array( $blueprint['payload'] ?? null ) ? $blueprint['payload'] : array();
+			$page_type = sanitize_key( (string) ( $payload['page_type'] ?? $blueprint['key'] ?? '' ) );
+			if ( '' !== $page_type ) {
+				$by_page_type[ $page_type ] = $payload;
+			}
+		}
+		foreach ( $migrations as $migration ) {
+			$id        = (string) ( $migration['id'] ?? '' );
+			$blueprint = $by_page_type[ (string) ( $migration['blueprint'] ?? '' ) ] ?? null;
+			$path      = 'design_policy.structure_migrations.' . $id . '.to';
+			if ( ! is_array( $blueprint ) ) {
+				$errors[] = $this->issue( 'structure-migration-blueprint-not-found', 'A migration target Blueprint is not present in this Config Set.', $path );
+				continue;
+			}
+			$target = (array) ( $migration['to'] ?? array() );
+			if ( (int) ( $blueprint['schema_version'] ?? 1 ) !== (int) ( $target['blueprint_version'] ?? 0 ) ) {
+				$errors[] = $this->issue( 'structure-migration-target-blueprint-mismatch', 'A migration target must be the exact Blueprint version in this Config Set.', $path . '.blueprint_version' );
+			}
+			$reference        = StructureContract::normalize_reference( $target['structure_contract'] ?? null, $path . '.structure_contract' );
+			$active_reference = StructureContract::normalize_reference( $blueprint['structure_contract'] ?? null, 'blueprint:' . (string) ( $migration['blueprint'] ?? '' ) . '.structure_contract' );
+			if ( ! $reference['valid'] || ! $active_reference['valid'] || $reference['value'] !== $active_reference['value'] ) {
+				$errors[] = $this->issue( 'structure-migration-target-contract-mismatch', 'A migration target must be the exact Structure Contract referenced by its Blueprint.', $path . '.structure_contract' );
+				continue;
+			}
+			$target_reference = $reference['value'];
+			$contract         = $contracts[ (string) $target_reference['id'] ] ?? null;
+			if ( ! is_array( $contract ) || (int) $contract['version'] !== (int) $target_reference['version'] ) {
+				$errors[] = $this->issue( 'structure-migration-target-contract-missing', 'A migration target Structure Contract is not present at its exact version.', $path . '.structure_contract' );
+			}
+		}
+	}
+
 	private function required_providers( array $policies ): array {
 		$required = array();
 		foreach ( $policies as $policy ) {
@@ -154,6 +216,35 @@ final class ConfigSetValidator {
 			}
 		}
 		return array_values( array_unique( array_filter( $required ) ) );
+	}
+
+	private function validate_structure_contract_reference( array $blueprint, string $blueprint_key, string $composition_mode, array $contracts, array &$errors ): void {
+		if ( ! array_key_exists( 'structure_contract', $blueprint ) || null === $blueprint['structure_contract'] ) {
+			return;
+		}
+
+		$path       = 'blueprint:' . $blueprint_key . '.structure_contract';
+		if ( 'document' !== $composition_mode ) {
+			$errors[] = $this->issue( 'structure-contract-document-required', 'A Gutenberg Structure Contract may be referenced only by a document Blueprint.', $path );
+			return;
+		}
+		$normalized = StructureContract::normalize_reference( $blueprint['structure_contract'], $path );
+		foreach ( $normalized['errors'] as $error ) {
+			$errors[] = $this->issue( (string) $error['code'], (string) $error['message'], (string) $error['path'] );
+		}
+		if ( ! $normalized['valid'] ) {
+			return;
+		}
+
+		$reference = $normalized['value'];
+		$contract  = $contracts[ $reference['id'] ] ?? null;
+		if ( ! is_array( $contract ) ) {
+			$errors[] = $this->issue( 'structure-contract-not-found', 'The Blueprint references a Structure Contract that is not defined by the Site Contract.', $path . '.id' );
+			return;
+		}
+		if ( $reference['version'] !== $contract['version'] ) {
+			$errors[] = $this->issue( 'structure-contract-version-mismatch', 'The Blueprint Structure Contract version does not match the Site Contract definition.', $path . '.version' );
+		}
 	}
 
 	private function validate_content_field_access( array $site_contract, array $blueprints, array &$errors ): void {
@@ -430,6 +521,27 @@ final class ConfigSetValidator {
 		}
 	}
 
+	private function validate_mcp_security_policy( array $site_contract, array &$errors ): void {
+		$policy = is_array( $site_contract['design_policy'] ?? null ) ? $site_contract['design_policy'] : array();
+		if ( ! array_key_exists( 'security', $site_contract ) && ! array_key_exists( 'security', $policy ) ) {
+			return;
+		}
+		$security = $site_contract['security'] ?? $policy['security'];
+		$path = array_key_exists( 'security', $site_contract ) ? 'site-contract:security' : 'site-contract:design_policy.security';
+		if ( ! is_array( $security ) ) {
+			$errors[] = $this->issue( 'mcp-security-policy-invalid', 'Security policy must be an object.', $path );
+			return;
+		}
+		$mcp = $security['mcp'] ?? array();
+		if ( ! is_array( $mcp ) ) {
+			$errors[] = $this->issue( 'mcp-security-policy-invalid', 'MCP security policy must be an object.', $path . '.mcp' );
+			return;
+		}
+		if ( array_key_exists( 'requireAuthentication', $mcp ) && ! is_bool( $mcp['requireAuthentication'] ) ) {
+			$errors[] = $this->issue( 'mcp-authentication-requirement-invalid', 'MCP requireAuthentication must be a boolean.', $path . '.mcp.requireAuthentication' );
+		}
+	}
+
 	private function validate_language_policy( array $site_contract, array $blueprints, array &$errors ): void {
 		$policy      = is_array( $site_contract['design_policy'] ?? null ) ? $site_contract['design_policy'] : array();
 		$language    = trim( (string) ( $policy['content_language'] ?? '' ) );
@@ -522,6 +634,52 @@ final class ConfigSetValidator {
 		}
 	}
 
+	private function validate_admin_creation_policy( array $design_policy, array $blueprints, array &$errors ): void {
+		$rules = $design_policy['admin_creation'] ?? array();
+		if ( ! is_array( $rules ) || ( ! empty( $rules ) && array_is_list( $rules ) ) ) {
+			$errors[] = $this->issue( 'admin-creation-policy-invalid', 'WP-admin creation policy must be an object keyed by WordPress post type.', 'site-contract:design_policy.admin_creation' );
+			return;
+		}
+
+		$targets = array();
+		foreach ( $blueprints as $blueprint ) {
+			$payload   = is_array( $blueprint['payload'] ?? null ) ? $blueprint['payload'] : array();
+			$page_type = sanitize_key( (string) ( $payload['page_type'] ?? $blueprint['key'] ?? '' ) );
+			$post_type = sanitize_key( (string) ( $payload['target_post_type'] ?? '' ) );
+			if ( '' !== $page_type && '' !== $post_type ) {
+				$targets[ $page_type ] = $post_type;
+			}
+		}
+
+		foreach ( $rules as $raw_post_type => $rule ) {
+			$post_type = sanitize_key( (string) $raw_post_type );
+			$path      = 'site-contract:design_policy.admin_creation.' . $post_type;
+			if ( '' === $post_type || $post_type !== (string) $raw_post_type || ! is_array( $rule ) || array_is_list( $rule ) ) {
+				$errors[] = $this->issue( 'admin-creation-rule-invalid', 'Every WP-admin creation rule must use a valid post-type key and object value.', $path );
+				continue;
+			}
+			$unknown = array_diff( array_keys( $rule ), array( 'mode', 'default_page_type' ) );
+			if ( ! empty( $unknown ) ) {
+				$errors[] = $this->issue( 'admin-creation-rule-property-unknown', 'WP-admin creation rules accept only mode and default_page_type.', $path );
+			}
+			$mode = (string) ( $rule['mode'] ?? 'off' );
+			if ( ! in_array( $mode, array( 'off', 'optional', 'required' ), true ) ) {
+				$errors[] = $this->issue( 'admin-creation-mode-invalid', 'WP-admin creation mode must be off, optional, or required.', $path . '.mode' );
+			}
+			$page_type = sanitize_key( (string) ( $rule['default_page_type'] ?? '' ) );
+			if ( 'off' === $mode && '' === $page_type ) {
+				continue;
+			}
+			if ( '' === $page_type || ! isset( $targets[ $page_type ] ) ) {
+				$errors[] = $this->issue( 'admin-creation-blueprint-missing', 'A governed WP-admin creation rule must reference an existing default Blueprint.', $path . '.default_page_type' );
+				continue;
+			}
+			if ( $post_type !== $targets[ $page_type ] ) {
+				$errors[] = $this->issue( 'admin-creation-blueprint-mismatch', 'The default Blueprint must target the same WordPress post type as its WP-admin creation rule.', $path . '.default_page_type' );
+			}
+		}
+	}
+
 	private function validate_target_template( array $blueprint, string $entity, array &$errors ): void {
 		if ( ! array_key_exists( 'target_template', $blueprint ) ) {
 			return;
@@ -577,6 +735,68 @@ final class ConfigSetValidator {
 		}
 		if ( in_array( 'core/html', (array) ( $blueprint['allowed_blocks'] ?? array() ), true ) ) {
 			$errors[] = $this->issue( 'blueprint-custom-html-block-forbidden', 'Custom HTML blocks cannot be enabled by a Blueprint.', $entity . ':allowed_blocks' );
+		}
+	}
+
+	private function validate_synced_structural_patterns( array $policy, array $blueprints, array &$errors ): void {
+		$registry = $policy['synced_structural_patterns'] ?? array();
+		if ( ! is_array( $registry ) || ( ! empty( $registry ) && array_is_list( $registry ) ) || count( $registry ) > 100 ) {
+			$errors[] = $this->issue( 'synced-pattern-registry-invalid', 'Synced structural patterns must be a bounded object.', 'site-contract:design_policy.synced_structural_patterns' );
+			return;
+		}
+		foreach ( $registry as $pattern => $definition ) {
+			$path = 'site-contract:design_policy.synced_structural_patterns.' . $pattern;
+			if ( ! preg_match( '#^[a-z0-9-]+/[a-z0-9-]+$#', (string) $pattern ) || ! is_array( $definition ) ) {
+				$errors[] = $this->issue( 'synced-pattern-contract-invalid', 'Every synced pattern requires a namespaced key and object contract.', $path );
+				continue;
+			}
+			if ( ! is_int( $definition['version'] ?? null ) || (int) $definition['version'] < 1 ) {
+				$errors[] = $this->issue( 'synced-pattern-version-invalid', 'Synced pattern versions must be positive integers.', $path . '.version' );
+			}
+			$post_name = (string) ( $definition['post_name'] ?? '' );
+			if ( '' === $post_name || sanitize_title( $post_name ) !== $post_name ) {
+				$errors[] = $this->issue( 'synced-pattern-post-name-invalid', 'A synced pattern requires an exact durable wp_block post_name.', $path . '.post_name' );
+			}
+			$overrides = $definition['overrides'] ?? array();
+			if ( ! is_array( $overrides ) || array_is_list( $overrides ) || empty( $overrides ) || count( $overrides ) > 100 ) {
+				$errors[] = $this->issue( 'synced-pattern-overrides-invalid', 'A synced pattern requires a bounded semantic override registry.', $path . '.overrides' );
+				continue;
+			}
+			if ( array_diff( array_keys( $definition ), array( 'version', 'post_name', 'overrides' ) ) ) {
+				$errors[] = $this->issue( 'synced-pattern-contract-property-invalid', 'A synced pattern contract contains an unsupported property.', $path );
+			}
+			foreach ( $overrides as $field_id => $field ) {
+				$field_path = $path . '.overrides.' . $field_id;
+				if ( ! preg_match( '/^[a-z][a-z0-9._-]{0,127}$/', (string) $field_id ) || ! is_array( $field ) || array_is_list( $field ) ) {
+					$errors[] = $this->issue( 'synced-pattern-override-invalid', 'Every Pattern Override requires a stable semantic field ID and object definition.', $field_path );
+					continue;
+				}
+				$attributes = $field['attributes'] ?? array();
+				if ( ! preg_match( '#^[a-z0-9-]+/[a-z0-9-]+$#', (string) ( $field['block'] ?? '' ) )
+					|| ! is_array( $attributes ) || ! array_is_list( $attributes ) || empty( $attributes ) || count( $attributes ) > 20 || count( array_filter( $attributes, 'is_string' ) ) !== count( $attributes )
+					|| ! in_array( (string) ( $field['type'] ?? '' ), array( 'string', 'richtext', 'url', 'media', 'boolean', 'integer', 'number' ), true )
+					|| ! is_bool( $field['required'] ?? null ) ) {
+					$errors[] = $this->issue( 'synced-pattern-override-invalid', 'A Pattern Override requires one block, approved attributes, semantic type, and explicit required flag.', $field_path );
+					continue;
+				}
+				if ( array_diff( array_keys( $field ), array( 'block', 'attributes', 'type', 'required' ) ) || count( array_unique( $attributes ) ) !== count( $attributes ) ) {
+					$errors[] = $this->issue( 'synced-pattern-override-property-invalid', 'A Pattern Override contains unsupported or duplicate properties.', $field_path );
+				}
+				foreach ( $attributes as $attribute ) {
+					if ( ! is_string( $attribute ) || ! preg_match( '/^[A-Za-z][A-Za-z0-9_-]{0,127}$/', $attribute ) || in_array( $attribute, array( 'metadata', 'lock', 'templateLock' ), true ) ) {
+						$errors[] = $this->issue( 'synced-pattern-override-attribute-invalid', 'Pattern Override attributes must be safe block attribute names.', $field_path . '.attributes' );
+					}
+				}
+			}
+		}
+		foreach ( $blueprints as $blueprint ) {
+			$payload = is_array( $blueprint['payload'] ?? null ) ? $blueprint['payload'] : array();
+			$allowed = (array) ( $payload['allowed_patterns'] ?? array() );
+			foreach ( (array) ( $payload['synced_patterns'] ?? array() ) as $pattern ) {
+				if ( ! isset( $registry[ $pattern ] ) || ! in_array( $pattern, $allowed, true ) ) {
+					$errors[] = $this->issue( 'blueprint-synced-pattern-invalid', 'A Blueprint synced pattern must be both allowed and declared by the Site Contract.', (string) $blueprint['key'] . ':synced_patterns' );
+				}
+			}
 		}
 	}
 

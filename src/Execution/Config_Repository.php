@@ -3,6 +3,9 @@
 
 namespace SmartCloud\AgentComposer\Execution;
 
+use SmartCloud\AgentComposer\Domain\Structure\StructureContract;
+use SmartCloud\AgentComposer\Domain\Structure\StructureMigration;
+
 final class Config_Repository {
 	private const DEFAULT_MAX_WORDS = 2500;
 
@@ -41,6 +44,9 @@ final class Config_Repository {
 		$defaults = array(
 			'schema_version'            => 1,
 			'rendered_preview_policy'   => 'required',
+			'security'                  => array(
+				'mcp' => array( 'requireAuthentication' => false ),
+			),
 			'content_language'          => '',
 			'content_language_enforcement' => 'advisory',
 			'content_language_exceptions' => array(),
@@ -48,9 +54,13 @@ final class Config_Repository {
 			'localization'              => array( 'provider' => 'auto', 'allowed_content_languages' => array() ),
 			'allowed_pattern_namespaces' => array( 'wpsuite' ),
 			'post_type_contract'         => array( 'page' => 'page' ),
+			'admin_creation'             => array(),
 			'content_access'             => array(),
 			'content_field_access'       => array(),
 			'content_taxonomy_access'    => array(),
+			'structure_contracts'        => array(),
+			'structure_migrations'       => array(),
+			'synced_structural_patterns' => array(),
 			'remote_media_ingest'        => array(
 				'enabled'            => false,
 				'allowed_hosts'      => array(),
@@ -95,8 +105,18 @@ final class Config_Repository {
 			),
 		);
 
-		$policy = array_replace_recursive( $defaults, $policy );
+		// Associative policy objects inherit omitted values, while explicit list
+		// values replace the default list as a whole. array_replace_recursive()
+		// merges numeric indexes and can therefore retain a trailing default
+		// prohibition (for example core/embed) that the Site Contract removed.
+		$policy = $this->overlay_explicit( $defaults, $policy );
 		$policy['rendered_preview_policy'] = 'optional' === (string) ( $policy['rendered_preview_policy'] ?? '' ) ? 'optional' : 'required';
+		$source_security = $this->active_source?->security_policy();
+		$security = is_array( $source_security ) ? $source_security : ( is_array( $policy['security'] ?? null ) ? $policy['security'] : array() );
+		$mcp      = is_array( $security['mcp'] ?? null ) ? $security['mcp'] : array();
+		$policy['security'] = array(
+			'mcp' => array( 'requireAuthentication' => true === ( $mcp['requireAuthentication'] ?? false ) ),
+		);
 		$policy['content_language'] = $this->normalize_language_tag( $policy['content_language'] ?? '', true );
 		$policy['content_language_enforcement'] = in_array( (string) ( $policy['content_language_enforcement'] ?? '' ), array( 'advisory', 'strict' ), true )
 			? (string) $policy['content_language_enforcement']
@@ -126,9 +146,23 @@ final class Config_Repository {
 		$policy['disallowed_blocks']          = $this->block_name_list( $policy['disallowed_blocks'] );
 		$policy['post_type_contract']         = $this->post_type_contract( $policy['post_type_contract'] ?? array() );
 		$policy['allowed_post_types']         = array_values( array_unique( array_values( $policy['post_type_contract'] ) ) );
+		$policy['admin_creation']             = $this->admin_creation_policy( $policy['admin_creation'] ?? array(), $policy['post_type_contract'] );
 		$policy['content_access']             = $this->content_access_policy( $policy['content_access'] ?? array(), $policy['allowed_post_types'] );
 		$policy['content_field_access']       = $this->content_field_access_policy( $policy['content_field_access'] ?? array(), $policy['allowed_post_types'] );
 		$policy['content_taxonomy_access']    = $this->content_taxonomy_access_policy( $policy['content_taxonomy_access'] ?? array(), $policy['allowed_post_types'] );
+		$structure_contracts                  = StructureContract::normalize_registry( $policy['structure_contracts'] ?? array() );
+		if ( ! $structure_contracts['valid'] ) {
+			$first = $structure_contracts['errors'][0];
+			throw new Execution_Exception( 'structure-contract-registry-invalid', 'The active Structure Contract registry is invalid.' );
+		}
+		$policy['structure_contracts']         = $structure_contracts['value'];
+		$structure_migrations                 = StructureMigration::normalize_registry( $policy['structure_migrations'] ?? array() );
+		if ( ! $structure_migrations['valid'] ) {
+			$first = $structure_migrations['errors'][0];
+			throw new Execution_Exception( 'structure-migration-registry-invalid', 'The active Structure migration registry is invalid.' );
+		}
+		$policy['structure_migrations']        = $structure_migrations['value'];
+		$policy['synced_structural_patterns']  = $this->normalize_synced_structural_patterns( $policy['synced_structural_patterns'] ?? array() );
 		$policy['remote_media_ingest']        = $this->normalize_remote_media_ingest( $policy['remote_media_ingest'] ?? array() );
 		$policy['block_extensions']            = $this->normalize_block_extensions( $policy['block_extensions'] ?? array() );
 		$policy['seo_contract']['required_fields'] = array_values(
@@ -158,6 +192,23 @@ final class Config_Repository {
 		if ( ! is_array( $filtered ) ) {
 			throw new Execution_Exception( 'invalid_filtered_design_policy', 'The filtered design policy must remain an object.' );
 		}
+		$filtered_contracts = StructureContract::normalize_registry( $filtered['structure_contracts'] ?? array() );
+		if ( ! $filtered_contracts['valid'] ) {
+			$first = $filtered_contracts['errors'][0];
+			throw new Execution_Exception( 'filtered-structure-contract-registry-invalid', 'The filtered Structure Contract registry is invalid.' );
+		}
+		$filtered['structure_contracts'] = $filtered_contracts['value'];
+		$filtered_migrations = StructureMigration::normalize_registry( $filtered['structure_migrations'] ?? array() );
+		if ( ! $filtered_migrations['valid'] ) {
+			$first = $filtered_migrations['errors'][0];
+			throw new Execution_Exception( 'filtered-structure-migration-registry-invalid', 'The filtered Structure migration registry is invalid.' );
+		}
+		$filtered['structure_migrations'] = $filtered_migrations['value'];
+		$filtered['synced_structural_patterns'] = $this->normalize_synced_structural_patterns( $filtered['synced_structural_patterns'] ?? array() );
+		$filtered['admin_creation'] = $this->admin_creation_policy(
+			$filtered['admin_creation'] ?? array(),
+			(array) ( $filtered['post_type_contract'] ?? array() )
+		);
 		$filtered['disallowed_blocks'] = array_values(
 			array_unique( array_merge( (array) ( $filtered['disallowed_blocks'] ?? array() ), array( 'core/html' ) ) )
 		);
@@ -171,6 +222,11 @@ final class Config_Repository {
 		return $this->design_policy;
 	}
 
+	/** @return array<string,array> */
+	public function get_structure_migrations(): array {
+		return (array) ( $this->get_design_policy()['structure_migrations'] ?? array() );
+	}
+
 	/** @return array{enabled:bool,allowed_hosts:list<string>,allowed_mime_types:list<string>,max_bytes:int} */
 	public function get_remote_media_ingest_policy(): array {
 		return $this->get_design_policy()['remote_media_ingest'];
@@ -178,6 +234,23 @@ final class Config_Repository {
 
 	public function get_rendered_preview_policy(): string {
 		return (string) $this->get_design_policy()['rendered_preview_policy'];
+	}
+
+	public function is_mcp_authentication_required(): bool {
+		return true === ( $this->get_design_policy()['security']['mcp']['requireAuthentication'] ?? false );
+	}
+
+	/**
+	 * Return the native wp-admin creation rule for one WordPress post type.
+	 *
+	 * @return array{mode:string,default_page_type:string}
+	 */
+	public function get_admin_creation_policy( string $post_type ): array {
+		$post_type = sanitize_key( $post_type );
+		$rule      = $this->get_design_policy()['admin_creation'][ $post_type ] ?? null;
+		return is_array( $rule )
+			? $rule
+			: array( 'mode' => 'off', 'default_page_type' => '' );
 	}
 
 	private function normalize_remote_media_ingest( mixed $value ): array {
@@ -339,6 +412,38 @@ final class Config_Repository {
 			throw new Execution_Exception( 'invalid_composition_mode', 'Blueprint composition_mode must be document or structured-record.' );
 		}
 		$blueprint['composition_mode'] = $composition_mode;
+		$synced_patterns = array_values( array_unique( array_map( 'strtolower', (array) ( $blueprint['synced_patterns'] ?? array() ) ) ) );
+		foreach ( $synced_patterns as $pattern ) {
+			if ( ! preg_match( '#^[a-z0-9-]+/[a-z0-9-]+$#', $pattern ) || ! isset( $policy['synced_structural_patterns'][ $pattern ] ) ) {
+				throw new Execution_Exception( 'synced-pattern-contract-not-found', 'A Blueprint synced pattern must reference a Site Contract structural pattern definition.' );
+			}
+		}
+		$blueprint['synced_patterns'] = $synced_patterns;
+		$structure_reference = $blueprint['structure_contract'] ?? null;
+		if ( null !== $structure_reference && 'document' !== $composition_mode ) {
+			throw new Execution_Exception( 'structure-contract-document-required', 'A Gutenberg Structure Contract may be referenced only by a document Blueprint.' );
+		}
+		if ( null === $structure_reference ) {
+			$blueprint['structure_contract']      = null;
+			$blueprint['structure_contract_mode'] = 'legacy-document';
+		} else {
+			$normalized_reference = StructureContract::normalize_reference( $structure_reference );
+			if ( ! $normalized_reference['valid'] ) {
+				$first = $normalized_reference['errors'][0];
+				throw new Execution_Exception( 'structure-contract-reference-invalid', 'The Blueprint Structure Contract reference is invalid.' );
+			}
+			$reference = $normalized_reference['value'];
+			$contract  = $policy['structure_contracts'][ $reference['id'] ] ?? null;
+			if ( ! is_array( $contract ) ) {
+				throw new Execution_Exception( 'structure-contract-not-found', 'The Blueprint references a Structure Contract that is not present in the active Site Contract.' );
+			}
+			if ( $reference['version'] !== $contract['version'] ) {
+				throw new Execution_Exception( 'structure-contract-version-mismatch', 'The Blueprint Structure Contract version does not match the active definition.' );
+			}
+			$blueprint['structure_contract']          = $reference;
+			$blueprint['structure_contract_mode']     = 'enforced';
+			$blueprint['resolved_structure_contract'] = $contract;
+		}
 		$blueprint['published_update_policy'] = 'proposal-only' === (string) ( $blueprint['published_update_policy'] ?? 'disabled' )
 			? 'proposal-only'
 			: 'disabled';
@@ -472,6 +577,58 @@ final class Config_Repository {
 		}
 
 		return $blueprint;
+	}
+
+	private function normalize_synced_structural_patterns( mixed $value ): array {
+		if ( ! is_array( $value ) || ( ! empty( $value ) && array_is_list( $value ) ) || count( $value ) > 100 ) {
+			throw new Execution_Exception( 'synced-pattern-registry-invalid', 'Synced structural patterns must be a bounded object keyed by pattern name.' );
+		}
+		$result = array();
+		foreach ( $value as $pattern => $definition ) {
+			$pattern = strtolower( trim( (string) $pattern ) );
+			if ( ! preg_match( '#^[a-z0-9-]+/[a-z0-9-]+$#', $pattern ) || ! is_array( $definition ) || array_is_list( $definition ) ) {
+				throw new Execution_Exception( 'synced-pattern-contract-invalid', 'Every synced structural pattern requires a namespaced key and an object contract.' );
+			}
+			$allowed_keys = array( 'version', 'post_name', 'overrides' );
+			if ( array_diff( array_keys( $definition ), $allowed_keys ) ) {
+				throw new Execution_Exception( 'synced-pattern-contract-property-invalid', 'A synced structural pattern contract contains an unsupported property.' );
+			}
+			$version   = $definition['version'] ?? null;
+			$post_name = is_string( $definition['post_name'] ?? null ) ? trim( $definition['post_name'] ) : '';
+			$overrides = $definition['overrides'] ?? null;
+			if ( ! is_int( $version ) || $version < 1 || $post_name !== sanitize_title( $post_name ) || ! is_array( $overrides ) || array_is_list( $overrides ) || empty( $overrides ) || count( $overrides ) > 100 ) {
+				throw new Execution_Exception( 'synced-pattern-contract-invalid', 'A synced structural pattern requires a positive version, exact wp_block post_name, and override registry.' );
+			}
+			$normalized_fields = array();
+			foreach ( $overrides as $field_id => $field ) {
+				$field_id = trim( (string) $field_id );
+				if ( ! preg_match( '/^[a-z][a-z0-9._-]{0,127}$/', $field_id ) || ! is_array( $field ) || array_is_list( $field ) ) {
+					throw new Execution_Exception( 'synced-pattern-override-invalid', 'Every Pattern Override requires a stable semantic field ID and object definition.' );
+				}
+				if ( array_diff( array_keys( $field ), array( 'block', 'attributes', 'type', 'required' ) ) ) {
+					throw new Execution_Exception( 'synced-pattern-override-property-invalid', 'A Pattern Override definition contains an unsupported property.' );
+				}
+				$block      = strtolower( trim( (string) ( $field['block'] ?? '' ) ) );
+				$raw_attributes = $field['attributes'] ?? array();
+				if ( ! is_array( $raw_attributes ) || ! array_is_list( $raw_attributes ) || count( array_filter( $raw_attributes, 'is_string' ) ) !== count( $raw_attributes ) ) {
+					throw new Execution_Exception( 'synced-pattern-override-attribute-invalid', 'Pattern Override attributes must be a list of safe registered block attribute names.' );
+				}
+				$attributes = array_values( array_unique( $raw_attributes ) );
+				$type       = sanitize_key( (string) ( $field['type'] ?? 'string' ) );
+				if ( ! preg_match( '#^[a-z0-9-]+/[a-z0-9-]+$#', $block ) || empty( $attributes ) || count( $attributes ) > 20 || ! in_array( $type, array( 'string', 'richtext', 'url', 'media', 'boolean', 'integer', 'number' ), true ) ) {
+					throw new Execution_Exception( 'synced-pattern-override-invalid', 'A Pattern Override requires one block, bounded approved attributes, and a supported semantic type.' );
+				}
+				foreach ( $attributes as $attribute ) {
+					if ( ! preg_match( '/^[A-Za-z][A-Za-z0-9_-]{0,127}$/', $attribute ) || in_array( $attribute, array( 'metadata', 'lock', 'templateLock' ), true ) ) {
+						throw new Execution_Exception( 'synced-pattern-override-attribute-invalid', 'Pattern Override attributes must be safe registered block attribute names.' );
+					}
+				}
+				$normalized_fields[ $field_id ] = array( 'block' => $block, 'attributes' => $attributes, 'type' => $type, 'required' => true === ( $field['required'] ?? false ) );
+			}
+			$result[ $pattern ] = array( 'version' => $version, 'post_name' => $post_name, 'overrides' => $normalized_fields );
+		}
+		ksort( $result );
+		return $result;
 	}
 
 	private function overlay_explicit( array $defaults, array $overrides ): array {
@@ -866,6 +1023,37 @@ final class Config_Repository {
 		}
 
 		return empty( $result ) ? array( 'page' => 'page' ) : $result;
+	}
+
+	/** @return array<string,array{mode:string,default_page_type:string}> */
+	private function admin_creation_policy( mixed $value, array $post_type_contract ): array {
+		if ( ! is_array( $value ) ) {
+			return array();
+		}
+
+		$result = array();
+		foreach ( $value as $post_type => $rule ) {
+			$post_type = sanitize_key( (string) $post_type );
+			if ( ! $this->is_valid_post_type_name( $post_type ) || ! is_array( $rule ) ) {
+				continue;
+			}
+			$mode      = (string) ( $rule['mode'] ?? 'off' );
+			$page_type = sanitize_key( (string) ( $rule['default_page_type'] ?? '' ) );
+			if ( ! in_array( $mode, array( 'off', 'optional', 'required' ), true ) ) {
+				$mode = 'off';
+			}
+			if ( 'off' === $mode ) {
+				continue;
+			}
+			if ( '' === $page_type || $post_type !== (string) ( $post_type_contract[ $page_type ] ?? '' ) ) {
+				throw new Execution_Exception( 'admin_creation_blueprint_mismatch', 'A wp-admin creation rule must reference a Blueprint assigned to the same post type.' );
+			}
+			$result[ $post_type ] = array(
+				'mode'              => $mode,
+				'default_page_type' => $page_type,
+			);
+		}
+		return $result;
 	}
 
 	private function normalize_post_type( mixed $value ): string {

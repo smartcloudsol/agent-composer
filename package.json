@@ -1,18 +1,19 @@
 {
   "name": "smartcloud-agent-composer-source",
-  "version": "1.2.6",
+  "version": "1.3.0",
   "private": true,
   "workspaces": [
     "core",
     "admin",
+    "blocks",
     "tests"
   ],
   "scripts": {
-    "build": "npm run build --workspace=@smart-cloud/agent-composer-core && npm run build:wp --workspace=@smart-cloud/agent-composer-admin",
+    "build": "npm run build --workspace=@smart-cloud/agent-composer-core && npm run build:wp --workspace=@smart-cloud/agent-composer-blocks && npm run build:wp --workspace=@smart-cloud/agent-composer-admin",
     "build:wpsuite-preset": "node tools/build-wpsuite-preset-package.mjs",
-    "lint": "npm run lint --workspace=@smart-cloud/agent-composer-core && npm run lint --workspace=@smart-cloud/agent-composer-admin",
-    "typecheck": "npm run typecheck --workspace=@smart-cloud/agent-composer-core && npm run typecheck --workspace=@smart-cloud/agent-composer-admin",
-    "test": "npm run test --workspace=@smart-cloud/agent-composer-core && npm run test --workspace=smartcloud-agent-composer-php-contract-tests"
+    "lint": "npm run lint --workspace=@smart-cloud/agent-composer-core && npm run lint --workspace=@smart-cloud/agent-composer-blocks && npm run lint --workspace=@smart-cloud/agent-composer-admin",
+    "typecheck": "npm run typecheck --workspace=@smart-cloud/agent-composer-core && npm run typecheck --workspace=@smart-cloud/agent-composer-blocks && npm run typecheck --workspace=@smart-cloud/agent-composer-admin",
+    "test": "npm run test --workspace=@smart-cloud/agent-composer-core && npm run test --workspace=@smart-cloud/agent-composer-admin && npm run test --workspace=smartcloud-agent-composer-php-contract-tests"
   },
   "engines": {
     "node": ">=20"
