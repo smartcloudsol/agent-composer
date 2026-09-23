@@ -164,6 +164,17 @@ $find_occurrences->setAccessible( true );
 $definitions = array_column( $contract['nodes'], null, 'id' );
 $occurrences = $find_occurrences->invoke( $service, array( $hero, $slot ), $definitions, 'hero.title' );
 $assert( array( 0, 0 ) === ( $occurrences[0]['path'] ?? null ), 'A semantic mutation must resolve nested Gutenberg indexes internally without exposing them to the caller.' );
+$first_pattern_title = $title;
+$first_pattern_title['attrs']['metadata']['wpsuiteAgentComposer']['patternInstanceId'] = 'pattern-11111111';
+$second_pattern_title = $title;
+$second_pattern_title['attrs']['metadata']['wpsuiteAgentComposer']['patternInstanceId'] = 'pattern-22222222';
+$selected_occurrences = $find_occurrences->invoke( $service, array( $first_pattern_title, $second_pattern_title ), $definitions, 'hero.title', array(), 'pattern-22222222' );
+$assert( 1 === count( $selected_occurrences ) && array( 1 ) === ( $selected_occurrences[0]['path'] ?? null ), 'A pattern_instance_id and field_id pair must select exactly one repeated semantic field.' );
+
+$field_id_from_input = new ReflectionMethod( Semantic_Document_Service::class, 'field_id_from_input' );
+$field_id_from_input->setAccessible( true );
+$assert( 'hero.title' === $field_id_from_input->invoke( $service, array( 'field_id' => 'hero.title' ) ), 'The semantic API must accept the canonical field_id input.' );
+$assert( 'hero.title' === $field_id_from_input->invoke( $service, array( 'field' => 'hero.title' ) ), 'The execution boundary must retain the legacy field alias for cached clients.' );
 
 $replace_image = new ReflectionMethod( Semantic_Document_Service::class, 'replace_image_block' );
 $replace_image->setAccessible( true );

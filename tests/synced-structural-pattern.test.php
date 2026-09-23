@@ -3,12 +3,14 @@
 declare(strict_types=1);
 
 use SmartCloud\AgentComposer\Execution\Synced_Structural_Pattern_Service;
+use SmartCloud\AgentComposer\Execution\Page_Validator;
 
 function wp_kses_post( string $value ): string {
 	return $value;
 }
 
 require_once dirname( __DIR__ ) . '/src/Execution/Synced_Structural_Pattern_Service.php';
+require_once dirname( __DIR__ ) . '/src/Execution/Page_Validator.php';
 
 $failures = array();
 $assert = static function ( bool $condition, string $message ) use ( &$failures ): void {
@@ -23,6 +25,7 @@ $instance = array(
 	'attrs' => array(
 		'ref' => 42,
 		'content' => array( 'hero.title' => array( 'content' => 'Old title' ) ),
+		'metadata' => array( 'wpsuiteAgentComposer' => array( 'patternInstanceId' => 'pattern-12345678' ) ),
 	),
 	'innerBlocks' => array(),
 	'innerHTML' => '',
@@ -31,6 +34,11 @@ $instance = array(
 $updated = $service->with_override( $instance, 'hero.title', 'content', 'New title' );
 $assert( 'New title' === ( $updated['attrs']['content']['hero.title']['content'] ?? '' ), 'Pattern Override values must stay in the native core/block content attribute.' );
 $assert( 42 === ( $updated['attrs']['ref'] ?? 0 ), 'Updating a Pattern Override must preserve the synced wp_block reference.' );
+$assert( 'pattern-12345678' === ( $updated['attrs']['metadata']['wpsuiteAgentComposer']['patternInstanceId'] ?? '' ), 'Updating one Pattern Override must preserve its stable pattern instance ID.' );
+$legacy_instance = $instance;
+unset( $legacy_instance['attrs']['metadata']['wpsuiteAgentComposer']['patternInstanceId'] );
+$upgraded_instance = $service->with_override( $legacy_instance, 'hero.title', 'content', 'Upgraded title', 'pattern-87654321' );
+$assert( 'pattern-87654321' === ( $upgraded_instance['attrs']['metadata']['wpsuiteAgentComposer']['patternInstanceId'] ?? '' ), 'The first mutation of a legacy reference must persist its compatibility pattern instance ID.' );
 
 $pattern_blocks = array(
 	array(
@@ -93,6 +101,30 @@ $found = array();
 $collect->invokeArgs( $service, array( $pattern_blocks, &$found ) );
 $assert( in_array( '__default', (array) ( $found['hero.title']['attributes'] ?? array() ), true ), 'Composer must recognize WordPress native __default Pattern Override bindings.' );
 
+$page_validator = ( new ReflectionClass( Page_Validator::class ) )->newInstanceWithoutConstructor();
+$validate_slot_patterns = new ReflectionMethod( Page_Validator::class, 'validate_slot_patterns' );
+$validate_slot_patterns->setAccessible( true );
+$slot_contract = array(
+	'nodes' => array(
+		array(
+			'id' => 'body.additional',
+			'mode' => 'slot',
+			'allowed_patterns' => array( 'wpsuite/repeatable-card' ),
+			'pattern_occurrences' => array( 'wpsuite/repeatable-card' => array( 'min' => 1, 'max' => 2 ) ),
+		),
+	),
+);
+$valid_inventory = array(
+	array( 'slot_id' => 'body.additional', 'pattern' => 'wpsuite/repeatable-card' ),
+	array( 'slot_id' => 'body.additional', 'pattern' => 'wpsuite/repeatable-card' ),
+);
+$assert( array() === $validate_slot_patterns->invoke( $page_validator, $slot_contract, $valid_inventory ), 'A slot must accept an allowed synced pattern within its occurrence bounds.' );
+$overflow_inventory = array_merge( $valid_inventory, array( $valid_inventory[0] ) );
+$overflow_errors = $validate_slot_patterns->invoke( $page_validator, $slot_contract, $overflow_inventory );
+$assert( in_array( 'slot_pattern_cardinality', array_column( $overflow_errors, 'code' ), true ), 'A slot must reject a synced pattern above its maximum occurrence count.' );
+$wrong_pattern_errors = $validate_slot_patterns->invoke( $page_validator, $slot_contract, array( array( 'slot_id' => 'body.additional', 'pattern' => 'wpsuite/other-card' ) ) );
+$assert( in_array( 'slot_pattern_not_allowed', array_column( $wrong_pattern_errors, 'code' ), true ), 'A slot must reject a synced pattern outside its explicit allow-list.' );
+
 $source = (string) file_get_contents( dirname( __DIR__ ) . '/src/Execution/Synced_Structural_Pattern_Service.php' );
 $assembler = (string) file_get_contents( dirname( __DIR__ ) . '/src/Execution/Pattern_Assembler.php' );
 $validator = (string) file_get_contents( dirname( __DIR__ ) . '/src/Execution/Page_Validator.php' );
@@ -100,6 +132,9 @@ $assert( str_contains( $source, "'core/pattern-overrides'" ), 'Synced structural
 $assert( str_contains( $source, "in_array( '__default', \$bound_attributes, true )" ), 'A native __default Pattern Override binding must satisfy declared attribute contracts.' );
 $assert( str_contains( $source, "'blockName'    => 'core/block'" ), 'Synced structural pattern instances must use native core/block references.' );
 $assert( str_contains( $source, "'patternName'    => \$pattern" ), 'Composer must retain the stable synced-pattern identity in its namespaced metadata.' );
+$assert( str_contains( $source, "'patternInstanceId' => \$pattern_instance_id" ), 'Composer must assign every synced reference a stable pattern instance ID.' );
+$assert( str_contains( $source, 'synced_pattern_version_mismatch' ) && str_contains( $source, 'synced_pattern_hash_mismatch' ), 'Recursive pattern expansion must fail closed on stale version or content-hash metadata.' );
+$assert( str_contains( $source, 'synced_pattern_cycle' ) && str_contains( $source, 'MAX_NESTING_DEPTH' ), 'Recursive synced patterns must be protected against cycles and excessive nesting.' );
 $assert( ! str_contains( $source, "\t\t\t\t'patternName' => \$pattern" ), 'A native core/block reference must not be marked as an unsynced WordPress pattern through top-level metadata.patternName.' );
 $assert( str_contains( $source, "'lock'     => array( 'move' => true, 'remove' => true )" ), 'The synced core/block wrapper must protect structural movement and removal while native Pattern Override fields remain editable.' );
 $assert( str_contains( $source, "INSTANCE_SLOTS_KEY = 'instanceSlots'" ), 'Synced references must retain instance-owned extension-slot content outside the shared wp_block record.' );

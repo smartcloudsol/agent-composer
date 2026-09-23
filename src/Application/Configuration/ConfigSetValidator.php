@@ -245,6 +245,17 @@ final class ConfigSetValidator {
 		if ( $reference['version'] !== $contract['version'] ) {
 			$errors[] = $this->issue( 'structure-contract-version-mismatch', 'The Blueprint Structure Contract version does not match the Site Contract definition.', $path . '.version' );
 		}
+		$enabled_patterns = array_values( array_map( 'strtolower', (array) ( $blueprint['synced_patterns'] ?? array() ) ) );
+		foreach ( (array) ( $contract['nodes'] ?? array() ) as $node ) {
+			if ( ! is_array( $node ) || 'slot' !== (string) ( $node['mode'] ?? '' ) ) {
+				continue;
+			}
+			foreach ( (array) ( $node['allowed_patterns'] ?? array() ) as $pattern ) {
+				if ( ! in_array( $pattern, $enabled_patterns, true ) ) {
+					$errors[] = $this->issue( 'structure-slot-pattern-not-enabled', 'Every pattern allowed by a Structure Contract slot must be enabled by the Blueprint.', $path . '.slots.' . (string) ( $node['id'] ?? '' ) . '.allowed_patterns' );
+				}
+			}
+		}
 	}
 
 	private function validate_content_field_access( array $site_contract, array $blueprints, array &$errors ): void {
@@ -757,12 +768,16 @@ final class ConfigSetValidator {
 			if ( '' === $post_name || sanitize_title( $post_name ) !== $post_name ) {
 				$errors[] = $this->issue( 'synced-pattern-post-name-invalid', 'A synced pattern requires an exact durable wp_block post_name.', $path . '.post_name' );
 			}
+			$content_hash = strtolower( trim( (string) ( $definition['content_hash'] ?? '' ) ) );
+			if ( '' !== $content_hash && 1 !== preg_match( '/^sha256:[a-f0-9]{64}$/', $content_hash ) ) {
+				$errors[] = $this->issue( 'synced-pattern-content-hash-invalid', 'A synced pattern content_hash must be a sha256-prefixed lowercase digest.', $path . '.content_hash' );
+			}
 			$overrides = $definition['overrides'] ?? array();
 			if ( ! is_array( $overrides ) || array_is_list( $overrides ) || empty( $overrides ) || count( $overrides ) > 100 ) {
 				$errors[] = $this->issue( 'synced-pattern-overrides-invalid', 'A synced pattern requires a bounded semantic override registry.', $path . '.overrides' );
 				continue;
 			}
-			if ( array_diff( array_keys( $definition ), array( 'version', 'post_name', 'overrides' ) ) ) {
+			if ( array_diff( array_keys( $definition ), array( 'version', 'post_name', 'content_hash', 'overrides' ) ) ) {
 				$errors[] = $this->issue( 'synced-pattern-contract-property-invalid', 'A synced pattern contract contains an unsupported property.', $path );
 			}
 			foreach ( $overrides as $field_id => $field ) {

@@ -68,7 +68,7 @@ final class Semantic_Document_Service {
 	public function insert_slot_block( array $input ): array {
 		$this->assert_slot_confirmation( $input, 'insert' );
 		$context = $this->slot_context( $input );
-		$blocks  = $this->materialize_slot_spec( (array) ( $input['block'] ?? array() ) );
+		$blocks  = $this->materialize_slot_spec( (array) ( $input['block'] ?? array() ), $context['blueprint'] );
 		$block   = $this->mark_user_tree( $blocks[0], $context['contract'], $context['slot_id'] );
 		$children = $context['children'];
 		$index    = $this->slot_insertion_index( $children, (string) ( $input['position'] ?? 'end' ), (string) ( $input['reference_user_block_id'] ?? '' ) );
@@ -93,7 +93,7 @@ final class Semantic_Document_Service {
 			throw new Execution_Exception( 'semantic_slot_block_ambiguous', 'The requested user-owned block must resolve exactly once in the selected extension slot.' );
 		}
 
-		$blocks      = $this->materialize_slot_spec( (array) ( $input['block'] ?? array() ) );
+		$blocks      = $this->materialize_slot_spec( (array) ( $input['block'] ?? array() ), $context['blueprint'] );
 		$replacement = $this->mark_user_tree( $blocks[0], $context['contract'], $context['slot_id'], $user_id );
 		$children    = $context['children'];
 		$this->replace_slot_child_at_path( $children, $matches[0]['path'], array( $replacement ) );
@@ -146,7 +146,8 @@ final class Semantic_Document_Service {
 			throw new Execution_Exception( 'semantic_field_confirmation_required', 'Semantic field updates require confirm_update=true.' );
 		}
 		$post_id    = absint( $input['post_id'] ?? 0 );
-		$field_id   = trim( (string) ( $input['field'] ?? '' ) );
+		$field_id   = $this->field_id_from_input( $input );
+		$pattern_instance_id = $this->pattern_instance_id_from_input( $input );
 		$post       = $this->drafts->get_owned_draft( $post_id );
 		$page_type  = sanitize_key( (string) get_post_meta( $post_id, Draft_Service::PAGE_TYPE_META, true ) );
 		$blueprint  = $this->config->get_blueprint( $page_type );
@@ -161,7 +162,13 @@ final class Semantic_Document_Service {
 		$occurrences = $this->find_node_occurrences( $blocks, $definitions, $field_id );
 		$override_owners = array();
 		if ( empty( $occurrences ) ) {
-			$override_owners = $this->synced_patterns->find_override_owners( $blocks, $blueprint, $field_id );
+			$override_owners = $this->synced_patterns->find_override_owners( $blocks, $blueprint, $field_id, $pattern_instance_id );
+		}
+		if ( '' !== $pattern_instance_id && ! empty( $occurrences ) ) {
+			throw new Execution_Exception( 'pattern_instance_unexpected', 'pattern_instance_id may be used only for a synced pattern override field.' );
+		}
+		if ( '' === $pattern_instance_id && count( $override_owners ) > 1 ) {
+			throw new Execution_Exception( 'pattern_instance_required', 'Choose the synced pattern override with its pattern_instance_id and field_id.' );
 		}
 		if ( 1 !== count( $occurrences ) && 1 !== count( $override_owners ) ) {
 			throw new Execution_Exception( 'semantic_field_ambiguous', 'The requested semantic field must resolve to exactly one block before it can be updated.' );
@@ -202,7 +209,7 @@ final class Semantic_Document_Service {
 			if ( ! in_array( $attribute, $allowed, true ) ) {
 				throw new Execution_Exception( 'pattern_override_attribute_forbidden', 'The synced pattern does not expose this semantic field attribute as a Pattern Override.' );
 			}
-			$block = $this->synced_patterns->with_override( $override_owners[0]['block'], $field_id, $attribute, $input['value'] ?? null );
+			$block = $this->synced_patterns->with_override( $override_owners[0]['block'], $field_id, $attribute, $input['value'] ?? null, (string) $override_owners[0]['pattern_instance_id'] );
 		}
 
 		$result = $this->drafts->insert_or_update_blocks(
@@ -220,6 +227,9 @@ final class Semantic_Document_Service {
 			'field'     => $field_id,
 			'attribute' => $attribute,
 		);
+		if ( 1 === count( $override_owners ) ) {
+			$result['semantic_mutation']['pattern_instance_id'] = (string) $override_owners[0]['pattern_instance_id'];
+		}
 		return $result;
 	}
 
@@ -228,7 +238,8 @@ final class Semantic_Document_Service {
 			throw new Execution_Exception( 'semantic_media_confirmation_required', 'Semantic media replacement requires confirm_update=true.' );
 		}
 		$post_id       = absint( $input['post_id'] ?? 0 );
-		$field_id      = trim( (string) ( $input['field'] ?? '' ) );
+		$field_id      = $this->field_id_from_input( $input );
+		$pattern_instance_id = $this->pattern_instance_id_from_input( $input );
 		$attachment_id = absint( $input['attachment_id'] ?? 0 );
 		$post          = $this->drafts->get_owned_draft( $post_id );
 		$page_type     = sanitize_key( (string) get_post_meta( $post_id, Draft_Service::PAGE_TYPE_META, true ) );
@@ -250,9 +261,15 @@ final class Semantic_Document_Service {
 		$occurrences = $this->find_node_occurrences( $raw_blocks, $definitions, $field_id );
 		$override_owners = array();
 		if ( empty( $occurrences ) ) {
-			$override_owners = $this->synced_patterns->find_override_owners( $raw_blocks, $blueprint, $field_id );
+			$override_owners = $this->synced_patterns->find_override_owners( $raw_blocks, $blueprint, $field_id, $pattern_instance_id );
 			$expanded = $this->synced_patterns->expand_blocks( $raw_blocks, $blueprint );
-			$occurrences = $this->find_node_occurrences( $expanded, $definitions, $field_id );
+			$occurrences = $this->find_node_occurrences( $expanded, $definitions, $field_id, array(), $pattern_instance_id );
+		}
+		if ( '' !== $pattern_instance_id && empty( $override_owners ) ) {
+			throw new Execution_Exception( 'pattern_override_not_found', 'The pattern_instance_id and field_id pair does not identify an editable synced pattern field.' );
+		}
+		if ( '' === $pattern_instance_id && count( $override_owners ) > 1 ) {
+			throw new Execution_Exception( 'pattern_instance_required', 'Choose the synced pattern media override with its pattern_instance_id and field_id.' );
 		}
 		if ( 1 !== count( $occurrences ) || ( ! empty( $override_owners ) && 1 !== count( $override_owners ) ) || 'core/image' !== (string) ( $occurrences[0]['block']['blockName'] ?? '' ) ) {
 			throw new Execution_Exception( 'semantic_media_field_ambiguous', 'The requested semantic media field must resolve to exactly one core/image block.' );
@@ -323,7 +340,7 @@ final class Semantic_Document_Service {
 			$save_block = $override_owners[0]['block'];
 			foreach ( $values as $attribute => $value ) {
 				if ( in_array( $attribute, $allowed, true ) ) {
-					$save_block = $this->synced_patterns->with_override( $save_block, $field_id, $attribute, $value );
+					$save_block = $this->synced_patterns->with_override( $save_block, $field_id, $attribute, $value, (string) $override_owners[0]['pattern_instance_id'] );
 				}
 			}
 			if ( ! in_array( 'id', $allowed, true ) || ! in_array( 'url', $allowed, true ) || ! in_array( 'alt', $allowed, true ) ) {
@@ -350,6 +367,9 @@ final class Semantic_Document_Service {
 			'width'         => absint( $image_source[1] ?? 0 ),
 			'height'        => absint( $image_source[2] ?? 0 ),
 		);
+		if ( 1 === count( $override_owners ) ) {
+			$result['semantic_mutation']['pattern_instance_id'] = (string) $override_owners[0]['pattern_instance_id'];
+		}
 		return $result;
 	}
 
@@ -366,8 +386,20 @@ final class Semantic_Document_Service {
 		$blueprint = $this->config->get_blueprint( $page_type );
 		$contract  = $this->enforced_contract( $blueprint );
 		$content   = (string) $post->post_content;
-		$document_blocks = $this->synced_patterns->expand_blocks( parse_blocks( $content ), $blueprint );
+		$raw_blocks = parse_blocks( $content );
+		$seen_pattern_instances = array();
+		$pattern_instances = $this->synced_patterns->inventory( $raw_blocks, $blueprint, array(), null, $seen_pattern_instances );
+		$document_blocks = $this->synced_patterns->expand_blocks( $raw_blocks, $blueprint );
 		$document  = $this->project_document( $contract, $document_blocks );
+		$document['pattern_instances'] = array_values(
+			array_map(
+				static function ( array $instance ): array {
+					unset( $instance['path'] );
+					return $instance;
+				},
+				$pattern_instances
+			)
+		);
 
 		return array(
 			'post_id'          => $post_id,
@@ -406,7 +438,12 @@ final class Semantic_Document_Service {
 		if ( ! is_array( $slot ) || 'slot' !== (string) ( $slot['mode'] ?? '' ) ) {
 			throw new Execution_Exception( 'semantic_slot_not_found', 'The requested semantic extension slot is not declared by the active Structure Contract.' );
 		}
-		$occurrences = $this->find_node_occurrences( parse_blocks( (string) $post->post_content ), $nodes, $slot_id );
+		$pattern_instance_id = $this->pattern_instance_id_from_input( $input );
+		$raw_blocks = parse_blocks( (string) $post->post_content );
+		$occurrences = $this->find_node_occurrences( $raw_blocks, $nodes, $slot_id );
+		if ( '' !== $pattern_instance_id && ! empty( $occurrences ) ) {
+			throw new Execution_Exception( 'pattern_instance_unexpected', 'pattern_instance_id may be used only for a slot inside a synced pattern.' );
+		}
 		if ( 1 === count( $occurrences ) ) {
 			$children = isset( $occurrences[0]['block']['innerBlocks'] ) && is_array( $occurrences[0]['block']['innerBlocks'] )
 				? array_values( $occurrences[0]['block']['innerBlocks'] )
@@ -414,6 +451,7 @@ final class Semantic_Document_Service {
 			return array(
 				'post_id'    => $post_id,
 				'page_type'  => $page_type,
+				'blueprint'  => $blueprint,
 				'contract'   => $contract,
 				'slot_id'    => $slot_id,
 				'definition' => $slot,
@@ -424,24 +462,45 @@ final class Semantic_Document_Service {
 			);
 		}
 
-		$owners = $this->synced_patterns->find_slot_owners( parse_blocks( (string) $post->post_content ), $blueprint, $slot_id );
+		$owners = $this->synced_patterns->find_slot_owners( $raw_blocks, $blueprint, $slot_id, $pattern_instance_id );
+		if ( '' === $pattern_instance_id && count( $owners ) > 1 ) {
+			throw new Execution_Exception( 'pattern_instance_required', 'Choose the synced pattern slot with its pattern_instance_id and slot ID.' );
+		}
 		if ( 1 !== count( $owners ) ) {
 			throw new Execution_Exception( 'semantic_slot_ambiguous', 'The requested semantic extension slot must resolve exactly once.' );
 		}
 		return array(
 			'post_id'    => $post_id,
 			'page_type'  => $page_type,
+			'blueprint'  => $blueprint,
 			'contract'   => $contract,
 			'slot_id'    => $slot_id,
 			'definition' => $slot,
 			'block'      => $owners[0]['block'],
 			'path'       => $owners[0]['path'],
 			'children'   => $owners[0]['children'],
+			'pattern_instance_id' => $owners[0]['pattern_instance_id'],
 			'storage'    => 'synced',
 		);
 	}
 
-	private function materialize_slot_spec( array $spec ): array {
+	private function materialize_slot_spec( array $spec, array $blueprint ): array {
+		$pattern = strtolower( trim( (string) ( $spec['pattern'] ?? '' ) ) );
+		if ( '' !== $pattern ) {
+			$allowed = array( 'pattern', 'pattern_instance_id', 'fields' );
+			if ( array_diff( array_keys( $spec ), $allowed ) || ! is_array( $spec['fields'] ?? null ) ) {
+				throw new Execution_Exception( 'semantic_slot_pattern_invalid', 'A synced pattern slot item accepts only pattern, pattern_instance_id, and an object fields map.' );
+			}
+			$materialized = $this->synced_patterns->materialize_instance(
+				$pattern,
+				$spec['fields'],
+				$blueprint,
+				false,
+				$this->pattern_instance_id_from_input( $spec )
+			);
+			return array( $materialized['block'] );
+		}
+
 		$provider = sanitize_key( (string) ( $spec['provider'] ?? '' ) );
 		if ( '' !== $provider ) {
 			$allowed = array( 'provider', 'component', 'spec' );
@@ -457,7 +516,7 @@ final class Semantic_Document_Service {
 		}
 		$name  = strtolower( trim( (string) ( $spec['name'] ?? '' ) ) );
 		$attrs = isset( $spec['attributes'] ) && is_array( $spec['attributes'] ) ? $spec['attributes'] : array();
-		foreach ( array( 'metadata', 'composer', 'lock', 'templateLock', 'slotId', 'allowedBlocks', 'minBlocks', 'maxBlocks' ) as $reserved ) {
+		foreach ( array( 'metadata', 'composer', 'lock', 'templateLock', 'slotId', 'allowedBlocks', 'allowedPatterns', 'patternOccurrences', 'minBlocks', 'maxBlocks' ) as $reserved ) {
 			if ( array_key_exists( $reserved, $attrs ) ) {
 				throw new Execution_Exception( 'semantic_slot_reserved_attribute', 'Composer ownership and editor-control attributes cannot be supplied in a semantic slot block.' );
 			}
@@ -651,7 +710,7 @@ final class Semantic_Document_Service {
 
 	private function save_slot_children( array $input, array $context, array $children ): array {
 		if ( 'synced' === (string) ( $context['storage'] ?? '' ) ) {
-			$owner = $this->synced_patterns->with_slot_children( $context['block'], (string) $context['slot_id'], $children );
+			$owner = $this->synced_patterns->with_slot_children( $context['block'], (string) $context['slot_id'], $children, (string) ( $context['pattern_instance_id'] ?? '' ) );
 			return $this->drafts->insert_or_update_blocks(
 				array(
 					'post_id'               => $context['post_id'],
@@ -747,6 +806,8 @@ final class Semantic_Document_Service {
 			}
 			if ( 'slot' === $item['mode'] ) {
 				$item['allowed_blocks'] = array_values( (array) ( $definition['allowed_blocks'] ?? array() ) );
+				$item['allowed_patterns'] = array_values( (array) ( $definition['allowed_patterns'] ?? array() ) );
+				$item['pattern_occurrences'] = (array) ( $definition['pattern_occurrences'] ?? array() );
 				$item['min_blocks']     = (int) ( $definition['min_blocks'] ?? 0 );
 				$item['max_blocks']     = $definition['max_blocks'] ?? null;
 				$item['blocks']         = array_values( (array) ( $slots[ $id ] ?? array() ) );
@@ -1021,7 +1082,7 @@ final class Semantic_Document_Service {
 		return (string) preg_replace( '/\s' . $attribute . '\s*=\s*(["\']).*?\1/is', '', $tag, 1 );
 	}
 
-	private function find_node_occurrences( array $blocks, array $nodes, string $field_id, array $path = array() ): array {
+	private function find_node_occurrences( array $blocks, array $nodes, string $field_id, array $path = array(), string $pattern_instance_id = '' ): array {
 		$result   = array();
 		$position = 0;
 		foreach ( $blocks as $block ) {
@@ -1030,13 +1091,38 @@ final class Semantic_Document_Service {
 			}
 			$block_path = array_merge( $path, array( $position ) );
 			++$position;
-			if ( $field_id === $this->semantic_identity( $block, $nodes ) ) {
+			$block_pattern_instance_id = strtolower( trim( (string) ( $block['attrs']['metadata']['wpsuiteAgentComposer']['patternInstanceId'] ?? '' ) ) );
+			if (
+				$field_id === $this->semantic_identity( $block, $nodes )
+				&& ( '' === $pattern_instance_id || hash_equals( $pattern_instance_id, $block_pattern_instance_id ) )
+			) {
 				$result[] = array( 'path' => $block_path, 'block' => $block );
 			}
 			$children = isset( $block['innerBlocks'] ) && is_array( $block['innerBlocks'] ) ? $block['innerBlocks'] : array();
-			$result   = array_merge( $result, $this->find_node_occurrences( $children, $nodes, $field_id, $block_path ) );
+			$result   = array_merge( $result, $this->find_node_occurrences( $children, $nodes, $field_id, $block_path, $pattern_instance_id ) );
 		}
 		return $result;
+	}
+
+	private function field_id_from_input( array $input ): string {
+		$field_id = trim( (string) ( $input['field_id'] ?? '' ) );
+		$legacy   = trim( (string) ( $input['field'] ?? '' ) );
+		if ( '' !== $field_id && '' !== $legacy && ! hash_equals( $field_id, $legacy ) ) {
+			throw new Execution_Exception( 'semantic_field_identity_conflict', 'field_id and the legacy field alias must identify the same semantic field.' );
+		}
+		$field_id = '' !== $field_id ? $field_id : $legacy;
+		if ( '' === $field_id || strlen( $field_id ) > 128 || 1 !== preg_match( '/^[a-z][a-z0-9._-]{0,127}$/', $field_id ) ) {
+			throw new Execution_Exception( 'semantic_field_id_invalid', 'A valid semantic field_id is required.' );
+		}
+		return $field_id;
+	}
+
+	private function pattern_instance_id_from_input( array $input ): string {
+		$value = strtolower( trim( (string) ( $input['pattern_instance_id'] ?? '' ) ) );
+		if ( '' !== $value && 1 !== preg_match( '/^pattern-[a-z0-9-]{8,58}$/', $value ) ) {
+			throw new Execution_Exception( 'synced_pattern_instance_id_invalid', 'pattern_instance_id must be a stable Composer pattern instance identifier.' );
+		}
+		return $value;
 	}
 
 	private function assert_attribute_value( string $block_name, string $attribute, mixed $value ): void {
@@ -1067,7 +1153,7 @@ final class Semantic_Document_Service {
 	}
 
 	private function reserved_attribute( string $attribute ): bool {
-		return in_array( $attribute, array( 'metadata', 'composer', 'lock', 'templateLock', 'slotId', 'allowedBlocks', 'minBlocks', 'maxBlocks' ), true );
+		return in_array( $attribute, array( 'metadata', 'composer', 'lock', 'templateLock', 'slotId', 'allowedBlocks', 'allowedPatterns', 'patternOccurrences', 'minBlocks', 'maxBlocks' ), true );
 	}
 
 	private function enforced_contract( array $blueprint ): array {

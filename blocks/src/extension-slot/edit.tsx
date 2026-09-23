@@ -18,6 +18,8 @@ import {
 interface ExtensionSlotAttributes {
   slotId?: string;
   allowedBlocks?: string[];
+  allowedPatterns?: string[];
+  patternOccurrences?: Record<string, { min?: number; max?: number | null }>;
   minBlocks?: number;
   maxBlocks?: number;
 }
@@ -51,6 +53,12 @@ export default function Edit({
   const allowedBlocks = Array.isArray(attributes.allowedBlocks)
     ? attributes.allowedBlocks
     : [];
+  const allowedPatterns = Array.isArray(attributes.allowedPatterns)
+    ? attributes.allowedPatterns
+    : [];
+  const editorAllowedBlocks = allowedPatterns.length > 0
+    ? [...new Set([...allowedBlocks, "core/block"])]
+    : allowedBlocks;
   const minimum = Math.max(0, attributes.minBlocks ?? 0);
   const maximum =
     typeof attributes.maxBlocks === "number"
@@ -118,7 +126,7 @@ export default function Edit({
   const innerBlocksProps = useInnerBlocksProps(
     { className: "smartcloud-agent-composer-slot__content" },
     {
-      allowedBlocks,
+      allowedBlocks: editorAllowedBlocks,
       renderAppender: () => null,
       templateLock: false,
     },

@@ -45,8 +45,19 @@ $definition = array(
 			'parent'         => null,
 			'position'       => 20,
 			'allowed_blocks' => array( 'core/group', 'core/heading', 'core/paragraph' ),
+			'allowed_patterns' => array( 'wpsuite/repeatable-card' ),
+			'pattern_occurrences' => array( 'wpsuite/repeatable-card' => array( 'min' => 0, 'max' => 2 ) ),
 			'min_blocks'     => 0,
 			'max_blocks'     => 2,
+		),
+		array(
+			'id'        => 'repeatable-card',
+			'block'     => 'core/group',
+			'ownership' => 'BLUEPRINT',
+			'mode'      => 'structure',
+			'parent'    => 'additional-content',
+			'position'  => null,
+			'required'  => false,
 		),
 		array(
 			'id'             => 'secondary-content',
@@ -89,6 +100,33 @@ $valid = $validator->validate( $contract, $baseline );
 $assert( true === $valid['valid'], 'The canonical semantic block tree must satisfy its Structure Contract.' );
 $assert( array( 'id' => 'solution-editor', 'version' => 3 ) === $valid['contract'], 'Validation must identify the exact independently versioned contract.' );
 
+$stamp_pattern_instance = static function ( array $block, string $instance_id ) use ( &$stamp_pattern_instance ): array {
+	$block['attrs']['metadata']['wpsuiteAgentComposer']['patternInstanceId'] = $instance_id;
+	foreach ( (array) ( $block['innerBlocks'] ?? array() ) as $index => $child ) {
+		$block['innerBlocks'][ $index ] = $stamp_pattern_instance( $child, $instance_id );
+	}
+	return $block;
+};
+$repeated_patterns = array(
+	$stamp_pattern_instance( $hero, 'pattern-11111111' ),
+	$stamp_pattern_instance( $hero, 'pattern-22222222' ),
+	$slot,
+	$slot2,
+);
+$result = $validator->validate( $contract, $repeated_patterns );
+$assert( true === $result['valid'], 'The same semantic pattern structure may repeat when each occurrence has a distinct stable pattern instance ID.' );
+
+$duplicate_pattern_identity = $repeated_patterns;
+$duplicate_pattern_identity[1] = $stamp_pattern_instance( $hero, 'pattern-11111111' );
+$result = $validator->validate( $contract, $duplicate_pattern_identity );
+$assert( false === $result['valid'], 'Repeated pattern structure must fail closed when two instances reuse the same pattern instance ID.' );
+
+$repeated_pattern_edit = $repeated_patterns;
+$repeated_pattern_edit[1]['attrs']['layout']['type'] = 'flex';
+$result = $validator->validate( $contract, $repeated_pattern_edit, $repeated_patterns );
+$assert( false === $result['valid'], 'Protected structure must still be compared independently inside every repeated pattern instance.' );
+$assert( in_array( 'pattern-22222222.hero.layout', array_column( $result['errors'], 'path' ), true ), 'Repeated-pattern violations must identify the exact pattern instance and semantic field.' );
+
 $content_edit = $baseline;
 $content_edit[0]['innerBlocks'][0]['attrs']['content'] = 'Changed';
 $content_edit[0]['innerBlocks'][0]['innerHTML'] = '<h1>Changed</h1>';
@@ -121,6 +159,19 @@ $slot_insert[1]['innerContent'] = array( '<div>', null, '</div>' );
 $result = $validator->validate( $contract, $slot_insert, $baseline );
 $assert( true === $result['valid'], 'An allow-listed user block may be inserted into an extension slot.' );
 $assert( $valid['structural_fingerprint'] === $result['structural_fingerprint'], 'User-owned slot content must not alter the Blueprint structural fingerprint.' );
+
+$pattern_slot_insert = $baseline;
+$pattern_slot_insert[1]['innerBlocks'][] = $block(
+	'core/group',
+	'repeatable-card',
+	array( 'metadata' => array( 'wpsuiteAgentComposer' => array( 'patternInstanceId' => 'pattern-33333333' ) ) ),
+	array(),
+	'<div class="wp-block-group"></div>'
+);
+$pattern_slot_insert[1]['innerContent'] = array( '<div>', null, '</div>' );
+$result = $validator->validate( $contract, $pattern_slot_insert, $baseline );
+$assert( true === $result['valid'], 'An allow-listed synced pattern instance may be inserted as one direct slot item.' );
+$assert( $valid['structural_fingerprint'] === $result['structural_fingerprint'], 'A user-owned pattern instance inside a slot must not alter the protected structural fingerprint.' );
 
 $nested_insert = $baseline;
 $nested_insert[1]['innerBlocks'][] = $block(

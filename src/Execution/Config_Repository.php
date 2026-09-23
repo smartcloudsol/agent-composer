@@ -442,6 +442,16 @@ final class Config_Repository {
 			if ( $reference['version'] !== $contract['version'] ) {
 				throw new Execution_Exception( 'structure-contract-version-mismatch', 'The Blueprint Structure Contract version does not match the active definition.' );
 			}
+			foreach ( (array) ( $contract['nodes'] ?? array() ) as $node ) {
+				if ( ! is_array( $node ) || 'slot' !== (string) ( $node['mode'] ?? '' ) ) {
+					continue;
+				}
+				foreach ( (array) ( $node['allowed_patterns'] ?? array() ) as $pattern ) {
+					if ( ! in_array( $pattern, $synced_patterns, true ) ) {
+						throw new Execution_Exception( 'structure-slot-pattern-not-enabled', 'Every pattern allowed by a Structure Contract slot must be enabled by the Blueprint.' );
+					}
+				}
+			}
 			$blueprint['structure_contract']          = $reference;
 			$blueprint['structure_contract_mode']     = 'enforced';
 			$blueprint['resolved_structure_contract'] = $contract;
@@ -591,14 +601,15 @@ final class Config_Repository {
 			if ( ! preg_match( '#^[a-z0-9-]+/[a-z0-9-]+$#', $pattern ) || ! is_array( $definition ) || array_is_list( $definition ) ) {
 				throw new Execution_Exception( 'synced-pattern-contract-invalid', 'Every synced structural pattern requires a namespaced key and an object contract.' );
 			}
-			$allowed_keys = array( 'version', 'post_name', 'overrides' );
+			$allowed_keys = array( 'version', 'post_name', 'content_hash', 'overrides' );
 			if ( array_diff( array_keys( $definition ), $allowed_keys ) ) {
 				throw new Execution_Exception( 'synced-pattern-contract-property-invalid', 'A synced structural pattern contract contains an unsupported property.' );
 			}
 			$version   = $definition['version'] ?? null;
 			$post_name = is_string( $definition['post_name'] ?? null ) ? trim( $definition['post_name'] ) : '';
+			$content_hash = strtolower( trim( (string) ( $definition['content_hash'] ?? '' ) ) );
 			$overrides = $definition['overrides'] ?? null;
-			if ( ! is_int( $version ) || $version < 1 || $post_name !== sanitize_title( $post_name ) || ! is_array( $overrides ) || array_is_list( $overrides ) || empty( $overrides ) || count( $overrides ) > 100 ) {
+			if ( ! is_int( $version ) || $version < 1 || $post_name !== sanitize_title( $post_name ) || ( '' !== $content_hash && 1 !== preg_match( '/^sha256:[a-f0-9]{64}$/', $content_hash ) ) || ! is_array( $overrides ) || array_is_list( $overrides ) || empty( $overrides ) || count( $overrides ) > 100 ) {
 				throw new Execution_Exception( 'synced-pattern-contract-invalid', 'A synced structural pattern requires a positive version, exact wp_block post_name, and override registry.' );
 			}
 			$normalized_fields = array();
@@ -628,6 +639,9 @@ final class Config_Repository {
 				$normalized_fields[ $field_id ] = array( 'block' => $block, 'attributes' => $attributes, 'type' => $type, 'required' => true === ( $field['required'] ?? false ) );
 			}
 			$result[ $pattern ] = array( 'version' => $version, 'post_name' => $post_name, 'overrides' => $normalized_fields );
+			if ( '' !== $content_hash ) {
+				$result[ $pattern ]['content_hash'] = $content_hash;
+			}
 		}
 		ksort( $result );
 		return $result;

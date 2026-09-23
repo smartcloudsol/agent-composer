@@ -53,7 +53,12 @@ $contract = array(
 			'BLUEPRINT',
 			'slot',
 			null,
-			array( 'allowed_blocks' => array( 'core/paragraph' ), 'max_blocks' => 2 )
+			array(
+				'allowed_blocks' => array( 'core/paragraph' ),
+				'allowed_patterns' => array( 'wpsuite/repeatable-card' ),
+				'pattern_occurrences' => array( 'wpsuite/repeatable-card' => array( 'min' => 0, 'max' => 2 ) ),
+				'max_blocks' => 2,
+			)
 		),
 		$node( 'mixed', 'core/group', 'BLUEPRINT', 'structure' ),
 		$node(
@@ -93,6 +98,8 @@ $assert( true === ( $slot_attrs['lock']['remove'] ?? null ), 'The extension-slot
 $assert( false === ( $slot_attrs['templateLock'] ?? null ), 'An extension slot must keep child insertion enabled.' );
 $assert( 'additional-content' === ( $slot_attrs['slotId'] ?? '' ), 'The slot block must receive its stable semantic slot ID.' );
 $assert( array( 'core/paragraph' ) === ( $slot_attrs['allowedBlocks'] ?? null ), 'The slot block must receive its contract allowlist.' );
+$assert( array( 'wpsuite/repeatable-card' ) === ( $slot_attrs['allowedPatterns'] ?? null ), 'The slot block must receive its synced-pattern allowlist.' );
+$assert( array( 'min' => 0, 'max' => 2 ) === ( $slot_attrs['patternOccurrences']['wpsuite/repeatable-card'] ?? null ), 'The slot block must receive per-pattern occurrence bounds.' );
 $assert( 2 === ( $slot_attrs['maxBlocks'] ?? null ), 'The slot block must receive its maximum cardinality.' );
 $assert( ! isset( $projected[1]['innerBlocks'][0]['attrs']['lock'] ), 'User-owned blocks inside a slot must remain movable and removable.' );
 $user_metadata = $projected[1]['innerBlocks'][0]['attrs']['metadata']['wpsuiteAgentComposer'] ?? array();

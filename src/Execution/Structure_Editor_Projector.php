@@ -89,6 +89,8 @@ final class Structure_Editor_Projector {
 			$attrs['templateLock']  = false;
 			$attrs['slotId']        = (string) $node['id'];
 			$attrs['allowedBlocks'] = array_values( (array) ( $node['allowed_blocks'] ?? array() ) );
+			$attrs['allowedPatterns'] = array_values( (array) ( $node['allowed_patterns'] ?? array() ) );
+			$attrs['patternOccurrences'] = (array) ( $node['pattern_occurrences'] ?? array() );
 			$attrs['minBlocks']     = (int) ( $node['min_blocks'] ?? 0 );
 			if ( null === ( $node['max_blocks'] ?? null ) ) {
 				unset( $attrs['maxBlocks'] );

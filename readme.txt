@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.3.1
+Stable tag: 1.3.2
 License: MIT
 License URI: https://mit-license.org/
 
@@ -154,6 +154,13 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 
 == Changelog ==
 
+= 1.3.2 =
+* Preview stability: Keep rendered-draft and publication-approval MCP Apps at a host-bounded height with fixed chrome, preview-only scrolling, asset/font readiness, and v6 resource URIs.
+* Pattern instances: Give every governed synced pattern a stable instance identity and address field, media, and pattern-owned slot updates by pattern instance plus semantic ID.
+* Repeated modules: Allow multiple instances of the same synced pattern to retain independent native Pattern Overrides with instance-scoped structure validation.
+* Slot contracts: Add explicit synced-pattern allowlists and per-pattern minimum/maximum occurrence bounds to configuration, runtime validation, semantic operations, and the Gutenberg editor projection.
+* Pattern integrity: Recursively enforce reference, contract-version, and content-hash metadata with cycle and nesting-depth protection.
+
 = 1.3.1 =
 * Dependencies: Bundle WP Suite Hub 2.5.16 so Static Publisher is notified when the shared translation catalog changes.
 * Publisher media: Add an explicitly enabled, protected Publisher-only MCP tool for publishing one governed raster image to the Media Library without granting general WordPress upload access.
@@ -270,6 +277,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.3.2 =
+Restart MCP and refresh client tools and resources so clients load the v6 preview Apps and the new `field_id` plus `pattern_instance_id` semantic schemas. Existing synced-pattern instances remain readable; Composer persists their compatibility instance ID on the first targeted update. Clone, validate, and activate a new Config Set before using slot `allowed_patterns`, `pattern_occurrences`, or optional pinned `content_hash` values. No content is published or migrated automatically.
 
 = 1.3.1 =
 Restart MCP and refresh client tools after installing the matching Static Publisher update. In Protected or Protected Required mode, map publish/content-sync operators and their status checks plus Publisher target/rule discovery to Publisher; Contributor remains sufficient for crawl/deploy scheduling and status checks. Existing Config Sets keep Publisher media upload disabled. To enable it, clone the active set, enable **Allow Publisher media uploads**, review the shared MIME and size limits, validate and activate it, then restart MCP and refresh the Publisher connector's tools. No new Cognito resource-server scope is required: the operation reuses the existing resource-bound `publish.request` scope. Readers, Contributors, and Open mode remain unable to upload.

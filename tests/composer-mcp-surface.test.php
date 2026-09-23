@@ -173,7 +173,7 @@ namespace {
 		throw new RuntimeException( 'Composer MCP admitted a malformed external Ability name.' );
 	}
 	$server_version = (string) ( $adapter->arguments[5] ?? '' );
-	if ( ! str_contains( $server_version, '+surface.publisher-jobs.4' ) ) {
+	if ( ! str_contains( $server_version, '+surface.pattern-instances.1' ) ) {
 		throw new RuntimeException( 'Composer MCP server version is missing the Publisher handoff surface cachebuster.' );
 	}
 
@@ -204,11 +204,13 @@ namespace {
 	$resources = $adapter->arguments[10] ?? array();
 	foreach ( array(
 		'smartcloud-agent-composer/rendered-preview-app',
+		'smartcloud-agent-composer/rendered-preview-app-v5',
 		'smartcloud-agent-composer/rendered-preview-app-v4',
 		'smartcloud-agent-composer/rendered-preview-app-v3',
 		'smartcloud-agent-composer/rendered-preview-app-v2',
 		'smartcloud-agent-composer/rendered-preview-app-v1',
 		'smartcloud-agent-composer/publish-approval-app',
+		'smartcloud-agent-composer/publish-approval-app-v5',
 		'smartcloud-agent-composer/publish-approval-app-v4',
 		'smartcloud-agent-composer/publish-approval-app-v3',
 		'smartcloud-agent-composer/publish-approval-app-v2',

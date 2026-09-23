@@ -58,7 +58,8 @@ final class Pattern_Assembler {
 					$pattern,
 					$fields,
 					$blueprint,
-					true === ( $context['allow_pattern_defaults'] ?? false )
+					true === ( $context['allow_pattern_defaults'] ?? false ),
+					(string) ( $section['pattern_instance_id'] ?? '' )
 				);
 				$sequence[] = $pattern;
 				$content   .= serialize_block( $instance['block'] );

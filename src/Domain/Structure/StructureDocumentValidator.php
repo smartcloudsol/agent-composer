@@ -37,8 +37,11 @@ final class StructureDocumentValidator {
 		foreach ( $nodes as $id => $node ) {
 			$matches = $proposed['semantic'][ $id ] ?? array();
 			if ( count( $matches ) > 1 ) {
-				$errors[] = $this->violation( $id, 'duplicate', 'semantic-node-duplicate', 'A Structure Contract node may occur only once.' );
-				continue;
+				$instance_ids = array_values( array_filter( array_column( $matches, 'pattern_instance_id' ) ) );
+				if ( count( $instance_ids ) !== count( $matches ) || count( array_unique( $instance_ids ) ) !== count( $matches ) ) {
+					$errors[] = $this->violation( $id, 'duplicate', 'semantic-node-duplicate', 'A Structure Contract node may occur only once outside distinct synced pattern instances.' );
+					continue;
+				}
 			}
 			if ( empty( $matches ) ) {
 				if ( ! empty( $node['required'] ) ) {
@@ -47,12 +50,14 @@ final class StructureDocumentValidator {
 				continue;
 			}
 
-			$actual = $matches[0];
-			if ( (string) ( $node['block'] ?? '' ) !== $actual['block'] ) {
-				$errors[] = $this->violation( $id, 'change_block_type', 'block-type-mismatch', 'The semantic node uses a block type that is not allowed by its Structure Contract.', array( 'expected' => $node['block'], 'found' => $actual['block'] ) );
-			}
-			if ( ( $node['parent'] ?? null ) !== $actual['parent'] ) {
-				$errors[] = $this->violation( $id, 'reparent_structure', 'parent-mismatch', 'The semantic node is not attached to its declared parent.', array( 'expected' => $node['parent'] ?? null, 'found' => $actual['parent'] ) );
+			foreach ( $matches as $actual ) {
+				$path = '' !== (string) ( $actual['pattern_instance_id'] ?? '' ) ? (string) $actual['pattern_instance_id'] . '.' . $id : $id;
+				if ( (string) ( $node['block'] ?? '' ) !== $actual['block'] ) {
+					$errors[] = $this->violation( $path, 'change_block_type', 'block-type-mismatch', 'The semantic node uses a block type that is not allowed by its Structure Contract.', array( 'expected' => $node['block'], 'found' => $actual['block'] ) );
+				}
+				if ( ( $node['parent'] ?? null ) !== $actual['parent'] ) {
+					$errors[] = $this->violation( $path, 'reparent_structure', 'parent-mismatch', 'The semantic node is not attached to its declared parent.', array( 'expected' => $node['parent'] ?? null, 'found' => $actual['parent'] ) );
+				}
 			}
 		}
 
@@ -149,12 +154,19 @@ final class StructureDocumentValidator {
 					'attrs'             => isset( $block['attrs'] ) && is_array( $block['attrs'] ) ? $block['attrs'] : array(),
 					'inner_html'        => (string) ( $block['innerHTML'] ?? '' ),
 					'inner_content'     => $this->structural_inner_content( $block['innerContent'] ?? array() ),
+					'pattern_instance_id' => $this->pattern_instance_id( $block ),
 				);
 				$result['semantic'][ $id ][] = $entry;
 				if ( 'slot' === (string) ( $contract_node['mode'] ?? '' ) ) {
 					$current_slot = $id;
 					$result['slots'][ $id ] ??= array( 'direct' => array(), 'all' => array() );
-				} elseif ( 'USER' === (string) ( $contract_node['ownership'] ?? '' ) && null !== $slot_id ) {
+				} elseif (
+					null !== $slot_id
+					&& (
+						'USER' === (string) ( $contract_node['ownership'] ?? '' )
+						|| '' !== (string) $entry['pattern_instance_id']
+					)
+				) {
 					$result['slots'][ $slot_id ] ??= array( 'direct' => array(), 'all' => array() );
 					$result['slots'][ $slot_id ]['all'][] = $this->user_entry( $block, $name, $block_path );
 					if ( 1 === $slot_depth ) {
@@ -211,19 +223,37 @@ final class StructureDocumentValidator {
 			}
 		}
 		foreach ( $families as $expected ) {
-			$present = array();
-			foreach ( $expected as $id => $position ) {
-				if ( 1 === count( $actual_nodes[ $id ] ?? array() ) ) {
-					$present[] = array( 'id' => $id, 'expected' => $position, 'actual' => $actual_nodes[ $id ][0]['sibling_position'] );
+			$scopes = array( '' );
+			foreach ( array_keys( $expected ) as $id ) {
+				foreach ( (array) ( $actual_nodes[ $id ] ?? array() ) as $actual ) {
+					$scope = trim( (string) ( $actual['pattern_instance_id'] ?? '' ) );
+					if ( '' !== $scope ) {
+						$scopes[] = $scope;
+					}
 				}
 			}
-			$by_actual = $present;
-			usort( $by_actual, static fn( array $left, array $right ): int => $left['actual'] <=> $right['actual'] );
-			$by_expected = $present;
-			usort( $by_expected, static fn( array $left, array $right ): int => $left['expected'] <=> $right['expected'] );
-			if ( array_column( $by_actual, 'id' ) !== array_column( $by_expected, 'id' ) ) {
-				foreach ( array_column( $by_actual, 'id' ) as $id ) {
-					$errors[] = $this->violation( $id, 'move_structure', 'canonical-order-mismatch', 'Blueprint-owned semantic nodes must retain their canonical relative order.' );
+			foreach ( array_values( array_unique( $scopes ) ) as $scope ) {
+				$present = array();
+				foreach ( $expected as $id => $position ) {
+					$matches = array_values(
+						array_filter(
+							(array) ( $actual_nodes[ $id ] ?? array() ),
+							static fn( array $actual ): bool => $scope === trim( (string) ( $actual['pattern_instance_id'] ?? '' ) )
+						)
+					);
+					if ( 1 === count( $matches ) ) {
+						$present[] = array( 'id' => $id, 'expected' => $position, 'actual' => $matches[0]['sibling_position'] );
+					}
+				}
+				$by_actual = $present;
+				usort( $by_actual, static fn( array $left, array $right ): int => $left['actual'] <=> $right['actual'] );
+				$by_expected = $present;
+				usort( $by_expected, static fn( array $left, array $right ): int => $left['expected'] <=> $right['expected'] );
+				if ( array_column( $by_actual, 'id' ) !== array_column( $by_expected, 'id' ) ) {
+					foreach ( array_column( $by_actual, 'id' ) as $id ) {
+						$path = '' === $scope ? $id : $scope . '.' . $id;
+						$errors[] = $this->violation( $path, 'move_structure', 'canonical-order-mismatch', 'Blueprint-owned semantic nodes must retain their canonical relative order.' );
+					}
 				}
 			}
 		}
@@ -247,7 +277,7 @@ final class StructureDocumentValidator {
 			}
 			$allowed = (array) ( $node['allowed_blocks'] ?? array() );
 			foreach ( (array) $slot['all'] as $entry ) {
-				if ( ! in_array( $entry['block'], $allowed, true ) ) {
+				if ( '' === (string) ( $entry['pattern_instance_id'] ?? '' ) && ! in_array( $entry['block'], $allowed, true ) ) {
 					$errors[] = $this->violation( $id . '.blocks.' . implode( '.', $entry['path'] ), 'insert_user_block', 'slot-block-not-allowed', 'The extension slot contains a block type that is not allow-listed.', array( 'block' => $entry['block'], 'slot' => $id ) );
 				}
 				$user_id = (string) ( $entry['user_id'] ?? '' );
@@ -274,45 +304,71 @@ final class StructureDocumentValidator {
 	private function compare_documents( array $nodes, array $previous, array $proposed ): array {
 		$errors = array();
 		foreach ( $nodes as $id => $node ) {
-			$before = 1 === count( $previous['semantic'][ $id ] ?? array() ) ? $previous['semantic'][ $id ][0] : null;
-			$after  = 1 === count( $proposed['semantic'][ $id ] ?? array() ) ? $proposed['semantic'][ $id ][0] : null;
-			$user_owned = 'USER' === (string) ( $node['ownership'] ?? '' );
-			if ( null !== $before && null === $after && ! $user_owned ) {
-				$errors[] = $this->violation( $id, 'remove_structure', 'protected-node-removed', 'A Blueprint-owned block cannot be removed.' );
-				continue;
-			}
-			if ( null === $before && null !== $after && ! $user_owned ) {
-				$errors[] = $this->violation( $id, 'insert_structure', 'protected-node-inserted', 'A Blueprint-owned block cannot be inserted by an ordinary content operation.' );
-				continue;
-			}
-			if ( null === $before || null === $after ) {
-				continue;
-			}
-			if ( $before['block'] !== $after['block'] ) {
-				$errors[] = $this->violation( $id, 'change_block_type', 'protected-block-type-changed', 'A protected semantic block cannot change type.' );
-			}
-			if ( $before['parent'] !== $after['parent'] ) {
-				$errors[] = $this->violation( $id, 'reparent_structure', 'protected-node-reparented', 'A protected semantic block cannot be reparented.' );
-			}
-			if ( ! $user_owned && $before['sibling_position'] !== $after['sibling_position'] ) {
-				$errors[] = $this->violation( $id, 'move_structure', 'protected-node-moved', 'A protected semantic block cannot be moved.' );
-			}
-
-			$editable = array_fill_keys( (array) ( $node['editable_attributes'] ?? array() ), true );
-			$keys     = array_unique( array_merge( array_keys( $before['attrs'] ), array_keys( $after['attrs'] ) ) );
-			foreach ( $keys as $attribute ) {
-				if ( isset( $editable[ $attribute ] ) || $this->same( $before['attrs'][ $attribute ] ?? null, $after['attrs'][ $attribute ] ?? null ) ) {
+			$before_by_scope = $this->matches_by_scope( (array) ( $previous['semantic'][ $id ] ?? array() ) );
+			$after_by_scope  = $this->matches_by_scope( (array) ( $proposed['semantic'][ $id ] ?? array() ) );
+			foreach ( array_unique( array_merge( array_keys( $before_by_scope ), array_keys( $after_by_scope ) ) ) as $scope ) {
+				$before = $before_by_scope[ $scope ] ?? null;
+				$after  = $after_by_scope[ $scope ] ?? null;
+				$path   = '' === $scope ? $id : $scope . '.' . $id;
+				$user_owned = 'USER' === (string) ( $node['ownership'] ?? '' );
+				$pattern_slot_item = '' !== $scope && null !== ( $before['slot'] ?? $after['slot'] ?? null );
+				if ( null !== $before && null === $after && ! $user_owned ) {
+					if ( $pattern_slot_item ) {
+						continue;
+					}
+					$errors[] = $this->violation( $path, 'remove_structure', 'protected-node-removed', 'A Blueprint-owned block cannot be removed.' );
 					continue;
 				}
-				$errors[] = $this->violation( $id . '.' . $attribute, 'change_structure_attribute', 'attribute-not-editable', 'The block attribute is protected by the Structure Contract.', array( 'attribute' => $attribute ) );
-			}
-			if ( empty( $node['editable_content'] ) && ( $before['inner_html'] !== $after['inner_html'] || ! $this->same( $before['inner_content'], $after['inner_content'] ) ) ) {
-				$errors[] = $this->violation( $id, 'set_content', 'content-not-editable', 'The block content shell is protected by the Structure Contract.' );
+				if ( null === $before && null !== $after && ! $user_owned ) {
+					if ( $pattern_slot_item ) {
+						continue;
+					}
+					$errors[] = $this->violation( $path, 'insert_structure', 'protected-node-inserted', 'A Blueprint-owned block cannot be inserted by an ordinary content operation.' );
+					continue;
+				}
+				if ( null === $before || null === $after ) {
+					continue;
+				}
+				if ( $before['block'] !== $after['block'] ) {
+					$errors[] = $this->violation( $path, 'change_block_type', 'protected-block-type-changed', 'A protected semantic block cannot change type.' );
+				}
+				if ( $before['parent'] !== $after['parent'] ) {
+					$errors[] = $this->violation( $path, 'reparent_structure', 'protected-node-reparented', 'A protected semantic block cannot be reparented.' );
+				}
+				if ( ! $user_owned && ! $pattern_slot_item && $before['sibling_position'] !== $after['sibling_position'] ) {
+					$errors[] = $this->violation( $path, 'move_structure', 'protected-node-moved', 'A protected semantic block cannot be moved.' );
+				}
+
+				$editable = array_fill_keys( (array) ( $node['editable_attributes'] ?? array() ), true );
+				$keys     = array_unique( array_merge( array_keys( $before['attrs'] ), array_keys( $after['attrs'] ) ) );
+				foreach ( $keys as $attribute ) {
+					if ( isset( $editable[ $attribute ] ) || $this->same( $before['attrs'][ $attribute ] ?? null, $after['attrs'][ $attribute ] ?? null ) ) {
+						continue;
+					}
+					$errors[] = $this->violation( $path . '.' . $attribute, 'change_structure_attribute', 'attribute-not-editable', 'The block attribute is protected by the Structure Contract.', array( 'attribute' => $attribute ) );
+				}
+				if ( empty( $node['editable_content'] ) && ( $before['inner_html'] !== $after['inner_html'] || ! $this->same( $before['inner_content'], $after['inner_content'] ) ) ) {
+					$errors[] = $this->violation( $path, 'set_content', 'content-not-editable', 'The block content shell is protected by the Structure Contract.' );
+				}
 			}
 		}
 
 		$errors = array_merge( $errors, $this->detect_cross_slot_moves( $nodes, $previous, $proposed ) );
 		return $errors;
+	}
+
+	/** @return array<string,array> */
+	private function matches_by_scope( array $matches ): array {
+		$result = array();
+		foreach ( $matches as $index => $match ) {
+			$scope = trim( (string) ( $match['pattern_instance_id'] ?? '' ) );
+			if ( '' === $scope && 1 === count( $matches ) ) {
+				$result[''] = $match;
+				continue;
+			}
+			$result[ '' !== $scope ? $scope : '__ambiguous-' . $index ] = $match;
+		}
+		return $result;
 	}
 
 	private function detect_cross_slot_moves( array $nodes, array $previous, array $proposed ): array {
@@ -381,8 +437,16 @@ final class StructureDocumentValidator {
 			'path'        => $path,
 			'user_id'     => is_string( $namespaced['userBlockId'] ?? null ) ? trim( $namespaced['userBlockId'] ) : '',
 			'declared_slot' => is_string( $namespaced['slotId'] ?? null ) ? trim( $namespaced['slotId'] ) : '',
+			'pattern_instance_id' => is_string( $namespaced['patternInstanceId'] ?? null ) ? trim( $namespaced['patternInstanceId'] ) : '',
 			'fingerprint' => hash( 'sha256', serialize( $this->canonicalize( $block ) ) ),
 		);
+	}
+
+	private function pattern_instance_id( array $block ): string {
+		$attrs = is_array( $block['attrs'] ?? null ) ? $block['attrs'] : array();
+		$metadata = is_array( $attrs['metadata'] ?? null ) ? $attrs['metadata'] : array();
+		$composer = is_array( $metadata['wpsuiteAgentComposer'] ?? null ) ? $metadata['wpsuiteAgentComposer'] : array();
+		return is_string( $composer['patternInstanceId'] ?? null ) ? trim( $composer['patternInstanceId'] ) : '';
 	}
 
 	private function fingerprint_from_inspection( array $nodes, array $document ): string {
@@ -391,30 +455,31 @@ final class StructureDocumentValidator {
 			if ( 'USER' === (string) ( $node['ownership'] ?? '' ) ) {
 				continue;
 			}
-			$matches = $document['semantic'][ $id ] ?? array();
-			if ( 1 !== count( $matches ) ) {
-				$projection[ $id ] = array( 'occurrences' => count( $matches ) );
-				continue;
-			}
-			$actual   = $matches[0];
-			$attrs    = $actual['attrs'];
-			$editable = array_fill_keys( (array) ( $node['editable_attributes'] ?? array() ), true );
-			foreach ( array_keys( $attrs ) as $attribute ) {
-				if ( isset( $editable[ $attribute ] ) ) {
-					unset( $attrs[ $attribute ] );
+			$matches = (array) ( $document['semantic'][ $id ] ?? array() );
+			foreach ( $this->matches_by_scope( $matches ) as $scope => $actual ) {
+				if ( '' !== $scope && null !== ( $actual['slot'] ?? null ) ) {
+					continue;
 				}
-			}
-			$projection[ $id ] = array(
-				'block'  => $actual['block'],
-				'parent' => $actual['parent'],
-				'path'   => $actual['path'],
-				'attrs'  => $attrs,
-			);
-			if ( empty( $node['editable_content'] ) ) {
-				$projection[ $id ]['content_shell'] = array(
-					'inner_html'    => $actual['inner_html'],
-					'inner_content' => $actual['inner_content'],
+				$attrs    = $actual['attrs'];
+				$editable = array_fill_keys( (array) ( $node['editable_attributes'] ?? array() ), true );
+				foreach ( array_keys( $attrs ) as $attribute ) {
+					if ( isset( $editable[ $attribute ] ) ) {
+						unset( $attrs[ $attribute ] );
+					}
+				}
+				$key = '' === $scope ? $id : $scope . '.' . $id;
+				$projection[ $key ] = array(
+					'block'  => $actual['block'],
+					'parent' => $actual['parent'],
+					'path'   => $actual['path'],
+					'attrs'  => $attrs,
 				);
+				if ( empty( $node['editable_content'] ) ) {
+					$projection[ $key ]['content_shell'] = array(
+						'inner_html'    => $actual['inner_html'],
+						'inner_content' => $actual['inner_content'],
+					);
+				}
 			}
 		}
 		return $this->checksum( $projection );

@@ -25,6 +25,17 @@
         "type": "string"
       }
     },
+    "allowedPatterns": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      }
+    },
+    "patternOccurrences": {
+      "type": "object",
+      "default": {}
+    },
     "minBlocks": {
       "type": "number",
       "default": 0

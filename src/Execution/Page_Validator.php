@@ -61,8 +61,11 @@ final class Page_Validator {
 
 		$raw_blocks = parse_blocks( $content );
 		$blocks = $raw_blocks;
+		$pattern_inventory = array();
 		$previous_blocks = null === $previous_content ? null : parse_blocks( $previous_content );
 		try {
+			$seen_pattern_instances = array();
+			$pattern_inventory = $this->synced_patterns->inventory( $raw_blocks, $blueprint, array(), null, $seen_pattern_instances );
 			$blocks = $this->synced_patterns->expand_blocks( $raw_blocks, $blueprint );
 			$previous_blocks = null === $previous_blocks ? null : $this->synced_patterns->expand_blocks( $previous_blocks, $blueprint );
 		} catch ( Execution_Exception $error ) {
@@ -70,6 +73,10 @@ final class Page_Validator {
 		}
 		$structure_validation = null;
 		if ( 'enforced' === (string) ( $blueprint['structure_contract_mode'] ?? '' ) ) {
+			$errors = array_merge(
+				$errors,
+				$this->validate_slot_patterns( (array) ( $blueprint['resolved_structure_contract'] ?? array() ), $pattern_inventory )
+			);
 			$structure_validation = $this->structure->validate(
 				(array) ( $blueprint['resolved_structure_contract'] ?? array() ),
 				$blocks,
@@ -299,6 +306,39 @@ final class Page_Validator {
 			}
 		}
 		return $position === count( $required );
+	}
+
+	private function validate_slot_patterns( array $contract, array $inventory ): array {
+		$errors = array();
+		$by_slot = array();
+		foreach ( $inventory as $instance ) {
+			$slot_id = (string) ( $instance['slot_id'] ?? '' );
+			$pattern = (string) ( $instance['pattern'] ?? '' );
+			if ( '' !== $slot_id && '' !== $pattern ) {
+				$by_slot[ $slot_id ][ $pattern ] = ( $by_slot[ $slot_id ][ $pattern ] ?? 0 ) + 1;
+			}
+		}
+		foreach ( (array) ( $contract['nodes'] ?? array() ) as $node ) {
+			if ( 'slot' !== (string) ( $node['mode'] ?? '' ) ) {
+				continue;
+			}
+			$slot_id = (string) ( $node['id'] ?? '' );
+			$allowed = (array) ( $node['allowed_patterns'] ?? array() );
+			foreach ( (array) ( $by_slot[ $slot_id ] ?? array() ) as $pattern => $count ) {
+				if ( ! in_array( $pattern, $allowed, true ) ) {
+					$errors[] = $this->issue( 'slot_pattern_not_allowed', 'The extension slot contains a synced pattern that is not allow-listed.', array( 'slot' => $slot_id, 'pattern' => $pattern ) );
+				}
+			}
+			foreach ( (array) ( $node['pattern_occurrences'] ?? array() ) as $pattern => $bounds ) {
+				$count = (int) ( $by_slot[ $slot_id ][ $pattern ] ?? 0 );
+				$minimum = (int) ( $bounds['min'] ?? 0 );
+				$maximum = $bounds['max'] ?? null;
+				if ( $count < $minimum || ( is_int( $maximum ) && $count > $maximum ) ) {
+					$errors[] = $this->issue( 'slot_pattern_cardinality', 'A synced pattern occurrence count is outside the slot contract bounds.', array( 'slot' => $slot_id, 'pattern' => $pattern, 'found' => $count, 'minimum' => $minimum, 'maximum' => $maximum ) );
+				}
+			}
+		}
+		return $errors;
 	}
 
 	private function issue( string $code, string $message, array $context = array() ): array {

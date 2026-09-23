@@ -44,7 +44,7 @@ $assert( $metadata === $built_metadata, 'The packaged extension-slot metadata mu
 $assert( 'smartcloud-agent-composer/extension-slot' === ( $metadata['name'] ?? '' ), 'The extension slot must use its contract block name.' );
 $assert( false === ( $metadata['supports']['inserter'] ?? true ), 'Editors must not insert structural slot definitions outside a Blueprint.' );
 $assert( false === ( $metadata['supports']['html'] ?? true ), 'The slot block must not expose raw HTML editing.' );
-foreach ( array( 'slotId', 'allowedBlocks', 'minBlocks', 'maxBlocks' ) as $attribute ) {
+foreach ( array( 'slotId', 'allowedBlocks', 'allowedPatterns', 'patternOccurrences', 'minBlocks', 'maxBlocks' ) as $attribute ) {
 	$assert( isset( $metadata['attributes'][ $attribute ] ), 'The slot block is missing its governed attribute: ' . $attribute );
 }
 
@@ -69,7 +69,7 @@ $assembler_source = (string) file_get_contents( dirname( $root ) . '/wpsuite-plu
 foreach ( array( 'userBlockId', 'crypto.randomUUID', 'getRandomValues', 'USER_BLOCK_ID' ) as $marker ) {
 	$assert( str_contains( $identity_source, $marker ), 'Stable user-block identity is missing: ' . $marker );
 }
-foreach ( array( 'allowedBlocks', 'minBlocks', 'maxBlocks', 'updateBlockAttributes', 'ownership: "USER"', 'slotId', 'userBlockId', 'canInsertBlockType', 'insertBlock(', 'createBlock(blockName)', '+ Add block', '%1$d of %2$d blocks' ) as $marker ) {
+foreach ( array( 'allowedBlocks', 'allowedPatterns', 'editorAllowedBlocks', 'core/block', 'minBlocks', 'maxBlocks', 'updateBlockAttributes', 'ownership: "USER"', 'slotId', 'userBlockId', 'canInsertBlockType', 'insertBlock(', 'createBlock(blockName)', '+ Add block', '%1$d of %2$d blocks' ) as $marker ) {
 	$assert( str_contains( $edit_source, $marker ), 'The extension-slot editor boundary is missing: ' . $marker );
 }
 $assert( str_contains( $registry_source, "register_block_type( \$extension_slot )" ), 'WordPress must register the packaged extension-slot metadata.' );

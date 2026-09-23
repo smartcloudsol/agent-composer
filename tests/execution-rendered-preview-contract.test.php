@@ -284,6 +284,15 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(!array_key_exists('rendered_preview_token', $asset_snapshot), 'A read-only asset snapshot must not mint a proposal-submission token.');
 
 	$abilities = (new \ReflectionClass(Abilities::class))->newInstanceWithoutConstructor();
+	$field_update_schema = $abilities->semantic_field_update_schema();
+	$media_update_schema = $abilities->semantic_media_update_schema();
+	$slot_insert_schema = $abilities->semantic_slot_insert_schema();
+	$assert(in_array('field_id', $field_update_schema['required'] ?? array(), true), 'Semantic field updates must use the canonical field_id input.');
+	$assert(isset($field_update_schema['properties']['pattern_instance_id']), 'Semantic field updates must accept a stable pattern instance address.');
+	$assert(in_array('field_id', $media_update_schema['required'] ?? array(), true), 'Semantic media updates must use the canonical field_id input.');
+	$assert(isset($media_update_schema['properties']['pattern_instance_id']), 'Semantic media updates must accept a stable pattern instance address.');
+	$assert(isset($slot_insert_schema['properties']['pattern_instance_id']), 'Slot mutations must be able to select one repeated pattern-owned slot.');
+	$assert(isset($slot_insert_schema['properties']['block']['properties']['pattern']), 'Semantic slots must accept an allow-listed synced pattern specification.');
 	$register_resource = new \ReflectionMethod(Abilities::class, 'register_rendered_preview_resource');
 	$register_resource->invoke($abilities);
 	$register_asset = new \ReflectionMethod(Abilities::class, 'register_rendered_preview_asset_ability');
@@ -297,7 +306,8 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(array('post_id', 'expected_revision', 'asset_id') === ($asset_schema['required'] ?? null), 'Private asset reads must rely on the exact revision instead of a mutable modification timestamp.');
 	$assert(isset($asset_schema['properties']['expected_modified_gmt']), 'The legacy asset timestamp input must remain accepted for cached preview clients.');
 	$resource_uris = array(
-		'smartcloud-agent-composer/rendered-preview-app' => 'ui://smartcloud-agent-composer/rendered-preview/v5.html',
+		'smartcloud-agent-composer/rendered-preview-app' => 'ui://smartcloud-agent-composer/rendered-preview/v6.html',
+		'smartcloud-agent-composer/rendered-preview-app-v5' => 'ui://smartcloud-agent-composer/rendered-preview/v5.html',
 		'smartcloud-agent-composer/rendered-preview-app-v4' => 'ui://smartcloud-agent-composer/rendered-preview/v4.html',
 		'smartcloud-agent-composer/rendered-preview-app-v3' => 'ui://smartcloud-agent-composer/rendered-preview/v3.html',
 		'smartcloud-agent-composer/rendered-preview-app-v2' => 'ui://smartcloud-agent-composer/rendered-preview/v2.html',
@@ -329,12 +339,16 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(str_contains($latest_app_html, "document.createElement('body')"), 'The isolated preview must recreate a body context for theme selectors.');
 	$assert(str_contains($latest_app_html, "shell.classList.add('smartcloud-composer-preview-document')"), 'Every recreated body must receive the preview sizing class alongside its frontend context classes.');
 	$assert(str_contains($latest_app_html, 'height:auto!important'), 'The recreated body must grow with long content instead of letting its background stop at the preview viewport height.');
-	$assert(str_contains($latest_app_html, 'height:clamp(320px,65vh,640px)'), 'The preview app must keep long rendered pages inside a bounded scrolling viewport.');
+	$assert(str_contains($latest_app_html, 'height:var(--composer-app-height,680px)'), 'The preview app must reserve a stable host-bounded height before rendered content arrives.');
+	$assert(str_contains($latest_app_html, 'grid-template-rows:auto minmax(0,1fr) auto'), 'The preview app must keep its chrome fixed around the independently scrolling preview rail.');
+	$assert(str_contains($latest_app_html, 'document.fonts?.ready'), 'The preview app must wait for font loading before revealing the rendered document.');
+	$assert(str_contains($latest_app_html, "preview.dataset.ready='true'"), 'The preview app must reveal content only after its styles and assets settle.');
+	$assert(!str_contains($latest_app_html, 'ResizeObserver'), 'The preview app must not report content-driven intrinsic height changes.');
 	$assert(str_contains($latest_app_html, 'max-height:112px'), 'The preview warning list must not grow the conversation card without a bound.');
 	$assert(str_contains($latest_app_html, "content.className='wp-block-post-content'"), 'The isolated preview must recreate the WordPress content wrapper.');
 	$assert(str_contains($latest_app_html, 'function safeStyle'), 'Safe Gutenberg inline presentation styles must remain available in the rendered preview.');
 	$assert(str_contains($latest_app_html, 'audio,video,source,track,picture'), 'The client sanitizer must remove passive media elements that could fetch external resources.');
-	$assert(str_contains($latest_app_html, "version:'5.0.0'"), 'Every resource alias must serve the latest v5 preview app.');
+	$assert(str_contains($latest_app_html, "version:'6.0.0'"), 'Every resource alias must serve the latest v6 preview app.');
 
 	$register_approval_tools = new \ReflectionMethod(Abilities::class, 'register_publish_approval_private_abilities');
 	$register_approval_tools->invoke($abilities);
@@ -350,7 +364,10 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(array('app') === ($approval_asset_ability['meta']['mcp']['_meta']['ui']['visibility'] ?? null), 'Publication preview assets must be app-only.');
 	$approval_resource = $GLOBALS['registered_abilities']['smartcloud-agent-composer/publish-approval-app'] ?? array();
 	$approval_contents = ($approval_resource['execute_callback'])();
-	$assert('ui://smartcloud-agent-composer/publish-approval/v5.html' === ($approval_contents[0]['uri'] ?? ''), 'Publication review must use the latest versioned MCP App resource URI.');
+	$assert('ui://smartcloud-agent-composer/publish-approval/v6.html' === ($approval_contents[0]['uri'] ?? ''), 'Publication review must use the latest versioned MCP App resource URI.');
+	$approval_v5_resource = $GLOBALS['registered_abilities']['smartcloud-agent-composer/publish-approval-app-v5'] ?? array();
+	$approval_v5_contents = ($approval_v5_resource['execute_callback'])();
+	$assert('ui://smartcloud-agent-composer/publish-approval/v5.html' === ($approval_v5_contents[0]['uri'] ?? ''), 'The v5 publication review URI must remain a compatibility alias.');
 	$approval_v4_resource = $GLOBALS['registered_abilities']['smartcloud-agent-composer/publish-approval-app-v4'] ?? array();
 	$approval_v4_contents = ($approval_v4_resource['execute_callback'])();
 	$assert('ui://smartcloud-agent-composer/publish-approval/v4.html' === ($approval_v4_contents[0]['uri'] ?? ''), 'The v4 publication review URI must remain a compatibility alias.');
@@ -381,7 +398,12 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(str_contains($approval_html, 'openExternal'), 'The firewall-dependent WordPress approval page must remain only an explicit fallback link.');
 	$assert(str_contains($approval_html, 'statusMessage'), 'The approval app must render terminal approval states without exposing a raw repeated-decision error.');
 	$assert(str_contains($approval_html, "state==='pending'"), 'Only pending approvals may keep decision controls enabled.');
-	$assert(str_contains($approval_html, "version:'5.0.0'"), 'Every publication review resource alias must serve the latest v5 approval UI.');
+	$assert(str_contains($approval_html, 'height:var(--composer-app-height,680px)'), 'The approval app must reserve a stable host-bounded height before rendered content arrives.');
+	$assert(str_contains($approval_html, 'grid-template-rows:auto minmax(0,1fr) auto'), 'The approval app must keep the summary and decision controls fixed around the scrolling preview.');
+	$assert(str_contains($approval_html, 'document.fonts?.ready'), 'The approval app must wait for font loading before revealing the exact revision.');
+	$assert(str_contains($approval_html, "preview.dataset.ready='true'"), 'The approval app must reveal the exact revision only after its assets settle.');
+	$assert(!str_contains($approval_html, 'ResizeObserver'), 'The approval app must not report content-driven intrinsic height changes.');
+	$assert(str_contains($approval_html, "version:'6.0.0'"), 'Every publication review resource alias must serve the latest v6 approval UI.');
 
 	foreach (glob($preview_fixture_root . '/assets/*') ?: array() as $fixture) {
 		@unlink($fixture);

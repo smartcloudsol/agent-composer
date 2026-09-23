@@ -52,6 +52,8 @@ $definition = array(
 			'parent'                => null,
 			'position'              => 20,
 			'allowed_blocks'        => array( 'core/heading', 'core/paragraph', 'core/image' ),
+			'allowed_patterns'      => array( 'wpsuite/repeatable-card' ),
+			'pattern_occurrences'   => array( 'wpsuite/repeatable-card' => array( 'min' => 0, 'max' => 2 ) ),
 			'min_blocks'            => 0,
 			'max_blocks'            => 6,
 			'allow_cross_slot_move' => false,
@@ -64,6 +66,8 @@ $assert( true === $registry['valid'], 'A valid independently versioned Structure
 $assert( 3 === ( $registry['value']['solution-editor']['version'] ?? null ), 'The normalized registry must preserve the independent contract version.' );
 $assert( true === ( $registry['value']['solution-editor']['nodes'][1]['editable_content'] ?? null ), 'Content nodes must default to editable content.' );
 $assert( false === ( $registry['value']['solution-editor']['nodes'][0]['editable_content'] ?? null ), 'Structure nodes must default to protected content.' );
+$assert( array( 'wpsuite/repeatable-card' ) === ( $registry['value']['solution-editor']['nodes'][2]['allowed_patterns'] ?? null ), 'Slots must retain an explicit synced-pattern allow-list.' );
+$assert( array( 'min' => 0, 'max' => 2 ) === ( $registry['value']['solution-editor']['nodes'][2]['pattern_occurrences']['wpsuite/repeatable-card'] ?? null ), 'Slots must normalize per-pattern occurrence bounds.' );
 $renormalized = StructureContract::normalize_registry( $registry['value'] );
 $assert( true === $renormalized['valid'] && $registry['value'] === $renormalized['value'], 'Normalized Structure Contracts must be safe to validate again after a design-policy filter.' );
 
@@ -108,7 +112,7 @@ $method->setAccessible( true );
 
 $errors   = array();
 $arguments = array(
-	array( 'structure_contract' => array( 'id' => 'solution-editor', 'version' => 3 ) ),
+	array( 'structure_contract' => array( 'id' => 'solution-editor', 'version' => 3 ), 'synced_patterns' => array( 'wpsuite/repeatable-card' ) ),
 	'solution',
 	'document',
 	$registry['value'],
@@ -116,6 +120,22 @@ $arguments = array(
 );
 $method->invokeArgs( $validator, $arguments );
 $assert( array() === $errors, 'A Blueprint reference must validate against the exact registered Structure Contract version.' );
+
+$errors = array();
+$arguments = array(
+	array( 'structure_contract' => array( 'id' => 'solution-editor', 'version' => 3 ), 'synced_patterns' => array() ),
+	'solution',
+	'document',
+	$registry['value'],
+	&$errors,
+);
+$method->invokeArgs( $validator, $arguments );
+$assert( in_array( 'structure-slot-pattern-not-enabled', array_column( $errors, 'code' ), true ), 'A slot pattern must also be enabled by the Blueprint.' );
+
+$invalid_occurrences = $definition;
+$invalid_occurrences['nodes'][2]['pattern_occurrences']['wpsuite/repeatable-card'] = array( 'min' => 3, 'max' => 2 );
+$invalid_occurrence_result = StructureContract::normalize_definition( $invalid_occurrences );
+$assert( in_array( 'structure-contract-pattern-cardinality-invalid', array_column( $invalid_occurrence_result['errors'], 'code' ), true ), 'A per-pattern minimum cannot exceed its maximum.' );
 
 $admin_creation = new ReflectionMethod( ConfigSetValidator::class, 'validate_admin_creation_policy' );
 $admin_creation->setAccessible( true );

@@ -178,7 +178,8 @@ final class StructureContract {
 		$allowed_keys = array(
 			'id', 'block', 'ownership', 'mode', 'parent', 'position', 'required',
 			'editable_attributes', 'protected_attributes', 'editable_content',
-			'allowed_blocks', 'min_blocks', 'max_blocks', 'allow_cross_slot_move',
+			'allowed_blocks', 'allowed_patterns', 'pattern_occurrences',
+			'min_blocks', 'max_blocks', 'allow_cross_slot_move',
 		);
 		if ( array_diff( array_keys( $value ), $allowed_keys ) ) {
 			$errors[] = self::issue( 'structure-contract-node-property-unknown', 'A Structure Contract node contains an unknown property.', $path );
@@ -212,7 +213,7 @@ final class StructureContract {
 
 		$editable  = self::string_list( $value['editable_attributes'] ?? array(), $path . '.editable_attributes', $errors, 'structure-contract-editable-attributes-invalid' );
 		$protected = self::string_list( $value['protected_attributes'] ?? array(), $path . '.protected_attributes', $errors, 'structure-contract-protected-attributes-invalid' );
-		$reserved  = array( 'metadata', 'composer', 'lock', 'templateLock', 'slotId', 'allowedBlocks', 'minBlocks', 'maxBlocks' );
+		$reserved  = array( 'metadata', 'composer', 'lock', 'templateLock', 'slotId', 'allowedBlocks', 'allowedPatterns', 'patternOccurrences', 'minBlocks', 'maxBlocks' );
 		if ( array_intersect( $editable, $reserved ) ) {
 			$errors[] = self::issue( 'structure-contract-editable-attribute-reserved', 'Composer identity, lock, and extension-slot control attributes cannot be declared editable.', $path . '.editable_attributes' );
 		}
@@ -229,7 +230,9 @@ final class StructureContract {
 			$errors[] = self::issue( 'structure-contract-editable-content-invalid', 'The editable_content flag must be a boolean.', $path . '.editable_content' );
 		}
 
-		$allowed_blocks = self::block_list( $value['allowed_blocks'] ?? array(), $path . '.allowed_blocks', $errors );
+		$allowed_blocks   = self::block_list( $value['allowed_blocks'] ?? array(), $path . '.allowed_blocks', $errors );
+		$allowed_patterns = self::pattern_list( $value['allowed_patterns'] ?? array(), $path . '.allowed_patterns', $errors );
+		$occurrences      = self::pattern_occurrences( $value['pattern_occurrences'] ?? array(), $allowed_patterns, $path . '.pattern_occurrences', $errors );
 		$min_blocks     = $value['min_blocks'] ?? 0;
 		$max_blocks     = $value['max_blocks'] ?? null;
 		$cross_slot     = $value['allow_cross_slot_move'] ?? false;
@@ -237,8 +240,8 @@ final class StructureContract {
 			if ( 'BLUEPRINT' !== $ownership ) {
 				$errors[] = self::issue( 'structure-contract-slot-ownership-invalid', 'An extension slot is BLUEPRINT-owned; only its child blocks are USER-owned.', $path . '.ownership' );
 			}
-			if ( empty( $allowed_blocks ) ) {
-				$errors[] = self::issue( 'structure-contract-slot-blocks-missing', 'An extension slot must allow at least one explicit block type.', $path . '.allowed_blocks' );
+			if ( empty( $allowed_blocks ) && empty( $allowed_patterns ) ) {
+				$errors[] = self::issue( 'structure-contract-slot-content-missing', 'An extension slot must allow at least one explicit block type or synced pattern.', $path );
 			}
 			if ( ! is_int( $min_blocks ) || $min_blocks < 0 ) {
 				$errors[] = self::issue( 'structure-contract-slot-min-invalid', 'Extension-slot min_blocks must be a non-negative integer.', $path . '.min_blocks' );
@@ -254,8 +257,8 @@ final class StructureContract {
 			} elseif ( false !== $cross_slot ) {
 				$errors[] = self::issue( 'structure-contract-cross-slot-move-invalid', 'allow_cross_slot_move must be a boolean.', $path . '.allow_cross_slot_move' );
 			}
-		} elseif ( ! empty( $allowed_blocks ) || array_key_exists( 'min_blocks', $value ) || array_key_exists( 'max_blocks', $value ) || array_key_exists( 'allow_cross_slot_move', $value ) ) {
-			$errors[] = self::issue( 'structure-contract-slot-policy-outside-slot', 'Block allowlists and slot cardinality may be declared only by slot nodes.', $path );
+		} elseif ( ! empty( $allowed_blocks ) || ! empty( $allowed_patterns ) || ! empty( $occurrences ) || array_key_exists( 'min_blocks', $value ) || array_key_exists( 'max_blocks', $value ) || array_key_exists( 'allow_cross_slot_move', $value ) ) {
+			$errors[] = self::issue( 'structure-contract-slot-policy-outside-slot', 'Block and pattern allowlists and slot cardinality may be declared only by slot nodes.', $path );
 		}
 
 		$expected_ownership = match ( $mode ) {
@@ -285,6 +288,8 @@ final class StructureContract {
 		);
 		if ( 'slot' === $mode ) {
 			$normalized['allowed_blocks']        = $allowed_blocks;
+			$normalized['allowed_patterns']      = $allowed_patterns;
+			$normalized['pattern_occurrences']   = $occurrences;
 			$normalized['min_blocks']            = $min_blocks;
 			$normalized['max_blocks']            = $max_blocks;
 			$normalized['allow_cross_slot_move'] = false;
@@ -332,6 +337,51 @@ final class StructureContract {
 			$result[] = $item;
 		}
 		return array_values( array_unique( $result ) );
+	}
+
+	private static function pattern_list( mixed $value, string $path, array &$errors ): array {
+		if ( ! is_array( $value ) || ! array_is_list( $value ) ) {
+			$errors[] = self::issue( 'structure-contract-slot-patterns-invalid', 'allowed_patterns must be a list of namespaced synced pattern names.', $path );
+			return array();
+		}
+		$result = array();
+		foreach ( $value as $index => $item ) {
+			$item = is_string( $item ) ? strtolower( trim( $item ) ) : '';
+			if ( 1 !== preg_match( '#^[a-z0-9-]+/[a-z0-9-]+$#', $item ) ) {
+				$errors[] = self::issue( 'structure-contract-slot-pattern-invalid', 'Every allowed slot pattern must be a valid namespaced pattern name.', $path . '.' . $index );
+				continue;
+			}
+			$result[] = $item;
+		}
+		return array_values( array_unique( $result ) );
+	}
+
+	private static function pattern_occurrences( mixed $value, array $allowed_patterns, string $path, array &$errors ): array {
+		if ( ! is_array( $value ) || ( ! empty( $value ) && array_is_list( $value ) ) ) {
+			$errors[] = self::issue( 'structure-contract-pattern-occurrences-invalid', 'pattern_occurrences must be an object keyed by an allowed pattern name.', $path );
+			return array();
+		}
+		$result = array();
+		foreach ( $value as $pattern => $bounds ) {
+			$pattern = strtolower( trim( (string) $pattern ) );
+			$item_path = $path . '.' . $pattern;
+			if ( ! in_array( $pattern, $allowed_patterns, true ) || ! is_array( $bounds ) || array_is_list( $bounds ) || array_diff( array_keys( $bounds ), array( 'min', 'max' ) ) ) {
+				$errors[] = self::issue( 'structure-contract-pattern-occurrence-invalid', 'Pattern occurrence bounds must be closed objects for patterns in allowed_patterns.', $item_path );
+				continue;
+			}
+			$minimum = $bounds['min'] ?? 0;
+			$maximum = $bounds['max'] ?? null;
+			if ( ! is_int( $minimum ) || $minimum < 0 || ( null !== $maximum && ( ! is_int( $maximum ) || $maximum < 0 ) ) || ( is_int( $maximum ) && $minimum > $maximum ) ) {
+				$errors[] = self::issue( 'structure-contract-pattern-cardinality-invalid', 'Pattern occurrence min and max must be non-negative and min cannot exceed max.', $item_path );
+				continue;
+			}
+			$result[ $pattern ] = array( 'min' => $minimum, 'max' => $maximum );
+		}
+		foreach ( $allowed_patterns as $pattern ) {
+			$result[ $pattern ] ??= array( 'min' => 0, 'max' => null );
+		}
+		ksort( $result );
+		return $result;
 	}
 
 	private static function cycle_errors( array $nodes, string $path ): array {
