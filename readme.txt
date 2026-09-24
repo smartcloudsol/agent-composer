@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.3.2
+Stable tag: 1.3.3
 License: MIT
 License URI: https://mit-license.org/
 
@@ -154,6 +154,10 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 
 == Changelog ==
 
+= 1.3.3 =
+* Instance slots: Render saved per-instance extension-slot content in public page bodies and rendered previews.
+* Repeated patterns: Keep slot content attached to the correct synced-pattern reference while preserving native Pattern Overrides.
+
 = 1.3.2 =
 * Preview stability: Keep rendered-draft and publication-approval MCP Apps at a host-bounded height with fixed chrome, preview-only scrolling, asset/font readiness, and v6 resource URIs.
 * Pattern instances: Give every governed synced pattern a stable instance identity and address field, media, and pattern-owned slot updates by pattern instance plus semantic ID.
@@ -277,6 +281,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.3.3 =
+Update to restore saved instance-slot content in public bodies and rendered previews. No content migration is required; clear page caches after installation.
 
 = 1.3.2 =
 Restart MCP and refresh client tools and resources so clients load the v6 preview Apps and the new `field_id` plus `pattern_instance_id` semantic schemas. Existing synced-pattern instances remain readable; Composer persists their compatibility instance ID on the first targeted update. Clone, validate, and activate a new Config Set before using slot `allowed_patterns`, `pattern_occurrences`, or optional pinned `content_hash` values. No content is published or migrated automatically.

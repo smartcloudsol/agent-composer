@@ -9,6 +9,39 @@ function wp_kses_post( string $value ): string {
 	return $value;
 }
 
+if ( ! class_exists( 'WP_Block' ) ) {
+	class WP_Block {
+		public array $parsed_block = array();
+		public int $context_refreshes = 0;
+		public array $render_options = array();
+
+		public function refresh_context_dependents(): void {
+			++$this->context_refreshes;
+		}
+
+		public function render( array $options = array() ): string {
+			$this->render_options[] = $options;
+			return self::render_blocks( (array) ( $this->parsed_block['innerBlocks'] ?? array() ) );
+		}
+
+		private static function render_blocks( array $blocks ): string {
+			$html = '';
+			foreach ( $blocks as $block ) {
+				if ( ! is_array( $block ) ) {
+					continue;
+				}
+				$inner_html = (string) ( $block['innerHTML'] ?? '' );
+				$children   = self::render_blocks( (array) ( $block['innerBlocks'] ?? array() ) );
+				if ( '' !== $children && str_contains( $inner_html, '</div>' ) ) {
+					$inner_html = preg_replace( '/<\/div>\s*$/', $children . '</div>', $inner_html, 1 ) ?? $inner_html;
+				}
+				$html .= $inner_html;
+			}
+			return $html;
+		}
+	}
+}
+
 require_once dirname( __DIR__ ) . '/src/Execution/Synced_Structural_Pattern_Service.php';
 require_once dirname( __DIR__ ) . '/src/Execution/Page_Validator.php';
 
@@ -95,6 +128,33 @@ $assert( $slot_child === ( $expanded_slots[0]['innerBlocks'][0] ?? null ), 'Patt
 $cleared_slot_instance = $service->with_slot_children( $slot_instance, 'body.additional', array() );
 $assert( ! isset( $cleared_slot_instance['attrs']['metadata']['wpsuiteAgentComposer']['instanceSlots'] ), 'Removing the last instance slot block must remove the empty slot payload.' );
 
+$second_slot_child = $slot_child;
+$second_slot_child['innerHTML'] = '<p>Second instance detail</p>';
+$second_slot_child['innerContent'] = array( '<p>Second instance detail</p>' );
+$second_slot_instance = $service->with_slot_children( $instance, 'body.additional', array( $second_slot_child ), 'pattern-87654321' );
+$first_frontend_block = new WP_Block();
+$first_frontend_block->parsed_block = array(
+	'blockName'    => 'core/block',
+	'attrs'        => $slot_instance['attrs'],
+	'innerBlocks'  => $slot_pattern,
+	'innerContent' => array( null ),
+);
+$second_frontend_block = new WP_Block();
+$second_frontend_block->parsed_block = array(
+	'blockName'    => 'core/block',
+	'attrs'        => $second_slot_instance['attrs'],
+	'innerBlocks'  => $slot_pattern,
+	'innerContent' => array( null ),
+);
+$first_frontend_html = $service->render_instance_slots( '<div></div>', $slot_instance, $first_frontend_block );
+$second_frontend_html = $service->render_instance_slots( '<div></div>', $second_slot_instance, $second_frontend_block );
+$assert( str_contains( $first_frontend_html, 'Instance detail' ) && ! str_contains( $first_frontend_html, 'Second instance detail' ), 'Frontend rendering must resolve the first synced-pattern instance slot independently.' );
+$assert( str_contains( $second_frontend_html, 'Second instance detail' ) && ! str_contains( $second_frontend_html, '>Instance detail<' ), 'Frontend rendering must resolve the second synced-pattern instance slot independently.' );
+$assert( 1 === $first_frontend_block->context_refreshes && array( 'dynamic' => false ) === ( $first_frontend_block->render_options[0] ?? null ), 'Frontend slot resolution must refresh the native Pattern Overrides context and reuse WordPress static inner-block rendering.' );
+$plain_frontend_block = new WP_Block();
+$plain_frontend_block->parsed_block = $slot_pattern[0];
+$assert( '<div>Native output</div>' === $service->render_instance_slots( '<div>Native output</div>', $instance, $plain_frontend_block ), 'A synced pattern without instance slots must retain WordPress native rendering unchanged.' );
+
 $collect = new ReflectionMethod( Synced_Structural_Pattern_Service::class, 'collect_bound_fields' );
 $collect->setAccessible( true );
 $found = array();
@@ -138,6 +198,7 @@ $assert( str_contains( $source, 'synced_pattern_cycle' ) && str_contains( $sourc
 $assert( ! str_contains( $source, "\t\t\t\t'patternName' => \$pattern" ), 'A native core/block reference must not be marked as an unsynced WordPress pattern through top-level metadata.patternName.' );
 $assert( str_contains( $source, "'lock'     => array( 'move' => true, 'remove' => true )" ), 'The synced core/block wrapper must protect structural movement and removal while native Pattern Override fields remain editable.' );
 $assert( str_contains( $source, "INSTANCE_SLOTS_KEY = 'instanceSlots'" ), 'Synced references must retain instance-owned extension-slot content outside the shared wp_block record.' );
+$assert( str_contains( $source, "'render_block_core/block'" ) && str_contains( $source, "array( 'dynamic' => false )" ), 'Frontend rendering must resolve instance slots through the native synced-pattern block instance.' );
 $assert( str_contains( $assembler, 'materialize_instance' ), 'Pattern assembly must emit synced structural pattern instances.' );
 $assert( str_contains( $validator, 'expand_blocks' ), 'Page validation must inspect the current synced pattern structure with instance overrides applied.' );
 

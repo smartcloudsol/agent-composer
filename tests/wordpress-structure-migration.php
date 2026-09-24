@@ -260,6 +260,45 @@ try {
 	$native_expanded_json = wp_json_encode( $native_expanded, JSON_UNESCAPED_SLASHES );
 	$assert( is_string( $native_expanded_json ) && str_contains( $native_expanded_json, 'body.additional' ) && str_contains( $native_expanded_json, 'smartcloud-agent-composer/extension-slot' ), 'The native editor must resolve the canonical extension slot from its synced pattern.' );
 
+	// The public renderer must bind extension-slot children to their individual
+	// synced-pattern instance rather than rendering the shared pattern's empty slot.
+	$frontend_patterns = new Synced_Structural_Pattern_Service( $native_config );
+	$first_reference = $frontend_patterns->materialize_instance(
+		$body_pattern,
+		array( 'body.text' => array( 'content' => 'First reference body.' ) ),
+		$native_blueprint,
+		false,
+		'pattern-public-first-12345678'
+	)['block'];
+	$second_reference = $frontend_patterns->materialize_instance(
+		$body_pattern,
+		array( 'body.text' => array( 'content' => 'Second reference body.' ) ),
+		$native_blueprint,
+		false,
+		'pattern-public-second-12345678'
+	)['block'];
+	$first_slot_blocks = parse_blocks( '<!-- wp:paragraph {"metadata":{"wpsuiteAgentComposer":{"userBlockId":"user-public-first-12345678","slotId":"body.additional"}}} --><p>First reference paragraph.</p><!-- /wp:paragraph -->' );
+	$second_slot_blocks = parse_blocks( '<!-- wp:paragraph {"metadata":{"wpsuiteAgentComposer":{"userBlockId":"user-public-second-12345678","slotId":"body.additional"}}} --><p>Second reference paragraph.</p><!-- /wp:paragraph -->' );
+	$first_reference = $frontend_patterns->with_slot_children( $first_reference, 'body.additional', $first_slot_blocks, 'pattern-public-first-12345678' );
+	$second_reference = $frontend_patterns->with_slot_children( $second_reference, 'body.additional', $second_slot_blocks, 'pattern-public-second-12345678' );
+	$repeated_markup = serialize_blocks( array( $first_reference, $second_reference ) );
+	$stored_references = parse_blocks( $repeated_markup );
+	$assert( 'First reference paragraph.' === wp_strip_all_tags( (string) ( $stored_references[0]['attrs']['metadata']['wpsuiteAgentComposer']['instanceSlots']['body.additional'][0]['innerHTML'] ?? '' ) ), 'The first reference must retain its own saved instance-slot payload.' );
+	$assert( 'Second reference paragraph.' === wp_strip_all_tags( (string) ( $stored_references[1]['attrs']['metadata']['wpsuiteAgentComposer']['instanceSlots']['body.additional'][0]['innerHTML'] ?? '' ) ), 'The second reference must retain its own saved instance-slot payload.' );
+	$repeated_html = do_blocks( $repeated_markup );
+	$assert( 1 === substr_count( $repeated_html, 'First reference paragraph.' ) && 1 === substr_count( $repeated_html, 'Second reference paragraph.' ), 'Public rendering must output each synced-pattern instance slot exactly once.' );
+	$rendered_positions = array_map(
+		static fn( string $needle ): int|false => strpos( $repeated_html, $needle ),
+		array( 'First reference body.', 'First reference paragraph.', 'Second reference body.', 'Second reference paragraph.' )
+	);
+	$assert(
+		! in_array( false, $rendered_positions, true )
+		&& $rendered_positions[0] < $rendered_positions[1]
+		&& $rendered_positions[1] < $rendered_positions[2]
+		&& $rendered_positions[2] < $rendered_positions[3],
+		'Public rendering must keep each slot paragraph after the matching repeated pattern override.'
+	);
+
 	$guard_property = new ReflectionProperty( $native_runtime, 'structure_guard' );
 	$guard_property->setAccessible( true );
 	$structure_guard = $guard_property->getValue( $native_runtime );
@@ -507,11 +546,10 @@ try {
 	// Each MCP tool call creates a fresh runtime. Use the same request boundary
 	// here so request-local resolved-pattern caches cannot hide a central edit.
 	list( $compatible_runtime, $compatible_abilities, $compatible_permission ) = $runtime_for( array( 'client_id' => 'contributor-client', 'sub' => 'contributor-principal' ) );
-	$assert( true === $compatible_permission, 'The compatible pattern reconciliation request must authenticate.' );
+	$assert( true === $compatible_permission, 'The central pattern hash-check request must authenticate.' );
 	$compatible_document = $compatible_abilities->get_document( array( 'post_id' => $draft_id ) );
-	$compatible_json = wp_json_encode( $compatible_document );
-	$assert( is_array( $compatible_document ) && true === ( $compatible_document['validation']['valid'] ?? false ), 'A compatible central pattern revision must retain a valid managed document.' );
-	$assert( is_string( $compatible_json ) && str_contains( $compatible_json, 'Updated governed body.' ), 'A compatible central pattern revision must preserve the instance Pattern Override.' );
+	$assert( is_wp_error( $compatible_document ) && 'smartcloud_agent_synced_pattern_hash_mismatch' === $compatible_document->get_error_code(), 'Any unreviewed central pattern revision must fail closed against the instance-pinned content hash.' );
+	$assert( str_contains( $draft_content_before_pattern_checks, 'Updated governed body.' ), 'A rejected central pattern revision must leave the stored instance Pattern Override intact.' );
 	unset( $compatible_runtime, $compatible_abilities );
 
 	$incompatible_pattern = preg_replace(
@@ -522,10 +560,10 @@ try {
 	$assert( is_string( $incompatible_pattern ) && $incompatible_pattern !== $compatible_pattern, 'The incompatible pattern fixture must remove the required extension slot.' );
 	wp_update_post( wp_slash( array( 'ID' => (int) $body_block_id, 'post_content' => $incompatible_pattern ) ) );
 	list( $incompatible_runtime, $incompatible_abilities, $incompatible_permission ) = $runtime_for( array( 'client_id' => 'contributor-client', 'sub' => 'contributor-principal' ) );
-	$assert( true === $incompatible_permission, 'The incompatible pattern reconciliation request must authenticate.' );
+	$assert( true === $incompatible_permission, 'The structurally incompatible pattern hash-check request must authenticate.' );
 	$incompatible_document = $incompatible_abilities->get_document( array( 'post_id' => $draft_id ) );
-	$assert( is_array( $incompatible_document ) && false === ( $incompatible_document['validation']['valid'] ?? true ), 'An incompatible central pattern revision must surface an explicit invalid/reconciliation state.' );
-	$assert( $draft_content_before_pattern_checks !== '' && $draft_content_before_pattern_checks === (string) get_post_field( 'post_content', $draft_id ), 'Pattern reconciliation checks must not silently rewrite the stored draft.' );
+	$assert( is_wp_error( $incompatible_document ) && 'smartcloud_agent_synced_pattern_hash_mismatch' === $incompatible_document->get_error_code(), 'A structurally incompatible central pattern revision must also fail at the pinned hash boundary.' );
+	$assert( $draft_content_before_pattern_checks !== '' && $draft_content_before_pattern_checks === (string) get_post_field( 'post_content', $draft_id ), 'Pattern hash checks must not silently rewrite the stored draft.' );
 	unset( $incompatible_runtime, $incompatible_abilities );
 	wp_update_post( wp_slash( array( 'ID' => (int) $body_block_id, 'post_content' => $body_pattern_original ) ) );
 

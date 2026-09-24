@@ -58,6 +58,7 @@ final class ExecutionRuntime {
 	private readonly Content_Proposal_Service $proposals;
 	private readonly Structure_Contract_Save_Guard $structure_guard;
 	private readonly Admin_Managed_Document_Service $admin_documents;
+	private readonly Synced_Structural_Pattern_Service $synced_patterns;
 	private readonly McpAccessGuard $mcp_access;
 	private readonly McpSecuritySettings $mcp_security_settings;
 	private readonly PublishApprovalService $publish_approvals;
@@ -77,19 +78,19 @@ final class ExecutionRuntime {
 		$catalog            = new Block_Catalog( $config, $this->providers );
 		$trees              = new Block_Tree_Service( $catalog, $config, $this->providers );
 		$slots              = new Semantic_Slot_Materializer();
-		$synced_patterns    = new Synced_Structural_Pattern_Service( $config );
+		$this->synced_patterns = new Synced_Structural_Pattern_Service( $config );
 		$language           = new Content_Language_Validator( $config );
-		$validator          = new Page_Validator( $config, $catalog, $trees, $slots, $language, new StructureDocumentValidator(), $synced_patterns );
+		$validator          = new Page_Validator( $config, $catalog, $trees, $slots, $language, new StructureDocumentValidator(), $this->synced_patterns );
 		$document_state     = new Managed_Document_State( $config );
 		$this->structure_guard = new Structure_Contract_Save_Guard( $config, $validator, $document_state, $audit_table );
 		$editor             = new Structure_Editor_Projector();
-		$assembler          = new Pattern_Assembler( $config, $this->patterns, $slots, $editor, $synced_patterns );
+		$assembler          = new Pattern_Assembler( $config, $this->patterns, $slots, $editor, $this->synced_patterns );
 		$this->admin_documents = new Admin_Managed_Document_Service( $config, $assembler, $validator, $targets, $document_state, $this->localization, $audit_table );
 		$this->drafts       = new Draft_Service( $assembler, $validator, $targets, $trees, $config, $language, $this->localization, $document_state );
 		$localized_drafts   = new Localized_Draft_Service( $config, $this->drafts, $this->localization );
 		$audit              = new Audit_Logger( $audit_table );
 		$this->proposals    = new Content_Proposal_Service( $config, $targets, $validator, $this->localization, $audit_table, $this->drafts, $document_state );
-		$migrations         = new Blueprint_Migration_Service( $config, $validator, $document_state, $synced_patterns, $editor, $this->proposals, new StructureDocumentValidator() );
+		$migrations         = new Blueprint_Migration_Service( $config, $validator, $document_state, $this->synced_patterns, $editor, $this->proposals, new StructureDocumentValidator() );
 		$bulk_migrations    = new Bulk_Blueprint_Migration_Service( $config, $migrations, $this->localization );
 		$query_loops        = new Query_Loop_Materializer( $config );
 		$content_fields     = new Content_Field_Materializer( $config, $this->drafts, $language );
@@ -98,7 +99,7 @@ final class ExecutionRuntime {
 		$publisher_media    = new Publisher_Media_Uploader( $config );
 		$rendered_previews  = new Rendered_Preview_Service( $this->drafts );
 		$this->publish_approvals = new PublishApprovalService( $this->drafts, $rendered_previews, $this->mcp_security_settings, new PublishApprovalTable(), $audit_table );
-		$semantic_documents = new Semantic_Document_Service( $config, $this->drafts, $validator, $this->providers, $synced_patterns );
+		$semantic_documents = new Semantic_Document_Service( $config, $this->drafts, $validator, $this->providers, $this->synced_patterns );
 		$this->abilities    = new Abilities( $config, $this->drafts, $audit, $this->patterns, $this->providers, $query_loops, $content_fields, $taxonomy_terms, $slots, $remote_media, $publisher_media, $this->proposals, $this->localization, $localized_drafts, $rendered_previews, $semantic_documents, $migrations, $bulk_migrations, $this->mcp_access, $this->publish_approvals );
 		$this->aliases      = new ExecutionAbilityAliases( $this->abilities );
 		$this->previews     = new PreviewDraftService( $this->abilities );
@@ -107,6 +108,7 @@ final class ExecutionRuntime {
 
 	public function hooks(): void {
 		$this->mcp_access->register_hooks();
+		$this->synced_patterns->register_frontend_rendering();
 		$this->admin_documents->register();
 		add_filter( 'block_editor_settings_all', array( $this->structure_guard, 'filter_editor_settings' ), 10, 2 );
 		add_action( 'init', array( $this->patterns, 'register_approved_patterns' ), 20 );

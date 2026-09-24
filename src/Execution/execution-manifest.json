@@ -31,7 +31,7 @@
     "Semantic_Slot_Materializer.php": "sha256:09f92b076f8b423f7650fe30bd011d0c10f692d0ac5a6691fc18644669790c3e",
     "Structure_Contract_Save_Guard.php": "sha256:6c2f78421247e74476a79c0ef9a22635be539ec5b33270d42f1314f3c5c72328",
     "Structure_Editor_Projector.php": "sha256:4469771dffde081d55466c91a76e9e75cdc18d5a8865414249c79ca86943e153",
-    "Synced_Structural_Pattern_Service.php": "sha256:ca8341c35aa89870ca4b903c26b7a8a83985b87e1379fcd10ed2c7578e02d826",
+    "Synced_Structural_Pattern_Service.php": "sha256:114a0a8381cde5a21df223a9f47c694c51098f9ff86becedd76b349a80fb28db",
     "Target_Resolver.php": "sha256:86a417c583a1276822365bce810a676b51bd8b56f8cbec61b9d58ebc79bc7657",
     "Taxonomy_Term_Service.php": "sha256:7f46bf3cfebeba21fbb4cb712a2927a7720fb5682e358fe5c1f9d6f4de0da37d"
   }

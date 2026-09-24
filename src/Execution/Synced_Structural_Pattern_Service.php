@@ -14,8 +14,53 @@ final class Synced_Structural_Pattern_Service {
 	private const INSTANCE_SLOTS_KEY = 'instanceSlots';
 	private const MAX_NESTING_DEPTH = 12;
 	private array $resolved = array();
+	/** @var array<int,true> */
+	private array $frontend_render_stack = array();
 
 	public function __construct( private Config_Repository $config ) {}
+
+	/** Resolve instance-owned slots after WordPress has loaded a synced pattern for frontend rendering. */
+	public function register_frontend_rendering(): void {
+		add_filter( 'render_block_core/block', array( $this, 'render_instance_slots' ), 10, 3 );
+	}
+
+	/**
+	 * Re-render one native synced-pattern instance with its Composer-owned slot
+	 * children attached to the already resolved pattern AST.
+	 *
+	 * Core's render callback has populated the WP_Block instance and propagated
+	 * its Pattern Overrides context before this dynamic block filter runs. Reusing
+	 * that instance preserves native bindings while adding the per-instance slot
+	 * children that WordPress itself does not understand.
+	 */
+	public function render_instance_slots( string $block_content, array $parsed_block, \WP_Block $block_instance ): string {
+		$metadata   = is_array( $parsed_block['attrs']['metadata'] ?? null ) ? $parsed_block['attrs']['metadata'] : array();
+		$namespaced = is_array( $metadata['wpsuiteAgentComposer'] ?? null ) ? $metadata['wpsuiteAgentComposer'] : array();
+		$slots      = is_array( $namespaced[ self::INSTANCE_SLOTS_KEY ] ?? null ) ? $namespaced[ self::INSTANCE_SLOTS_KEY ] : array();
+		if ( empty( $slots ) ) {
+			return $block_content;
+		}
+
+		$instance_key = spl_object_id( $block_instance );
+		if ( isset( $this->frontend_render_stack[ $instance_key ] ) ) {
+			return $block_content;
+		}
+
+		$inner_blocks = is_array( $block_instance->parsed_block['innerBlocks'] ?? null )
+			? $block_instance->parsed_block['innerBlocks']
+			: array();
+		$inner_blocks = $this->apply_instance_slots( $inner_blocks, $parsed_block );
+		$block_instance->parsed_block['innerBlocks']  = $inner_blocks;
+		$block_instance->parsed_block['innerContent'] = array_fill( 0, count( $inner_blocks ), null );
+		$block_instance->refresh_context_dependents();
+
+		$this->frontend_render_stack[ $instance_key ] = true;
+		try {
+			return (string) $block_instance->render( array( 'dynamic' => false ) );
+		} finally {
+			unset( $this->frontend_render_stack[ $instance_key ] );
+		}
+	}
 
 	public function definition( string $pattern, array $blueprint ): ?array {
 		$pattern = strtolower( trim( $pattern ) );
