@@ -450,6 +450,8 @@ test("rendered preview exposes a bounded data tool and an MCP Apps UI resource",
   assert.match(abilities, /function decodeAsset\(response,asset\)/);
   assert.match(abilities, /data\.data_base64/);
   assert.match(abilities, /blob\.size!==asset\.byte_length/);
+  assert.match(abilities, /asset\.kind==='image'\?'data:'/);
+  assert.match(abilities, /if\(!result\.imageUrl\)blobUrls\.add\(url\)/);
   assert.match(abilities, /audio,video,source,track,picture/);
   assert.match(renderer, /data-smartcloud-preview-asset/);
   assert.match(renderer, /get_owned_draft_for_preview_asset/);

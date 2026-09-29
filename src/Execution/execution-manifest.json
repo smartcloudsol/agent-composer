@@ -1,7 +1,7 @@
 {
   "contract": "smartcloud-agent-composer-execution",
   "files": {
-    "Abilities.php": "sha256:8060a253fca567a34e8b7f5291d26ed13d80f79f14de314910d135077522db2e",
+    "Abilities.php": "sha256:fd2c963bf0f81f52441d93ab420b78a67cde860851af69e73034529b2c7d6cc1",
     "Ability_Provider_Registry.php": "sha256:576d07261044e203bed581359cbc9d77d88778a5dddb3cf554b8a7f263baadc6",
     "Admin_Managed_Document_Service.php": "sha256:6a33b767f8e71d286b36205df92077b4c97bb9101c135953eaf096604297afb9",
     "Audit_Logger.php": "sha256:f517fa4314ebbdd3f2004b61ba49c4d3885b05b90aab13393acbec6f49b7b163",

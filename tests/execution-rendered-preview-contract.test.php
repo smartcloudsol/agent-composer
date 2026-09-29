@@ -405,7 +405,8 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(array('post_id', 'expected_revision', 'asset_id') === ($asset_schema['required'] ?? null), 'Private asset reads must rely on the exact revision instead of a mutable modification timestamp.');
 	$assert(isset($asset_schema['properties']['expected_modified_gmt']), 'The legacy asset timestamp input must remain accepted for cached preview clients.');
 	$resource_uris = array(
-		'smartcloud-agent-composer/rendered-preview-app' => 'ui://smartcloud-agent-composer/rendered-preview/v7.html',
+		'smartcloud-agent-composer/rendered-preview-app' => 'ui://smartcloud-agent-composer/rendered-preview/v8.html',
+		'smartcloud-agent-composer/rendered-preview-app-v7' => 'ui://smartcloud-agent-composer/rendered-preview/v7.html',
 		'smartcloud-agent-composer/rendered-preview-app-v6' => 'ui://smartcloud-agent-composer/rendered-preview/v6.html',
 		'smartcloud-agent-composer/rendered-preview-app-v5' => 'ui://smartcloud-agent-composer/rendered-preview/v5.html',
 		'smartcloud-agent-composer/rendered-preview-app-v4' => 'ui://smartcloud-agent-composer/rendered-preview/v4.html',
@@ -431,8 +432,9 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(str_contains($latest_app_html, 'attachShadow'), 'The rendered preview app must isolate site CSS in a ShadowRoot.');
 	$assert(str_contains($latest_app_html, 'smartcloud-agent-composer-get-rendered-preview-asset'), 'The rendered preview app must call the private asset helper.');
 	$assert(str_contains($latest_app_html, 'function assetResult') && str_contains($latest_app_html, 'value.structuredContent'), 'The preview app must read the WordPress MCP structured asset payload.');
-	$assert(str_contains($latest_app_html, 'data.data_base64') && str_contains($latest_app_html, 'blob.size!==asset.byte_length'), 'The preview app must reject empty or mismatched binary assets before creating Blob URLs.');
-	$assert(str_contains($latest_app_html, 'smartcloud-preview-asset://'), 'The rendered preview app must rewrite private CSS dependency placeholders to Blob URLs.');
+	$assert(str_contains($latest_app_html, 'data.data_base64') && str_contains($latest_app_html, 'blob.size!==asset.byte_length'), 'The preview app must reject empty or mismatched binary assets before creating image URLs.');
+	$assert(str_contains($latest_app_html, "asset.kind==='image'?'data:'") && str_contains($latest_app_html, 'if(!result.imageUrl)blobUrls.add(url)'), 'The preview app must use CSP-compatible data URLs for images and revoke only object URLs.');
+	$assert(str_contains($latest_app_html, 'smartcloud-preview-asset://'), 'The rendered preview app must rewrite private CSS dependency placeholders to local asset URLs.');
 	$assert(!str_contains($latest_app_html, 'expected_modified_gmt:doc.modified_gmt'), 'The preview app must not bind read-only asset delivery to a mutable timestamp.');
 	$assert(str_contains($latest_app_html, "documentKey===lastDocumentKey"), 'Duplicate host delivery channels must not start duplicate asset batches for the same preview document.');
 	$assert(str_contains($latest_app_html, 'Math.min(2,items.length)'), 'The preview app must keep private MCP asset request concurrency bounded.');
@@ -450,7 +452,7 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(str_contains($latest_app_html, 'safePreviewUrl') && str_contains($latest_app_html, "['http:','https:']"), 'The full-preview action must accept only safe HTTP(S) destinations.');
 	$assert(str_contains($latest_app_html, 'function safeStyle'), 'Safe Gutenberg inline presentation styles must remain available in the rendered preview.');
 	$assert(str_contains($latest_app_html, 'audio,video,source,track,picture'), 'The client sanitizer must remove passive media elements that could fetch external resources.');
-	$assert(str_contains($latest_app_html, "version:'7.0.0'"), 'Every resource alias must serve the latest v7 preview app.');
+	$assert(str_contains($latest_app_html, "version:'8.0.0'"), 'Every resource alias must serve the latest v8 preview app.');
 
 	$register_approval_tools = new \ReflectionMethod(Abilities::class, 'register_publish_approval_private_abilities');
 	$register_approval_tools->invoke($abilities);
@@ -466,7 +468,10 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(array('app') === ($approval_asset_ability['meta']['mcp']['_meta']['ui']['visibility'] ?? null), 'Publication preview assets must be app-only.');
 	$approval_resource = $GLOBALS['registered_abilities']['smartcloud-agent-composer/publish-approval-app'] ?? array();
 	$approval_contents = ($approval_resource['execute_callback'])();
-	$assert('ui://smartcloud-agent-composer/publish-approval/v7.html' === ($approval_contents[0]['uri'] ?? ''), 'Publication review must use the latest versioned MCP App resource URI.');
+	$assert('ui://smartcloud-agent-composer/publish-approval/v8.html' === ($approval_contents[0]['uri'] ?? ''), 'Publication review must use the latest versioned MCP App resource URI.');
+	$approval_v7_resource = $GLOBALS['registered_abilities']['smartcloud-agent-composer/publish-approval-app-v7'] ?? array();
+	$approval_v7_contents = ($approval_v7_resource['execute_callback'])();
+	$assert('ui://smartcloud-agent-composer/publish-approval/v7.html' === ($approval_v7_contents[0]['uri'] ?? ''), 'The v7 publication review URI must remain a compatibility alias.');
 	$approval_v6_resource = $GLOBALS['registered_abilities']['smartcloud-agent-composer/publish-approval-app-v6'] ?? array();
 	$approval_v6_contents = ($approval_v6_resource['execute_callback'])();
 	$assert('ui://smartcloud-agent-composer/publish-approval/v6.html' === ($approval_v6_contents[0]['uri'] ?? ''), 'The v6 publication review URI must remain a compatibility alias.');
@@ -510,7 +515,8 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(str_contains($approval_html, 'document.fonts?.ready'), 'The approval app must wait for font loading before revealing the exact revision.');
 	$assert(str_contains($approval_html, "preview.dataset.ready='true'"), 'The approval app must reveal the exact revision only after its assets settle.');
 	$assert(!str_contains($approval_html, 'ResizeObserver'), 'The approval app must not report content-driven intrinsic height changes.');
-	$assert(str_contains($approval_html, "version:'7.0.0'"), 'Every publication review resource alias must serve the latest v7 approval UI.');
+	$assert(str_contains($approval_html, "asset.kind==='image'?'data:'"), 'The publication review app must display images using CSP-compatible data URLs.');
+	$assert(str_contains($approval_html, "version:'8.0.0'"), 'Every publication review resource alias must serve the latest v8 approval UI.');
 
 	foreach (glob($preview_fixture_root . '/assets/*') ?: array() as $fixture) {
 		@unlink($fixture);

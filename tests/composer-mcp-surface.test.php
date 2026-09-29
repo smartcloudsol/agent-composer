@@ -183,8 +183,8 @@ namespace {
 		throw new RuntimeException( 'Composer MCP admitted a malformed external Ability name.' );
 	}
 	$server_version = (string) ( $adapter->arguments[5] ?? '' );
-	if ( ! str_contains( $server_version, '+surface.preview-assets.1' ) ) {
-		throw new RuntimeException( 'Composer MCP server version is missing the preview asset transport cachebuster.' );
+	if ( ! str_contains( $server_version, '+surface.preview-csp.1' ) ) {
+		throw new RuntimeException( 'Composer MCP server version is missing the CSP-compatible preview cachebuster.' );
 	}
 
 	$GLOBALS['composer_mcp_abilities_action_state'] = 'before';

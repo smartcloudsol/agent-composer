@@ -157,7 +157,7 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 = 1.3.4 =
 * Rendered previews: Resolve the WordPress singular template for each post type, including block templates, dynamic blocks, synced patterns, overrides, and classic PHP templates. Preserve the content-only fallback with a clear warning when a full template cannot render.
 * Publication review: Show the same template-aware rendered snapshot in the inline approval card, with a full WordPress preview link for comparison.
-* Preview assets: Carry private images and fonts as verified base64 data in JSON-safe MCP responses, and reject empty or mismatched assets in the v7 preview Apps. The assigned agent can reopen a submitted proposal's read-only rendered preview without receiving a new submission token.
+* Preview assets: Carry private images and fonts as verified base64 data in JSON-safe MCP responses. The v8 preview Apps display images through CSP-compatible data URLs and reject empty or mismatched assets. The assigned agent can reopen a submitted proposal's read-only rendered preview without receiving a new submission token.
 * MCP integration: Allow site plugins to register their own guarded tools and UI resources with the Composer server.
 
 = 1.3.3 =
@@ -289,7 +289,7 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 == Upgrade Notice ==
 
 = 1.3.4 =
-Restart MCP and refresh client tools and resources to load the v7 preview and publication-review cards with JSON-safe assets. Composer adds a rendered-preview hash to its approval table automatically; pending approval requests created before this update need to be requested again. No content migration is required.
+Restart MCP and refresh client tools and resources to load the v8 preview and publication-review cards with CSP-compatible images. Composer adds a rendered-preview hash to its approval table automatically; pending approval requests created before this update need to be requested again. No content migration is required.
 
 = 1.3.3 =
 Update to restore saved instance-slot content in public bodies and rendered previews. No content migration is required; clear page caches after installation.

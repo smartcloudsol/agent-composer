@@ -11,16 +11,18 @@ use SmartCloud\AgentComposer\Security\McpAccessGuard;
 
 final class ComposerMcpServer {
 	public const SERVER_ID = 'smartcloud-agent-composer';
-	public const SURFACE_REVISION = 'preview-assets.1';
+	public const SURFACE_REVISION = 'preview-csp.1';
 	public const HTTP_ENDPOINT = '/wp-json/mcp/smartcloud-agent-composer';
-	public const PREVIEW_RESOURCE_URI = 'ui://smartcloud-agent-composer/rendered-preview/v7.html';
+	public const PREVIEW_RESOURCE_URI = 'ui://smartcloud-agent-composer/rendered-preview/v8.html';
+	public const PREVIEW_RESOURCE_URI_V7 = 'ui://smartcloud-agent-composer/rendered-preview/v7.html';
 	public const PREVIEW_RESOURCE_URI_V6 = 'ui://smartcloud-agent-composer/rendered-preview/v6.html';
 	public const PREVIEW_RESOURCE_URI_V5 = 'ui://smartcloud-agent-composer/rendered-preview/v5.html';
 	public const PREVIEW_RESOURCE_URI_V4 = 'ui://smartcloud-agent-composer/rendered-preview/v4.html';
 	public const PREVIEW_RESOURCE_URI_V3 = 'ui://smartcloud-agent-composer/rendered-preview/v3.html';
 	public const PREVIEW_RESOURCE_URI_V2 = 'ui://smartcloud-agent-composer/rendered-preview/v2.html';
 	public const PREVIEW_RESOURCE_URI_V1 = 'ui://smartcloud-agent-composer/rendered-preview/v1.html';
-	public const PUBLISH_APPROVAL_RESOURCE_URI = 'ui://smartcloud-agent-composer/publish-approval/v7.html';
+	public const PUBLISH_APPROVAL_RESOURCE_URI = 'ui://smartcloud-agent-composer/publish-approval/v8.html';
+	public const PUBLISH_APPROVAL_RESOURCE_URI_V7 = 'ui://smartcloud-agent-composer/publish-approval/v7.html';
 	public const PUBLISH_APPROVAL_RESOURCE_URI_V6 = 'ui://smartcloud-agent-composer/publish-approval/v6.html';
 	public const PUBLISH_APPROVAL_RESOURCE_URI_V5 = 'ui://smartcloud-agent-composer/publish-approval/v5.html';
 	public const PUBLISH_APPROVAL_RESOURCE_URI_V4 = 'ui://smartcloud-agent-composer/publish-approval/v4.html';
