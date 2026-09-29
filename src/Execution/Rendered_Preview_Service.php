@@ -32,12 +32,13 @@ final class Rendered_Preview_Service {
 	public function __construct( private readonly Draft_Service $drafts ) {}
 
 	public function get( array $input ): array {
-		$post          = $this->drafts->get_owned_draft( absint( $input['post_id'] ?? 0 ) );
-		$preview_start = $this->drafts->get_preview( $post->ID );
+		$post          = $this->drafts->get_owned_draft_for_preview_asset( absint( $input['post_id'] ?? 0 ) );
+		$preview_start = $this->drafts->get_preview_for_preview_asset( $post->ID );
 		$this->assert_expected_version( $input, $preview_start );
 		$language = $this->content_language_for_post( $post->ID );
-		$result   = $this->build_document( $post, $preview_start, $language ?: 'und' );
-		$this->assert_same_version( $preview_start, $this->drafts->get_preview( $post->ID ) );
+		$state = sanitize_key( (string) get_post_meta( $post->ID, Content_Proposal_Service::STATE_META, true ) );
+		$result = $this->build_document( $post, $preview_start, $language ?: 'und', '' === $state || 'working' === $state );
+		$this->assert_same_version( $preview_start, $this->drafts->get_preview_for_preview_asset( $post->ID ) );
 		$this->store_asset_snapshot(
 			$post->ID,
 			(string) ( $preview_start['revision'] ?? '' ),
@@ -76,14 +77,7 @@ final class Rendered_Preview_Service {
 			throw new Execution_Exception( 'rendered_preview_asset_not_found', 'The rendered preview asset is not part of this exact draft revision.' );
 		}
 		if ( 'stylesheet' === ( $source['kind'] ?? '' ) ) {
-			return array(
-				'type'     => 'resource',
-				'resource' => array(
-					'uri'      => 'preview-asset://smartcloud-agent-composer/' . $asset_id,
-					'mimeType' => 'text/css',
-					'text'     => (string) $source['content'],
-				),
-			);
+			return self::transport_asset_payload( $asset_id, 'stylesheet', 'text/css', (string) $source['content'] );
 		}
 		$kind = (string) ( $source['kind'] ?? '' );
 		$path = (string) ( $source['path'] ?? '' );
@@ -96,17 +90,25 @@ final class Rendered_Preview_Service {
 		if ( false === $bytes || ! hash_equals( (string) $source['sha256'], hash( 'sha256', $bytes ) ) ) {
 			throw new Execution_Exception( 'rendered_preview_asset_changed', 'The rendered preview binary asset changed after the asset manifest was created.' );
 		}
-		if ( 'font' === $kind ) {
-			return array(
-				'type'     => 'resource',
-				'resource' => array(
-					'uri'      => 'preview-asset://smartcloud-agent-composer/' . $asset_id,
-					'mimeType' => (string) $source['mime_type'],
-					'blob'     => base64_encode( $bytes ),
-				),
-			);
+		return self::transport_asset_payload( $asset_id, $kind, (string) $source['mime_type'], $bytes );
+	}
+
+	/** Keep binary preview assets JSON-safe across WordPress Ability and MCP transport layers. */
+	public static function transport_asset_payload( string $asset_id, string $kind, string $mime_type, string $content ): array {
+		if ( 'stylesheet' === $kind ) {
+			return array( 'asset_id' => $asset_id, 'kind' => $kind, 'mime_type' => $mime_type, 'css' => $content );
 		}
-		return array( 'type' => 'image', 'results' => $bytes, 'mimeType' => (string) $source['mime_type'] );
+		if ( ! in_array( $kind, array( 'image', 'font' ), true ) ) {
+			throw new Execution_Exception( 'rendered_preview_asset_invalid', 'The rendered preview asset kind is invalid.' );
+		}
+		return array(
+			'asset_id'    => $asset_id,
+			'kind'        => $kind,
+			'mime_type'   => $mime_type,
+			'byte_length' => strlen( $content ),
+			'sha256'      => hash( 'sha256', $content ),
+			'data_base64' => base64_encode( $content ),
+		);
 	}
 
 	/**
@@ -151,14 +153,24 @@ final class Rendered_Preview_Service {
 		$this->asset_sources = array();
 		$this->imported_stylesheet_count = 0;
 		$direction = self::language_direction( $content_language );
-		$rendered  = self::strip_gutenberg_serialization( $this->render_saved_blocks( $post, $content_language ) );
+		$template_html = $this->render_wordpress_template( $post, $content_language );
+		$rendered  = self::strip_gutenberg_serialization( null !== $template_html ? $template_html : $this->render_saved_blocks( $post, $content_language ) );
 		$sanitized = wp_kses_post( $rendered );
 		$warnings  = array(
 			array(
-				'code'    => 'static_content_preview',
-				'message' => 'This preview renders the saved block content without site navigation, template parts, forms, or frontend JavaScript interactions.',
+				'code'    => null !== $template_html ? 'static_template_preview' : 'static_content_preview',
+				'message' => null !== $template_html
+					? 'This preview uses the WordPress singular template selected for this post type, including its available template parts, dynamic blocks, synced patterns, and current overrides. Forms and frontend JavaScript interactions are not available here.'
+					: 'This preview renders the saved block content without site navigation, template parts, forms, or frontend JavaScript interactions.',
 			),
 		);
+		$body_empty = '' === trim( (string) $post->post_content );
+		if ( $body_empty && null === $template_html ) {
+			$warnings[] = array(
+				'code'    => 'empty_post_content',
+				'message' => 'The saved post body is empty. A WordPress template or post fields may supply the visible page; open the WordPress preview to inspect it.',
+			);
+		}
 		if ( ! hash_equals( $rendered, $sanitized ) ) {
 			$warnings[] = array( 'code' => 'active_markup_removed', 'message' => 'Active or unsupported markup was removed from the embedded preview.' );
 		}
@@ -195,13 +207,15 @@ final class Rendered_Preview_Service {
 				'title'             => wp_strip_all_tags( get_the_title( $post ) ),
 				'content_language'  => $content_language,
 				'direction'         => $direction,
-				'scope'             => 'content',
+				'scope'             => null !== $template_html ? 'template' : 'content',
 				'fidelity'          => 'static',
 				'source_format'     => 'rendered-html',
 				'mime_type'         => 'text/html',
 				'html'              => $html,
 				'sha256'            => hash( 'sha256', $html ),
+				'review_sha256'     => self::review_hash( $html ),
 				'byte_length'       => $byte_length,
+				'body_empty'        => $body_empty,
 				'assets'            => array_values( $assets ),
 				'warnings'          => array_values( $warnings ),
 			),
@@ -210,6 +224,25 @@ final class Rendered_Preview_Service {
 			$result['rendered_preview_token'] = self::issue_submission_token( $post->ID, $modified_gmt, $revision, ActorIdentity::principal_id() );
 		}
 		return $result;
+	}
+
+	/** Ignore only ephemeral numeric IDs on preview-only block mounts. */
+	public static function review_hash( string $html ): string {
+		$normalized = preg_replace_callback(
+			'/<[^>]*\bdata-is-preview\b[^>]*>/si',
+			static function ( array $tag ): string {
+				return (string) preg_replace_callback(
+					'/\bid=(["\'])([^"\']+)\1/i',
+					static function ( array $id ): string {
+						$value = (string) preg_replace( '/[_-][0-9]{8,}$/', '_volatile', $id[2] );
+						return 'id=' . $id[1] . $value . $id[1];
+					},
+					$tag[0]
+				);
+			},
+			$html
+		);
+		return hash( 'sha256', null === $normalized ? $html : $normalized );
 	}
 
 	/**
@@ -245,6 +278,72 @@ final class Rendered_Preview_Service {
 			return do_blocks( (string) $post->post_content );
 		} finally {
 			remove_filter( 'smartcloud_composer_rendered_preview_content_language', $language_filter, PHP_INT_MAX );
+		}
+	}
+
+	/**
+	 * Resolve the singular template for the post type in a temporary main query.
+	 * Block themes use core's selected block template; classic themes and trusted
+	 * template_include overrides use their selected PHP template. Both receive the
+	 * actual post/meta context, including dynamic blocks and pattern overrides.
+	 */
+	private function render_wordpress_template( \WP_Post $post, string $content_language ): ?string {
+		if ( ! class_exists( '\WP_Query' ) || ! function_exists( 'get_single_template' ) || ! function_exists( 'get_page_template' ) ) {
+			return null;
+		}
+		$language_filter = static fn( string $current_language = '' ): string => $content_language;
+		add_filter( 'smartcloud_composer_rendered_preview_content_language', $language_filter, PHP_INT_MAX );
+		$names = array( 'post', 'wp_query', 'wp_the_query', '_wp_current_template_content', '_wp_current_template_id', 'id', 'authordata', 'currentday', 'currentmonth', 'page', 'pages', 'multipage', 'more', 'numpages' );
+		$previous = array();
+		foreach ( $names as $name ) {
+			$previous[ $name ] = array_key_exists( $name, $GLOBALS ) ? array( true, $GLOBALS[ $name ] ) : array( false, null );
+		}
+		try {
+			unset( $GLOBALS['_wp_current_template_content'], $GLOBALS['_wp_current_template_id'] );
+			$query = new \WP_Query( array(
+				'post_type' => $post->post_type,
+				'post_status' => $post->post_status,
+				'posts_per_page' => 1,
+				( 'page' === $post->post_type ? 'page_id' : 'p' ) => $post->ID,
+			) );
+			if ( 1 !== (int) $query->post_count || ! $query->have_posts() ) {
+				return null;
+			}
+			$GLOBALS['wp_query'] = $query;
+			$GLOBALS['wp_the_query'] = $query;
+			$query->the_post();
+			$resolved = 'page' === $post->post_type ? get_page_template() : get_single_template();
+			$selected = apply_filters( 'template_include', $resolved );
+			$template = (string) ( $GLOBALS['_wp_current_template_content'] ?? '' );
+			if ( '' !== trim( $template ) && $selected === $resolved && function_exists( 'wp_is_block_theme' ) && wp_is_block_theme() ) {
+				$rendered = do_blocks( $template );
+				$rendered = wptexturize( $rendered );
+				$rendered = convert_smilies( $rendered );
+				$rendered = wp_filter_content_tags( $rendered, 'template' );
+				return '<div class="wp-site-blocks">' . str_replace( ']]>', ']]&gt;', $rendered ) . '</div>';
+			}
+			if ( ! is_string( $selected ) || ! is_file( $selected ) || ! is_readable( $selected ) ) {
+				return null;
+			}
+			$buffer_level = ob_get_level();
+			ob_start();
+			try {
+				include $selected;
+				return (string) ob_get_contents();
+			} finally {
+				while ( ob_get_level() > $buffer_level ) {
+					ob_end_clean();
+				}
+			}
+		} finally {
+			remove_filter( 'smartcloud_composer_rendered_preview_content_language', $language_filter, PHP_INT_MAX );
+			foreach ( $previous as $name => $state ) {
+				if ( $state[0] ) {
+					$GLOBALS[ $name ] = $state[1];
+				} else {
+					unset( $GLOBALS[ $name ] );
+				}
+			}
 		}
 	}
 

@@ -447,7 +447,9 @@ test("rendered preview exposes a bounded data tool and an MCP Apps UI resource",
   assert.match(renderer, /'woff'\s*=>\s*'font\/woff'/);
   assert.match(renderer, /'woff2'\s*=>\s*'font\/woff2'/);
   assert.match(renderer, /stylesheet_escaped_identifier_neutralized/);
-  assert.match(abilities, /asset\.kind==='font'/);
+  assert.match(abilities, /function decodeAsset\(response,asset\)/);
+  assert.match(abilities, /data\.data_base64/);
+  assert.match(abilities, /blob\.size!==asset\.byte_length/);
   assert.match(abilities, /audio,video,source,track,picture/);
   assert.match(renderer, /data-smartcloud-preview-asset/);
   assert.match(renderer, /get_owned_draft_for_preview_asset/);
@@ -522,8 +524,9 @@ test("release copy contains no internal milestone or retired theme-contract narr
   assert.doesNotMatch(read("readme.txt"), /development milestone|not yet (?:the )?final/i);
   assert.match(read("smartcloud-agent-composer.php"), /License:\s+MIT/);
   assert.equal(fs.existsSync(path.join(root, "LICENSE")), true);
-  assert.match(read("smartcloud-agent-composer.php"), /Version:\s+1\.3\.3/);
-  assert.match(read("readme.txt"), /Stable tag:\s+1\.3\.3/);
+  const version = JSON.parse(read("package.json")).version;
+  assert.match(read("smartcloud-agent-composer.php"), new RegExp(`Version:\\s+${version.replaceAll(".", "\\.")}`));
+  assert.match(read("readme.txt"), new RegExp(`Stable tag:\\s+${version.replaceAll(".", "\\.")}`));
 });
 
 test("localization selection is manifest-driven and the main runtime names no concrete provider", () => {

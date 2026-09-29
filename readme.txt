@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.3.3
+Stable tag: 1.3.4
 License: MIT
 License URI: https://mit-license.org/
 
@@ -73,7 +73,7 @@ The model cannot publish or delete normal content. A Publisher may request human
 
 = How does an agent connect? =
 
-Install WordPress MCP Adapter 0.6.1 or newer and connect to `/wp-json/mcp/smartcloud-agent-composer`. For protected remote access, configure Cognito access-token validation and use a public authorization-code plus PKCE client; a firewalled site needs an HTTP Secure MCP Tunnel profile because STDIO cannot forward the OAuth challenge or bearer token. Use the tunnel client's OAuth/DCR HTTP profile for protected access and its remote-no-auth HTTP profile while Composer intentionally remains Open without an identity provider. Open mode may instead use a dedicated authenticated WordPress user. The `get-rendered-preview` tool returns a sanitized content-scoped HTML snapshot. Compatible MCP Apps clients can display it inline, and its bounded local image, WOFF/WOFF2 font, stylesheet, and import bridge does not require direct browser access to a private WordPress origin.
+Install WordPress MCP Adapter 0.6.1 or newer and connect to `/wp-json/mcp/smartcloud-agent-composer`. For protected remote access, configure Cognito access-token validation and use a public authorization-code plus PKCE client; a firewalled site needs an HTTP Secure MCP Tunnel profile because STDIO cannot forward the OAuth challenge or bearer token. Use the tunnel client's OAuth/DCR HTTP profile for protected access and its remote-no-auth HTTP profile while Composer intentionally remains Open without an identity provider. Open mode may instead use a dedicated authenticated WordPress user. The `get-rendered-preview` tool returns a sanitized, template-aware HTML snapshot when the selected WordPress singular template can render. Compatible MCP Apps clients can display it inline, and its bounded local image, WOFF/WOFF2 font, stylesheet, and import bridge does not require direct browser access to a private WordPress origin.
 
 = How does media handling work? =
 
@@ -153,6 +153,12 @@ https://www.npmjs.com/package/@smart-cloud/agent-composer-core
 The distributed JavaScript and CSS are built from public `admin/src` and `core` sources. PHP owns registration, authorization, persistence, audit, portability, and execution. The release assembler adds the shared Hub runtime, verifies the package, normalizes timestamps, and records SHA-256 checksums.
 
 == Changelog ==
+
+= 1.3.4 =
+* Rendered previews: Resolve the WordPress singular template for each post type, including block templates, dynamic blocks, synced patterns, overrides, and classic PHP templates. Preserve the content-only fallback with a clear warning when a full template cannot render.
+* Publication review: Show the same template-aware rendered snapshot in the inline approval card, with a full WordPress preview link for comparison.
+* Preview assets: Carry private images and fonts as verified base64 data in JSON-safe MCP responses, and reject empty or mismatched assets in the v7 preview Apps. The assigned agent can reopen a submitted proposal's read-only rendered preview without receiving a new submission token.
+* MCP integration: Allow site plugins to register their own guarded tools and UI resources with the Composer server.
 
 = 1.3.3 =
 * Instance slots: Render saved per-instance extension-slot content in public page bodies and rendered previews.
@@ -281,6 +287,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.3.4 =
+Restart MCP and refresh client tools and resources to load the v7 preview and publication-review cards with JSON-safe assets. Composer adds a rendered-preview hash to its approval table automatically; pending approval requests created before this update need to be requested again. No content migration is required.
 
 = 1.3.3 =
 Update to restore saved instance-slot content in public bodies and rendered previews. No content migration is required; clear page caches after installation.

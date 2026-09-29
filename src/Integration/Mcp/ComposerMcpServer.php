@@ -11,15 +11,17 @@ use SmartCloud\AgentComposer\Security\McpAccessGuard;
 
 final class ComposerMcpServer {
 	public const SERVER_ID = 'smartcloud-agent-composer';
-	public const SURFACE_REVISION = 'pattern-instances.1';
+	public const SURFACE_REVISION = 'preview-assets.1';
 	public const HTTP_ENDPOINT = '/wp-json/mcp/smartcloud-agent-composer';
-	public const PREVIEW_RESOURCE_URI = 'ui://smartcloud-agent-composer/rendered-preview/v6.html';
+	public const PREVIEW_RESOURCE_URI = 'ui://smartcloud-agent-composer/rendered-preview/v7.html';
+	public const PREVIEW_RESOURCE_URI_V6 = 'ui://smartcloud-agent-composer/rendered-preview/v6.html';
 	public const PREVIEW_RESOURCE_URI_V5 = 'ui://smartcloud-agent-composer/rendered-preview/v5.html';
 	public const PREVIEW_RESOURCE_URI_V4 = 'ui://smartcloud-agent-composer/rendered-preview/v4.html';
 	public const PREVIEW_RESOURCE_URI_V3 = 'ui://smartcloud-agent-composer/rendered-preview/v3.html';
 	public const PREVIEW_RESOURCE_URI_V2 = 'ui://smartcloud-agent-composer/rendered-preview/v2.html';
 	public const PREVIEW_RESOURCE_URI_V1 = 'ui://smartcloud-agent-composer/rendered-preview/v1.html';
-	public const PUBLISH_APPROVAL_RESOURCE_URI = 'ui://smartcloud-agent-composer/publish-approval/v6.html';
+	public const PUBLISH_APPROVAL_RESOURCE_URI = 'ui://smartcloud-agent-composer/publish-approval/v7.html';
+	public const PUBLISH_APPROVAL_RESOURCE_URI_V6 = 'ui://smartcloud-agent-composer/publish-approval/v6.html';
 	public const PUBLISH_APPROVAL_RESOURCE_URI_V5 = 'ui://smartcloud-agent-composer/publish-approval/v5.html';
 	public const PUBLISH_APPROVAL_RESOURCE_URI_V4 = 'ui://smartcloud-agent-composer/publish-approval/v4.html';
 	public const PUBLISH_APPROVAL_RESOURCE_URI_V3 = 'ui://smartcloud-agent-composer/publish-approval/v3.html';
@@ -101,7 +103,18 @@ final class ComposerMcpServer {
 		}
 
 		$this->registered_adapters[ $id ] = true;
-		$resources = array_values( array_filter( Abilities::resource_names(), static fn( string $name ): bool => wp_has_ability( $name ) ) );
+		$external_resources = apply_filters( 'smartcloud_agent_composer_mcp_resource_names', array() );
+		$external_resources = is_array( $external_resources ) ? $external_resources : array();
+		$external_resources = array_slice(
+			array_values( array_unique( array_filter(
+				$external_resources,
+				static fn( mixed $name ): bool => is_string( $name )
+					&& 1 === preg_match( '/^[a-z0-9][a-z0-9-]{0,63}\/[a-z0-9][a-z0-9-]{0,63}$/', $name )
+			) ) ),
+			0,
+			20
+		);
+		$resources = array_values( array_filter( array_unique( array_merge( Abilities::resource_names(), $external_resources ) ), static fn( string $name ): bool => wp_has_ability( $name ) ) );
 		$this->create_server( $adapter, self::SERVER_ID, 'SmartCloud Agent Composer', $names, $resources );
 	}
 

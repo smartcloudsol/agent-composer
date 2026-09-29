@@ -17,6 +17,7 @@ namespace {
 		),
 	);
 	$GLOBALS['published_posts'] = array();
+	$GLOBALS['rendered_approval_html'] = '<p>Publisher handoff.</p>';
 	function absint(mixed $value): int { return abs((int) $value); }
 	function sanitize_text_field(string $value): string { return trim($value); }
 	function sanitize_key(string $value): string { return strtolower((string) preg_replace('/[^a-z0-9_-]/i', '', $value)); }
@@ -50,7 +51,8 @@ namespace SmartCloud\AgentComposer\Execution {
 	}
 	final class Rendered_Preview_Service {
 		public function build_document(\WP_Post $post, array $preview, string $language, bool $token): array {
-			return array('validation' => $preview['validation'], 'document' => array('post_id' => $post->ID, 'revision' => $preview['revision'], 'title' => 'Publisher handoff', 'html' => '<p>Publisher handoff.</p>', 'assets' => array()));
+			$html = $GLOBALS['rendered_approval_html'];
+			return array('preview_url' => 'https://example.test/?p=4003&preview=true', 'validation' => $preview['validation'], 'document' => array('post_id' => $post->ID, 'revision' => $preview['revision'], 'title' => 'Publisher handoff', 'html' => $html, 'sha256' => hash('sha256', $html), 'review_sha256' => hash('sha256', $html), 'assets' => array()));
 		}
 		public function built_asset_payload(string $asset_id): array { return array('kind' => 'stylesheet', 'mime_type' => 'text/css', 'content' => ''); }
 	}
@@ -87,6 +89,8 @@ namespace SmartCloud\AgentComposer\Security {
 	\approval_assert('cognito:publisher' === ($request['principal_id'] ?? ''), 'Approval record must separately preserve the requesting Publisher.');
 	\approval_assert(77 === ($request['assigned_agent_user_id'] ?? 0), 'Approval record must snapshot the legacy assigned user ID.');
 	\approval_assert(isset($request['document']) && !isset($request['approval_token'], $request['approval_url']), 'The model-facing request must contain the inline document without the app token or fallback URL.');
+	\approval_assert('https://example.test/?p=4003&preview=true' === ($request['preview_url'] ?? ''), 'The approval card must receive the authenticated WordPress page preview link.');
+	\approval_assert(($request['document']['review_sha256'] ?? '') === ($table->find($request['id'])['rendered_hash'] ?? null), 'The normalized WordPress-rendered HTML hash must be stored with the approval request.');
 	\approval_assert(!array_key_exists('approval_token', $audit->events[0]['context']), 'Audit events must never persist the short-lived approval token.');
 	$request_without_tokens = $service->request(array('post_id' => 4003));
 	\approval_assert(isset($request_without_tokens['id'], $request_without_tokens['document']), 'A Publisher must be able to atomically request the current validated revision by post_id alone.');
@@ -113,6 +117,17 @@ namespace SmartCloud\AgentComposer\Security {
 	$closed_session = $service->open_from_app(array('id' => $request['id']));
 	\approval_assert('approved' === ($closed_session['status'] ?? ''), 'Reopening a decided approval must return its terminal status.');
 	\approval_assert(!isset($closed_session['approval_token'], $closed_session['approval_url']), 'A decided approval must not return another decision token or fallback URL.');
+	$changed = $service->request(array('post_id' => 4003));
+	$changed_session = $service->open_from_app(array('id' => $changed['id']));
+	$GLOBALS['rendered_approval_html'] = '<p>The post-type template changed.</p>';
+	try {
+		$service->decide_from_app(array('id' => $changed['id'], 'token' => $changed_session['approval_token'], 'decision' => 'approve', 'confirm_decision' => true));
+		\approval_assert(false, 'A changed WordPress template must invalidate the locked approval preview.');
+	} catch (\SmartCloud\AgentComposer\Execution\Execution_Exception $error) {
+		\approval_assert('approval_preview_changed' === $error->get_execution_code(), 'Template drift must fail with a stable error code.');
+	}
+	\approval_assert('invalidated' === ($table->find($changed['id'])['status'] ?? ''), 'A stale rendered approval must be closed.');
+	\approval_assert(1 === count($GLOBALS['published_posts']), 'Template drift must not publish the draft again.');
 
 	echo "publish-approval-handoff-contract: ok\n";
 }

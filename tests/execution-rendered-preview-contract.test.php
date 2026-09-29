@@ -7,6 +7,9 @@ namespace {
 	$preview_transients = array();
 	$composer_preview_filters = array();
 	$rendered_preview_language_seen = '';
+	$preview_template_enabled = false;
+	$preview_block_theme = true;
+	$preview_template_post = null;
 	$preview_post_meta = array();
 	$preview_fixture_root = sys_get_temp_dir() . '/smartcloud-preview-' . getmypid();
 	@mkdir($preview_fixture_root . '/assets', 0777, true);
@@ -43,6 +46,7 @@ namespace {
 	function get_current_user_id(): int {
 		return 23;
 	}
+	function absint(mixed $value): int { return abs((int) $value); }
 
 	function get_post_meta(int $post_id, string $key, bool $single = false): mixed {
 		unset($single);
@@ -76,9 +80,31 @@ namespace {
 	final class WP_Post {
 		public int $ID = 73;
 		public string $post_type = 'page';
+		public string $post_status = 'draft';
 		public string $post_name = 'gatey';
 		public string $post_content = '<!-- wp:group {"layout":{"type":"constrained"}} --><!-- wp:paragraph --><p>Hello preview.</p><!-- /wp:paragraph --><!-- /wp:group --><script>alert(1)</script>';
 	}
+
+	final class WP_Query {
+		public int $post_count;
+		public function __construct(array $arguments) {
+			$this->post_count = $GLOBALS['preview_template_enabled'] && ($arguments['post_type'] ?? '') === $GLOBALS['preview_template_post']->post_type ? 1 : 0;
+		}
+		public function have_posts(): bool { return 1 === $this->post_count; }
+		public function the_post(): void { $GLOBALS['post'] = $GLOBALS['preview_template_post']; }
+	}
+	function wp_is_block_theme(): bool { return $GLOBALS['preview_block_theme']; }
+	function get_page_template(): string { return get_single_template(); }
+	function get_single_template(): string {
+		if ($GLOBALS['preview_block_theme']) {
+			$GLOBALS['_wp_current_template_content'] = '<div class="doctor-template">PROFILE_TEMPLATE</div>';
+			return '/wordpress/template-canvas.php';
+		}
+		return $GLOBALS['preview_fixture_root'] . '/classic-doctor.php';
+	}
+	function wptexturize(string $content): string { return $content; }
+	function convert_smilies(string $content): string { return $content; }
+	function wp_filter_content_tags(string $content, string $context = ''): string { return $content; }
 }
 
 namespace SmartCloud\AgentComposer\Execution {
@@ -87,10 +113,24 @@ namespace SmartCloud\AgentComposer\Execution {
 	final class Draft_Service {
 		public const CONTENT_LANGUAGE_META = '_wpsuite_agent_content_language';
 		public const REVISION_META = '_wpsuite_agent_revision';
+		public function get_owned_draft_for_preview_asset(int $post_id): \WP_Post {
+			if (73 !== $post_id) { throw new RuntimeException('Unknown preview draft.'); }
+			return new \WP_Post();
+		}
+		public function get_preview_for_preview_asset(int $post_id): array {
+			if (73 !== $post_id) { throw new RuntimeException('Unknown preview draft.'); }
+			return array('post_id' => 73, 'modified_gmt' => '2026-09-07T12:00:00Z', 'revision' => '123e4567-e89b-12d3-a456-426614174000', 'validation' => array('valid' => true));
+		}
+	}
+	final class Content_Proposal_Service {
+		public const STATE_META = '_wpsuite_agent_proposal_state';
 	}
 
 	function do_blocks(string $content): string {
 		$GLOBALS['rendered_preview_language_seen'] = apply_filters('smartcloud_composer_rendered_preview_content_language', '');
+		if (str_contains($content, 'PROFILE_TEMPLATE')) {
+			return str_replace('PROFILE_TEMPLATE', 'Doctor ' . $GLOBALS['post']->ID . ' – ' . $GLOBALS['rendered_preview_language_seen'], $content);
+		}
 		return str_replace(array('<!-- wp:paragraph -->', '<!-- /wp:paragraph -->'), '', $content);
 	}
 
@@ -206,6 +246,7 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(73 === ($result['post_id'] ?? 0), 'The rendered preview must retain the authorized draft ID.');
 	$assert('rtl' === ($document['direction'] ?? ''), 'RTL content languages must produce an RTL preview document.');
 	$assert('content' === ($document['scope'] ?? ''), 'The first preview contract must remain content-scoped.');
+	$assert(false === ($document['body_empty'] ?? null), 'A draft with saved body content must not be marked empty.');
 	$assert('static' === ($document['fidelity'] ?? ''), 'The embedded preview must declare static fidelity.');
 	$assert('3' === ($document['contract_version'] ?? ''), 'The attested rendered-HTML preview must use contract version 3.');
 	$assert('rendered-html' === ($document['source_format'] ?? ''), 'The preview must identify its payload as rendered HTML.');
@@ -225,6 +266,12 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(!str_contains((string) ($document['html'] ?? ''), '<header><h1>'), 'The preview body must not repeat the title already shown by the preview app chrome.');
 	$assert(str_contains((string) ($document['html'] ?? ''), 'page-gatey'), 'The rendered document must carry frontend-compatible body context classes.');
 	$assert(hash_equals(hash('sha256', (string) $document['html']), (string) ($document['sha256'] ?? '')), 'The preview hash must cover the exact returned HTML.');
+	$volatile_a = '<div data-is-preview="yes" id="runtime_mount_1234567890">Same content</div>';
+	$volatile_b = '<div data-is-preview="yes" id="runtime_mount_9876543210">Same content</div>';
+	$assert(Rendered_Preview_Service::review_hash($volatile_a) === Rendered_Preview_Service::review_hash($volatile_b), 'Preview-only random mount IDs must not invalidate an unchanged approval.');
+	$assert(Rendered_Preview_Service::review_hash($volatile_a) !== Rendered_Preview_Service::review_hash(str_replace('Same content', 'Changed content', $volatile_b)), 'The approval hash must still detect meaningful rendered content changes.');
+	$assert(Rendered_Preview_Service::review_hash('<div id="authored_1234567890">Same</div>') !== Rendered_Preview_Service::review_hash('<div id="authored_9876543210">Same</div>'), 'Authored element IDs must remain protected by the approval hash.');
+	$assert(Rendered_Preview_Service::review_hash((string) $document['html']) === ($document['review_sha256'] ?? ''), 'The document must expose the exact normalized review hash used by approval decisions.');
 	$assert(strlen((string) $document['html']) === ($document['byte_length'] ?? -1), 'The preview byte length must cover the exact returned HTML.');
 	$assert(in_array('https://media.example.test', Rendered_Preview_Service::allowed_asset_origins(), true), 'The configured uploads origin must be admitted to the MCP Apps CSP.');
 	$assert(in_array('https://admin.example.test', Rendered_Preview_Service::allowed_asset_origins(), true), 'A distinct WordPress site origin must be admitted to the MCP Apps CSP.');
@@ -245,6 +292,16 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(1 === ($kinds['image'] ?? 0), 'Repeated local CSS image references must share one private image asset.');
 	$assert(2 === ($kinds['font'] ?? 0), 'Local WOFF and WOFF2 references must be exposed as private font assets.');
 	$assert(1 === ($kinds['stylesheet'] ?? 0), 'Flattened imports must remain part of their parent stylesheet asset.');
+	$binary = (string) file_get_contents($GLOBALS['preview_fixture_root'] . '/assets/pixel.png');
+	$encoded = Rendered_Preview_Service::transport_asset_payload('pa_fixture', 'image', 'image/png', $binary);
+	$assert($binary === base64_decode((string) ($encoded['data_base64'] ?? ''), true), 'Image asset bytes must survive the private JSON-safe transport.');
+	$assert(strlen($binary) === ($encoded['byte_length'] ?? 0) && hash('sha256', $binary) === ($encoded['sha256'] ?? ''), 'The private asset payload must preserve its exact size and fingerprint.');
+	$assert(false !== json_encode($encoded), 'Binary image bytes must not enter WordPress MCP JSON output directly.');
+	$assert(!array_key_exists('results', $encoded), 'The private asset helper must not return raw binary in a pseudo image content block.');
+	$font_payload = Rendered_Preview_Service::transport_asset_payload('pa_font', 'font', 'font/woff', "wOFF\0\xFF");
+	$assert("wOFF\0\xFF" === base64_decode((string) ($font_payload['data_base64'] ?? ''), true), 'Font assets must use the same lossless JSON-safe transport.');
+	$css_payload = Rendered_Preview_Service::transport_asset_payload('pa_css', 'stylesheet', 'text/css', '.preview{color:red}');
+	$assert('.preview{color:red}' === ($css_payload['css'] ?? ''), 'Sanitized stylesheet assets must remain textual.');
 	$store_snapshot = new \ReflectionMethod(Rendered_Preview_Service::class, 'store_asset_snapshot');
 	$load_snapshot = new \ReflectionMethod(Rendered_Preview_Service::class, 'load_asset_snapshot');
 	$store_snapshot->invoke($service, 73, '123e4567-e89b-12d3-a456-426614174000', $asset_sources);
@@ -282,8 +339,50 @@ namespace SmartCloud\AgentComposer\Execution {
 		false
 	);
 	$assert(!array_key_exists('rendered_preview_token', $asset_snapshot), 'A read-only asset snapshot must not mint a proposal-submission token.');
+	$owned_service = new Rendered_Preview_Service(new Draft_Service());
+	$GLOBALS['preview_post_meta'][73][Content_Proposal_Service::STATE_META] = 'ready-for-review';
+	$submitted_preview = $owned_service->get(array('post_id' => 73, 'expected_revision' => '123e4567-e89b-12d3-a456-426614174000'));
+	$assert(!isset($submitted_preview['rendered_preview_token']) && 'rendered-html' === ($submitted_preview['document']['source_format'] ?? ''), 'The assigned agent must be able to reopen a submitted proposal read-only without minting another submission token.');
+	unset($GLOBALS['preview_post_meta'][73][Content_Proposal_Service::STATE_META]);
+	$empty_post = new \WP_Post();
+	$empty_post->post_type = 'orvosok';
+	$empty_post->post_content = '';
+	$empty_preview = $service->build_document(
+		$empty_post,
+		array(
+			'preview_url' => 'https://example.test/?p=73&preview=true',
+			'modified_gmt' => '2026-09-07T12:00:00Z',
+			'revision' => '123e4567-e89b-12d3-a456-426614174000',
+		),
+		'hu-HU',
+		false
+	);
+	$empty_document = $empty_preview['document'];
+	$assert(true === ($empty_document['body_empty'] ?? null), 'An empty saved body must be machine-readable even when the WordPress template supplies the page.');
+	$assert('content' === $empty_document['scope'] && 'static' === $empty_document['fidelity'], 'An empty body must not pretend to be a complete template preview.');
+	$assert(in_array('empty_post_content', array_column($empty_document['warnings'], 'code'), true), 'An empty body must carry an explicit template/field warning.');
+	$assert('https://example.test/?p=73&preview=true' === $empty_preview['preview_url'], 'The authorized WordPress preview link must remain available for the complete page.');
+	$assert(!str_contains($empty_document['html'], 'Rendered & safe'), 'The inline document must not invent template content for an empty post body.');
+	$GLOBALS['preview_template_post'] = $empty_post;
+	$GLOBALS['preview_template_enabled'] = true;
+	$GLOBALS['wp_query'] = 'prior-query';
+	$block_preview = $service->build_document($empty_post, array('revision' => 'template-test', 'modified_gmt' => '2026-09-07T12:00:00Z'), 'hu-HU', false);
+	$block_document = $block_preview['document'];
+	$assert('template' === $block_document['scope'], 'An empty doctor post must render its post-type block template.');
+	$assert(str_contains($block_document['html'], 'Doctor 73 – hu-HU'), 'The selected template must receive the real queried post and authored language.');
+	$assert(!in_array('empty_post_content', array_column($block_document['warnings'], 'code'), true), 'A rendered template must not be labelled as an empty page.');
+	$assert('prior-query' === $GLOBALS['wp_query'], 'Preview rendering must restore the caller query.');
+	$assert('fallback' === apply_filters('smartcloud_composer_rendered_preview_content_language', 'fallback'), 'Template rendering must clean up its language context.');
+	file_put_contents($GLOBALS['preview_fixture_root'] . '/classic-doctor.php', '<?php echo "<section class=\\"classic-doctor\\">Classic doctor " . $GLOBALS["post"]->ID . "</section>";');
+	$GLOBALS['preview_block_theme'] = false;
+	$classic_preview = $service->build_document($empty_post, array('revision' => 'classic-test', 'modified_gmt' => '2026-09-07T12:00:00Z'), 'hu-HU', false);
+	$assert('template' === $classic_preview['document']['scope'] && str_contains($classic_preview['document']['html'], 'Classic doctor 73'), 'A classic post-type PHP template must also render through WordPress query context.');
+	$GLOBALS['preview_template_enabled'] = false;
 
 	$abilities = (new \ReflectionClass(Abilities::class))->newInstanceWithoutConstructor();
+	$preview_schema = (new \ReflectionMethod(Abilities::class, 'rendered_preview_output_schema'))->invoke($abilities)['properties']['document'] ?? array();
+	$assert(in_array('template', $preview_schema['properties']['scope']['enum'] ?? array(), true), 'The MCP output schema must admit full WordPress template previews.');
+	$assert(isset($preview_schema['properties']['review_sha256']) && in_array('review_sha256', $preview_schema['required'] ?? array(), true), 'The MCP output schema must carry the locked review fingerprint.');
 	$field_update_schema = $abilities->semantic_field_update_schema();
 	$media_update_schema = $abilities->semantic_media_update_schema();
 	$slot_insert_schema = $abilities->semantic_slot_insert_schema();
@@ -306,7 +405,8 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(array('post_id', 'expected_revision', 'asset_id') === ($asset_schema['required'] ?? null), 'Private asset reads must rely on the exact revision instead of a mutable modification timestamp.');
 	$assert(isset($asset_schema['properties']['expected_modified_gmt']), 'The legacy asset timestamp input must remain accepted for cached preview clients.');
 	$resource_uris = array(
-		'smartcloud-agent-composer/rendered-preview-app' => 'ui://smartcloud-agent-composer/rendered-preview/v6.html',
+		'smartcloud-agent-composer/rendered-preview-app' => 'ui://smartcloud-agent-composer/rendered-preview/v7.html',
+		'smartcloud-agent-composer/rendered-preview-app-v6' => 'ui://smartcloud-agent-composer/rendered-preview/v6.html',
 		'smartcloud-agent-composer/rendered-preview-app-v5' => 'ui://smartcloud-agent-composer/rendered-preview/v5.html',
 		'smartcloud-agent-composer/rendered-preview-app-v4' => 'ui://smartcloud-agent-composer/rendered-preview/v4.html',
 		'smartcloud-agent-composer/rendered-preview-app-v3' => 'ui://smartcloud-agent-composer/rendered-preview/v3.html',
@@ -330,8 +430,8 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(str_contains($latest_app_html, "'ui/notifications/initialized'"), 'The rendered preview app must complete the MCP Apps handshake.');
 	$assert(str_contains($latest_app_html, 'attachShadow'), 'The rendered preview app must isolate site CSS in a ShadowRoot.');
 	$assert(str_contains($latest_app_html, 'smartcloud-agent-composer-get-rendered-preview-asset'), 'The rendered preview app must call the private asset helper.');
-	$assert(str_contains($latest_app_html, '[payload,payload?.result,payload?.result?.result]'), 'The preview app must prefer a top-level MCP content array over an empty compatibility result field.');
-	$assert(str_contains($latest_app_html, "asset.kind==='font'"), 'The rendered preview app must decode private font resources.');
+	$assert(str_contains($latest_app_html, 'function assetResult') && str_contains($latest_app_html, 'value.structuredContent'), 'The preview app must read the WordPress MCP structured asset payload.');
+	$assert(str_contains($latest_app_html, 'data.data_base64') && str_contains($latest_app_html, 'blob.size!==asset.byte_length'), 'The preview app must reject empty or mismatched binary assets before creating Blob URLs.');
 	$assert(str_contains($latest_app_html, 'smartcloud-preview-asset://'), 'The rendered preview app must rewrite private CSS dependency placeholders to Blob URLs.');
 	$assert(!str_contains($latest_app_html, 'expected_modified_gmt:doc.modified_gmt'), 'The preview app must not bind read-only asset delivery to a mutable timestamp.');
 	$assert(str_contains($latest_app_html, "documentKey===lastDocumentKey"), 'Duplicate host delivery channels must not start duplicate asset batches for the same preview document.');
@@ -346,9 +446,11 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(!str_contains($latest_app_html, 'ResizeObserver'), 'The preview app must not report content-driven intrinsic height changes.');
 	$assert(str_contains($latest_app_html, 'max-height:112px'), 'The preview warning list must not grow the conversation card without a bound.');
 	$assert(str_contains($latest_app_html, "content.className='wp-block-post-content'"), 'The isolated preview must recreate the WordPress content wrapper.');
+	$assert(str_contains($latest_app_html, 'doc.body_empty') && str_contains($latest_app_html, 'Open full WordPress preview'), 'An empty rendered-preview app must explain missing template content and expose the full WordPress preview.');
+	$assert(str_contains($latest_app_html, 'safePreviewUrl') && str_contains($latest_app_html, "['http:','https:']"), 'The full-preview action must accept only safe HTTP(S) destinations.');
 	$assert(str_contains($latest_app_html, 'function safeStyle'), 'Safe Gutenberg inline presentation styles must remain available in the rendered preview.');
 	$assert(str_contains($latest_app_html, 'audio,video,source,track,picture'), 'The client sanitizer must remove passive media elements that could fetch external resources.');
-	$assert(str_contains($latest_app_html, "version:'6.0.0'"), 'Every resource alias must serve the latest v6 preview app.');
+	$assert(str_contains($latest_app_html, "version:'7.0.0'"), 'Every resource alias must serve the latest v7 preview app.');
 
 	$register_approval_tools = new \ReflectionMethod(Abilities::class, 'register_publish_approval_private_abilities');
 	$register_approval_tools->invoke($abilities);
@@ -364,7 +466,10 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(array('app') === ($approval_asset_ability['meta']['mcp']['_meta']['ui']['visibility'] ?? null), 'Publication preview assets must be app-only.');
 	$approval_resource = $GLOBALS['registered_abilities']['smartcloud-agent-composer/publish-approval-app'] ?? array();
 	$approval_contents = ($approval_resource['execute_callback'])();
-	$assert('ui://smartcloud-agent-composer/publish-approval/v6.html' === ($approval_contents[0]['uri'] ?? ''), 'Publication review must use the latest versioned MCP App resource URI.');
+	$assert('ui://smartcloud-agent-composer/publish-approval/v7.html' === ($approval_contents[0]['uri'] ?? ''), 'Publication review must use the latest versioned MCP App resource URI.');
+	$approval_v6_resource = $GLOBALS['registered_abilities']['smartcloud-agent-composer/publish-approval-app-v6'] ?? array();
+	$approval_v6_contents = ($approval_v6_resource['execute_callback'])();
+	$assert('ui://smartcloud-agent-composer/publish-approval/v6.html' === ($approval_v6_contents[0]['uri'] ?? ''), 'The v6 publication review URI must remain a compatibility alias.');
 	$approval_v5_resource = $GLOBALS['registered_abilities']['smartcloud-agent-composer/publish-approval-app-v5'] ?? array();
 	$approval_v5_contents = ($approval_v5_resource['execute_callback'])();
 	$assert('ui://smartcloud-agent-composer/publish-approval/v5.html' === ($approval_v5_contents[0]['uri'] ?? ''), 'The v5 publication review URI must remain a compatibility alias.');
@@ -381,13 +486,15 @@ namespace SmartCloud\AgentComposer\Execution {
 	$approval_v1_contents = ($approval_v1_resource['execute_callback'])();
 	$assert('ui://smartcloud-agent-composer/publish-approval/v1.html' === ($approval_v1_contents[0]['uri'] ?? ''), 'The v1 publication review URI must remain a compatibility alias.');
 	$approval_html = (string) ($approval_contents[0]['text'] ?? '');
+	$assert(str_contains($approval_html, 'function assetResult') && str_contains($approval_html, 'data.data_base64'), 'The publication approval app must use the same JSON-safe private asset transport.');
 	$assert(str_contains($approval_html, 'Approve and publish'), 'The inline publication app must expose an explicit human approval control.');
 	$assert(str_contains($approval_html, 'function askDecision'), 'The first approval or rejection click must open an in-app confirmation step.');
 	$assert(str_contains($approval_html, 'function cancelConfirmation'), 'The in-app decision confirmation must remain cancellable without invoking a tool.');
 	$assert(str_contains($approval_html, 'class="confirm-backdrop"'), 'The confirmation must cover the approval card as an in-app modal layer.');
 	$assert(str_contains($approval_html, 'aria-modal="true"'), 'The confirmation layer must expose modal dialog semantics to assistive technology.');
 	$assert(str_contains($approval_html, "event.key==='Escape'"), 'The in-app modal must support keyboard cancellation.');
-	$assert(str_contains($approval_html, 'No body content'), 'An empty draft body must render an explicit approval-preview empty state.');
+	$assert(str_contains($approval_html, 'No saved body content'), 'An empty draft body must render an explicit approval-preview empty state.');
+	$assert(str_contains($approval_html, 'not a locked approval snapshot') && str_contains($approval_html, 'Open full WordPress preview'), 'Approval review must expose the full WordPress preview without claiming it is the locked inline snapshot.');
 	$assert(str_contains($approval_html, 'hasRenderableBody'), 'The approval app must distinguish an empty body from text or visual HTML content.');
 	$assert(str_contains($approval_html, "approve.addEventListener('click',()=>askDecision('approve'))"), 'The primary publish button must not invoke the private decision helper directly.');
 	$assert(str_contains($approval_html, "reject.addEventListener('click',()=>askDecision('reject'))"), 'The primary reject button must not invoke the private decision helper directly.');
@@ -403,7 +510,7 @@ namespace SmartCloud\AgentComposer\Execution {
 	$assert(str_contains($approval_html, 'document.fonts?.ready'), 'The approval app must wait for font loading before revealing the exact revision.');
 	$assert(str_contains($approval_html, "preview.dataset.ready='true'"), 'The approval app must reveal the exact revision only after its assets settle.');
 	$assert(!str_contains($approval_html, 'ResizeObserver'), 'The approval app must not report content-driven intrinsic height changes.');
-	$assert(str_contains($approval_html, "version:'6.0.0'"), 'Every publication review resource alias must serve the latest v6 approval UI.');
+	$assert(str_contains($approval_html, "version:'7.0.0'"), 'Every publication review resource alias must serve the latest v7 approval UI.');
 
 	foreach (glob($preview_fixture_root . '/assets/*') ?: array() as $fixture) {
 		@unlink($fixture);

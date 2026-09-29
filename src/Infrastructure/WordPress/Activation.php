@@ -9,7 +9,7 @@ use SmartCloud\AgentComposer\Infrastructure\Persistence\PublishApprovalTable;
 
 final class Activation {
 	private const ROLE_SCHEMA_VERSION = '8';
-	private const DB_SCHEMA_VERSION = '3';
+	private const DB_SCHEMA_VERSION = '4';
 	public const ROLE                = 'smartcloud_agent';
 	public const CAP_USE             = 'smartcloud_agent_use';
 	public const CAP_VIEW_STATUS     = 'smartcloud_composer_view_status';

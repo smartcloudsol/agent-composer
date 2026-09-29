@@ -53,6 +53,7 @@ final class PublishApprovalService {
 			'post_id'            => $post_id,
 			'revision'           => (string) $preview['revision'],
 			'content_hash'       => $content_hash,
+			'rendered_hash'      => (string) ( $rendered['document']['review_sha256'] ?? '' ),
 			'assigned_principal' => $this->drafts->assigned_principal_id( $post_id ),
 			'assigned_user_id'   => absint( get_post_meta( $post_id, Draft_Service::ASSIGNED_AGENT_META, true ) ),
 			'requester_principal'=> $actor->principal_id(),
@@ -67,6 +68,7 @@ final class PublishApprovalService {
 			throw new Execution_Exception( 'publish_request_failed', 'The publish approval request could not be stored.' );
 		}
 		$result = $this->public_record( $this->table->find( $uuid ) ?? array() );
+		$result['preview_url'] = (string) ( $rendered['preview_url'] ?? '' );
 		$result['validation'] = (array) ( $rendered['validation'] ?? array() );
 		$result['document'] = (array) ( $rendered['document'] ?? array() );
 		$audit_context = $this->public_record( $this->table->find( $uuid ) ?? array() );
@@ -133,8 +135,7 @@ final class PublishApprovalService {
 
 	public function review( string $uuid, string $token ): array {
 		$row = $this->authorized_row( $uuid, $token );
-		list( $post, $preview ) = $this->validated_state( $row );
-		$document = $this->previews->build_document( $post, $preview, (string) get_post_meta( $post->ID, Draft_Service::CONTENT_LANGUAGE_META, true ), false );
+		list( $post, $preview, $document ) = $this->validated_state( $row );
 		$document['document']['approval_stylesheets'] = array();
 		foreach ( (array) ( $document['document']['assets'] ?? array() ) as $asset ) {
 			if ( is_array( $asset ) && 'stylesheet' === ( $asset['kind'] ?? '' ) && ! empty( $asset['asset_id'] ) ) {
@@ -148,8 +149,7 @@ final class PublishApprovalService {
 	/** @return array{kind:string,mime_type:string,content:string} */
 	public function asset( string $uuid, string $token, string $asset_id ): array {
 		$row = $this->authorized_row( $uuid, $token );
-		list( $post, $preview ) = $this->validated_state( $row );
-		$this->previews->build_document( $post, $preview, (string) get_post_meta( $post->ID, Draft_Service::CONTENT_LANGUAGE_META, true ), false );
+		$this->validated_state( $row );
 		return $this->previews->built_asset_payload( $asset_id );
 	}
 
@@ -157,8 +157,7 @@ final class PublishApprovalService {
 	public function asset_from_app( string $uuid, string $token, string $asset_id ): array {
 		$row = $this->authorized_row( $uuid, $token );
 		$this->assert_app_actor( $row, 'This approval preview belongs to a different authenticated Publisher session.' );
-		list( $post, $preview ) = $this->validated_state( $row );
-		$this->previews->build_document( $post, $preview, (string) get_post_meta( $post->ID, Draft_Service::CONTENT_LANGUAGE_META, true ), false );
+		$this->validated_state( $row );
 		return $this->previews->built_asset_payload( $asset_id );
 	}
 
@@ -210,6 +209,7 @@ final class PublishApprovalService {
 			$this->table->decide( $uuid, 'approving', 'invalidated', $approver );
 			throw new Execution_Exception( 'approval_invalidated', 'The draft or its active contract changed. Create a new publish request.' );
 		}
+		$this->assert_rendered_hash( $row, $post, $preview, 'approving', $approver );
 		$result = wp_update_post( array( 'ID' => $post_id, 'post_status' => 'publish' ), true );
 		if ( is_wp_error( $result ) ) {
 			$this->table->decide( $uuid, 'approving', 'invalidated', $approver );
@@ -262,7 +262,7 @@ final class PublishApprovalService {
 		return rtrim( strtr( base64_encode( $bytes ), '+/', '-_' ), '=' );
 	}
 
-	/** @return array{0:\WP_Post,1:array<string,mixed>} */
+	/** @return array{0:\WP_Post,1:array<string,mixed>,2:array<string,mixed>} */
 	private function validated_state( array $row ): array {
 		$post = get_post( (int) $row['post_id'] );
 		if ( ! $post instanceof \WP_Post ) {
@@ -275,7 +275,23 @@ final class PublishApprovalService {
 			$this->table->decide( (string) $row['request_uuid'], 'pending', 'invalidated', '' );
 			throw new Execution_Exception( 'approval_invalidated', 'The draft or its active contract changed. Create a new publish request.' );
 		}
-		return array( $post, $preview );
+		return array( $post, $preview, $this->assert_rendered_hash( $row, $post, $preview, 'pending', '' ) );
+	}
+
+	private function assert_rendered_hash( array $row, \WP_Post $post, array $preview, string $state, string $approver ): array {
+		$rendered = $this->previews->build_document(
+			$post,
+			$preview,
+			(string) get_post_meta( $post->ID, Draft_Service::CONTENT_LANGUAGE_META, true ),
+			false
+		);
+		$expected = (string) ( $row['rendered_hash'] ?? '' );
+		$actual = (string) ( $rendered['document']['review_sha256'] ?? '' );
+		if ( '' === $expected || ! hash_equals( $expected, $actual ) ) {
+			$this->table->decide( (string) $row['request_uuid'], $state, 'invalidated', $approver );
+			throw new Execution_Exception( 'approval_preview_changed', 'The WordPress-rendered page changed after the approval request. Create a new request and inspect its current preview.' );
+		}
+		return $rendered;
 	}
 
 	private function public_record( array $row ): array {

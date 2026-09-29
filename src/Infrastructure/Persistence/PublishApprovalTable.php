@@ -19,6 +19,7 @@ final class PublishApprovalTable {
 			post_id bigint(20) unsigned NOT NULL,
 			revision varchar(64) NOT NULL,
 			content_hash char(64) NOT NULL,
+			rendered_hash char(64) NOT NULL DEFAULT '',
 			assigned_principal varchar(96) NOT NULL DEFAULT '',
 			assigned_user_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			requester_principal varchar(96) NOT NULL,
@@ -41,7 +42,7 @@ final class PublishApprovalTable {
 		return false !== $wpdb->insert( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- This plugin owns the publish-approval table.
 			self::name(),
 			$row,
-			array( '%s', '%d', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' )
+			array( '%s', '%d', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s' )
 		);
 	}
 

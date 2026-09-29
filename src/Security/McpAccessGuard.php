@@ -243,6 +243,12 @@ final class McpAccessGuard {
 
 	public function capability_for_name( string $name ): string {
 		$name = strtolower( str_replace( '_', '-', $name ) );
+		if ( ! str_starts_with( $name, Abilities::PREFIX ) ) {
+			$external = apply_filters( 'smartcloud_agent_composer_mcp_external_ability_capability', null, $name );
+			if ( in_array( $external, array( 'read', 'draft', 'propose', 'request_publish', 'publish_media' ), true ) ) {
+				return $external;
+			}
+		}
 		if ( in_array( $name, array( 'smartcloud-static-publisher/list-targets', 'smartcloud-static-publisher/list-content-sync-rules', 'smartcloud-static-publisher/get-job-status' ), true ) ) { return 'read'; }
 		if ( str_contains( $name, 'upload-media-asset' ) ) { return 'publish_media'; }
 		if ( str_contains( $name, 'request-publish' ) || str_contains( $name, 'publishable-draft' ) || str_contains( $name, 'publish-approval' ) ) { return 'request_publish'; }

@@ -46,6 +46,9 @@ namespace {
 				'INVALID EXTERNAL ABILITY',
 			) );
 		}
+		if ( 'smartcloud_agent_composer_mcp_resource_names' === $hook ) {
+			return array( 'gasztroklinika-content-model/get-price-approval-app', 'gasztroklinika-content-model/get-price-approval-app', 'INVALID RESOURCE' );
+		}
 		return $value;
 	}
 }
@@ -129,6 +132,13 @@ namespace {
 	}
 
 	$names = $adapter->arguments[9] ?? array();
+	$resources = $adapter->arguments[10] ?? array();
+	if ( ! in_array( 'gasztroklinika-content-model/get-price-approval-app', $resources, true )
+		|| in_array( 'gasztroklinika-content-model/get-price-approval-app', $names, true )
+		|| 1 !== count( array_keys( $resources, 'gasztroklinika-content-model/get-price-approval-app', true ) )
+		|| in_array( 'INVALID RESOURCE', $resources, true ) ) {
+		throw new RuntimeException( 'Site-owned MCP Apps resources must be validated, deduplicated, and kept separate from tools.' );
+	}
 	foreach ( array(
 		'smartcloud-agent-composer/get-contract',
 		'smartcloud-agent-composer/get-document',
@@ -173,8 +183,8 @@ namespace {
 		throw new RuntimeException( 'Composer MCP admitted a malformed external Ability name.' );
 	}
 	$server_version = (string) ( $adapter->arguments[5] ?? '' );
-	if ( ! str_contains( $server_version, '+surface.pattern-instances.1' ) ) {
-		throw new RuntimeException( 'Composer MCP server version is missing the Publisher handoff surface cachebuster.' );
+	if ( ! str_contains( $server_version, '+surface.preview-assets.1' ) ) {
+		throw new RuntimeException( 'Composer MCP server version is missing the preview asset transport cachebuster.' );
 	}
 
 	$GLOBALS['composer_mcp_abilities_action_state'] = 'before';
