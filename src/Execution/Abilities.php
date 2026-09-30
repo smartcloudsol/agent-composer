@@ -6,6 +6,7 @@ namespace SmartCloud\AgentComposer\Execution;
 use SmartCloud\AgentComposer\Integration\Mcp\ComposerMcpServer;
 use SmartCloud\AgentComposer\Security\McpAccessGuard;
 use SmartCloud\AgentComposer\Security\PublishApprovalService;
+use SmartCloud\AgentComposer\Security\ProposalApprovalService;
 
 final class Abilities {
 	public const CATEGORY = 'smartcloud-agent-composer';
@@ -32,6 +33,7 @@ final class Abilities {
 	private Bulk_Blueprint_Migration_Service $bulk_migrations;
 	private ?McpAccessGuard $access_guard;
 	private ?PublishApprovalService $publish_approvals;
+	private ?ProposalApprovalService $proposal_approvals;
 
 	public function __construct(
 		Config_Repository $config,
@@ -53,7 +55,8 @@ final class Abilities {
 		Blueprint_Migration_Service $migrations,
 		Bulk_Blueprint_Migration_Service $bulk_migrations,
 		?McpAccessGuard $access_guard = null,
-		?PublishApprovalService $publish_approvals = null
+		?PublishApprovalService $publish_approvals = null,
+		?ProposalApprovalService $proposal_approvals = null
 	) {
 		$this->config    = $config;
 		$this->drafts    = $drafts;
@@ -75,6 +78,7 @@ final class Abilities {
 		$this->bulk_migrations = $bulk_migrations;
 		$this->access_guard = $access_guard;
 		$this->publish_approvals = $publish_approvals;
+		$this->proposal_approvals = $proposal_approvals;
 	}
 
 	public static function names(): array {
@@ -122,6 +126,10 @@ final class Abilities {
 			self::PREFIX . 'merge-content-translation-groups',
 			self::PREFIX . 'create-content-proposal',
 			self::PREFIX . 'submit-content-proposal',
+			self::PREFIX . 'request-proposal-approval',
+			self::PREFIX . 'open-proposal-approval',
+			self::PREFIX . 'get-proposal-approval-asset',
+			self::PREFIX . 'decide-proposal-approval',
 			self::PREFIX . 'insert-or-update-blocks',
 			self::PREFIX . 'inspect-draft-for-adoption',
 			self::PREFIX . 'adopt-content-draft',
@@ -153,6 +161,7 @@ final class Abilities {
 			self::PREFIX . 'rendered-preview-app-v2',
 			self::PREFIX . 'rendered-preview-app-v1',
 			self::PREFIX . 'publish-approval-app',
+			self::PREFIX . 'proposal-approval-app',
 			self::PREFIX . 'publish-approval-app-v7',
 			self::PREFIX . 'publish-approval-app-v6',
 			self::PREFIX . 'publish-approval-app-v5',
@@ -696,6 +705,25 @@ final class Abilities {
 			);
 			$this->register_publish_approval_private_abilities();
 			$this->register_publish_approval_resource();
+		}
+		if ( null !== $this->proposal_approvals ) {
+			$this->register_ability(
+				'request-proposal-approval',
+				'Request human update-proposal approval',
+				'Publisher-only request for a short-lived human review of a submitted published-content update proposal. A proposal_id is sufficient; Composer locks its exact revision and WordPress-rendered HTML preview. The protected inline app lets the human approve the merge, request changes, or reject. This request never merges content, and the model cannot invoke the decision tool.',
+				$this->proposal_approval_request_schema(),
+				array( $this, 'request_proposal_approval' ),
+				false,
+				null,
+				array( '_meta' => array(
+					'ui' => array( 'resourceUri' => ComposerMcpServer::PROPOSAL_APPROVAL_RESOURCE_URI ),
+					'openai/outputTemplate' => ComposerMcpServer::PROPOSAL_APPROVAL_RESOURCE_URI,
+					'openai/toolInvocation/invoking' => 'Preparing update review…',
+					'openai/toolInvocation/invoked' => 'Update review ready',
+				) )
+			);
+			$this->register_proposal_approval_private_abilities();
+			$this->register_proposal_approval_resource();
 		}
 		$this->register_rendered_preview_asset_ability();
 		$this->register_rendered_preview_resource();
@@ -1362,6 +1390,48 @@ final class Abilities {
 		);
 	}
 
+	public function request_proposal_approval( array $input ): array|\WP_Error {
+		return $this->execute(
+			'request-proposal-approval',
+			$input,
+			fn(): array => null !== $this->proposal_approvals
+				? $this->proposal_approvals->request( $input )
+				: throw new Execution_Exception( 'proposal_approval_unavailable', 'Update proposal approval is unavailable.' )
+		);
+	}
+
+	public function open_proposal_approval( array $input ): array|\WP_Error {
+		return $this->execute( 'open-proposal-approval', $input, fn(): array => $this->proposal_approvals->open_from_app( $input ) );
+	}
+
+	public function get_proposal_approval_asset( array $input ): array|\WP_Error {
+		return $this->execute( 'get-proposal-approval-asset', $input, function () use ( $input ): array {
+			$asset = $this->proposal_approvals->asset_from_app(
+				(string) $input['id'], (string) $input['token'], (string) $input['asset_id']
+			);
+			return Rendered_Preview_Service::transport_asset_payload(
+				(string) $input['asset_id'], (string) $asset['kind'], (string) $asset['mime_type'], (string) $asset['content']
+			);
+		} );
+	}
+
+	public function decide_proposal_approval( array $input ): array|\WP_Error {
+		return $this->execute( 'decide-proposal-approval', $input, fn(): array => $this->proposal_approvals->decide_from_app( $input ) );
+	}
+
+	private function proposal_approval_request_schema(): array {
+		return array(
+			'type' => 'object',
+			'properties' => array(
+				'proposal_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+				'expected_modified_gmt' => array( 'type' => 'string', 'format' => 'date-time' ),
+				'expected_revision' => array( 'type' => 'string', 'format' => 'uuid' ),
+			),
+			'required' => array( 'proposal_id' ),
+			'additionalProperties' => false,
+		);
+	}
+
 	public function inspect_publishable_draft( array $input ): array|\WP_Error {
 		return $this->execute(
 			'inspect-publishable-draft',
@@ -1650,6 +1720,89 @@ final class Abilities {
 		}
 	}
 
+	private function register_proposal_approval_private_abilities(): void {
+		$definitions = array(
+			'open-proposal-approval' => array( 'label' => 'Open update proposal approval session', 'schema' => $this->publish_approval_open_schema(), 'callback' => 'open_proposal_approval', 'readonly' => true ),
+			'get-proposal-approval-asset' => array( 'label' => 'Get update proposal approval asset', 'schema' => $this->publish_approval_asset_schema(), 'callback' => 'get_proposal_approval_asset', 'readonly' => true ),
+			'decide-proposal-approval' => array( 'label' => 'Decide update proposal approval', 'schema' => $this->proposal_approval_decision_schema(), 'callback' => 'decide_proposal_approval', 'readonly' => false ),
+		);
+		foreach ( $definitions as $slug => $definition ) {
+			$name = self::PREFIX . $slug;
+			if ( function_exists( 'wp_has_ability' ) && wp_has_ability( $name ) ) {
+				continue;
+			}
+			wp_register_ability( $name, array(
+				'label' => $definition['label'],
+				'description' => 'Private MCP App helper for a short-lived, exact-revision human update-proposal review.',
+				'category' => self::CATEGORY,
+				'input_schema' => $definition['schema'],
+				'execute_callback' => array( $this, $definition['callback'] ),
+				'permission_callback' => $this->permission_callback_for( $name ),
+				'meta' => array(
+					'show_in_rest' => false,
+					'mcp' => array( 'public' => false, '_meta' => array(
+						'ui' => array( 'visibility' => array( 'app' ) ),
+						'openai/visibility' => 'private',
+						'openai/widgetAccessible' => true,
+					) ),
+					'annotations' => array( 'readonly' => $definition['readonly'], 'destructive' => ! $definition['readonly'], 'idempotent' => $definition['readonly'], 'openWorldHint' => false ),
+				),
+			) );
+		}
+	}
+
+	private function proposal_approval_decision_schema(): array {
+		return array(
+			'type' => 'object',
+			'properties' => array(
+				'id' => array( 'type' => 'string', 'format' => 'uuid' ),
+				'token' => array( 'type' => 'string', 'pattern' => '^[A-Za-z0-9_-]{43}$' ),
+				'decision' => array( 'type' => 'string', 'enum' => array( 'approve', 'request-changes', 'reject' ) ),
+				'reason' => array( 'type' => 'string', 'maxLength' => 1000 ),
+				'confirm_decision' => array( 'type' => 'boolean', 'enum' => array( true ) ),
+			),
+			'required' => array( 'id', 'token', 'decision', 'confirm_decision' ),
+			'additionalProperties' => false,
+		);
+	}
+
+	private function register_proposal_approval_resource(): void {
+		$name = self::PREFIX . 'proposal-approval-app';
+		if ( function_exists( 'wp_has_ability' ) && wp_has_ability( $name ) ) {
+			return;
+		}
+		$uri = ComposerMcpServer::PROPOSAL_APPROVAL_RESOURCE_URI;
+		wp_register_ability( $name, array(
+			'label' => 'Update proposal approval app',
+			'description' => 'MCP Apps UI for a revision-bound human merge, change request, or rejection.',
+			'category' => self::CATEGORY,
+			'output_schema' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'additionalProperties' => true ) ),
+			'execute_callback' => fn( array $input = array() ): array => $this->proposal_approval_resource( $input ),
+			'permission_callback' => $this->permission_callback_for( $name ),
+			'meta' => array( 'show_in_rest' => false, 'mcp' => array(
+				'public' => false,
+				'type' => 'resource',
+				'uri' => $uri,
+				'name' => 'Composer update proposal approval',
+				'title' => 'Composer update proposal approval',
+				'description' => 'Displays the WordPress-rendered proposal and human-only review actions.',
+				'mimeType' => 'text/html;profile=mcp-app',
+				'_meta' => array( 'ui' => $this->publish_approval_ui_meta() ),
+				'annotations' => array( 'audience' => array( 'user' ), 'priority' => 1.0 ),
+			) ),
+		) );
+	}
+
+	public function proposal_approval_resource( array $input = array() ): array {
+		unset( $input );
+		return array( array(
+			'uri' => ComposerMcpServer::PROPOSAL_APPROVAL_RESOURCE_URI,
+			'mimeType' => 'text/html;profile=mcp-app',
+			'text' => $this->proposal_approval_app_html(),
+			'_meta' => array( 'ui' => $this->publish_approval_ui_meta() ),
+		) );
+	}
+
 	public function publish_approval_resource( array $input = array() ): array {
 		return $this->publish_approval_resource_for_uri( ComposerMcpServer::PUBLISH_APPROVAL_RESOURCE_URI, $input );
 	}
@@ -1695,6 +1848,23 @@ async function render(payload){const data=resultData(payload);if(!data?.document
 function askDecision(decision){if(!current?.approval_token)return;confirmationTrigger=document.activeElement;pendingDecision=decision;const publishing=decision==='approve';confirmTitle.textContent=publishing?'Confirm publication':'Confirm rejection';confirmCopy.textContent=publishing?'Publish this exact locked revision now? This cannot be undone from this approval card.':'Reject this publication request? The draft will remain unpublished and unchanged.';confirmDecision.textContent=publishing?'Confirm publication':'Confirm rejection';confirmDecision.className='confirm-action '+(publishing?'approve':'reject');confirmation.hidden=false;document.body.dataset.modal='true';approve.disabled=reject.disabled=true;confirmDecision.disabled=cancelDecision.disabled=false;confirmDecision.focus()}function cancelConfirmation(){if(cancelDecision.disabled)return;pendingDecision=null;confirmation.hidden=true;document.body.removeAttribute('data-modal');if(current?.approval_token)approve.disabled=reject.disabled=false;if(confirmationTrigger instanceof HTMLElement)confirmationTrigger.focus();confirmationTrigger=null}
 async function decide(decision){if(!current?.approval_token||decision!==pendingDecision)return;confirmDecision.disabled=cancelDecision.disabled=true;message.classList.remove('error');message.textContent=decision==='approve'?'Publishing the locked revision…':'Rejecting the publication request…';try{const response=await callTool('smartcloud-agent-composer-decide-publish-approval',{id:current.id,token:current.approval_token,decision,confirm_decision:true});const data=resultData(response)||response?.result?.result||response;const state=data?.status||data?.result?.status;if(!['approved','rejected'].includes(state))throw new Error('The decision was not accepted.');current={...current,...data,approval_token:null,approval_url:null};pendingDecision=null;confirmationTrigger=null;confirmation.hidden=true;document.body.removeAttribute('data-modal');showStatus(state);fallback.hidden=true;fullPreview.hidden=true;message.textContent=statusMessage(state)}catch(error){confirmDecision.disabled=cancelDecision.disabled=false;message.classList.add('error');message.textContent=error?.message||'The decision could not be applied.'}}
 approve.addEventListener('click',()=>askDecision('approve'));reject.addEventListener('click',()=>askDecision('reject'));cancelDecision.addEventListener('click',cancelConfirmation);confirmDecision.addEventListener('click',()=>decide(pendingDecision));confirmation.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();cancelConfirmation();return}if(event.key!=='Tab')return;const first=cancelDecision;const last=confirmDecision;if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus()}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}});fullPreview.addEventListener('click',()=>openWordPressPreview(current?.preview_url));fallback.addEventListener('click',()=>{if(!current?.approval_url)return;if(window.openai?.openExternal)window.openai.openExternal({href:current.approval_url});else window.open(current.approval_url,'_blank','noopener,noreferrer')});root.addEventListener('click',event=>{if(event.target.closest('a'))event.preventDefault()},{capture:true});window.addEventListener('pagehide',clearBlobs,{passive:true});window.addEventListener('message',event=>{if(event.source!==window.parent)return;const msg=event.data;if(!msg||msg.jsonrpc!=='2.0')return;if(msg.id!==undefined&&pending.has(msg.id)){const waiter=pending.get(msg.id);pending.delete(msg.id);msg.error?waiter.reject(new Error(msg.error.message||'MCP Apps request failed')):waiter.resolve(msg.result);return}if(msg.method==='ui/notifications/tool-result')render(msg.params)},{passive:true});setAppHeight(window.openai?.maxHeight);if(window.openai?.toolOutput)render(window.openai.toolOutput);window.addEventListener('openai:set_globals',event=>{const globals=event.detail?.globals||{};if(globals.maxHeight!==undefined)setAppHeight(globals.maxHeight);if(globals.toolOutput!==undefined)render(globals.toolOutput)},{passive:true});(async()=>{try{await request('ui/initialize',{appInfo:{name:'Composer publication approval',version:'8.0.0'},appCapabilities:{tools:{}},protocolVersion:'2026-01-26'});notify('ui/notifications/initialized')}catch(error){message.textContent='The approval host bridge is unavailable.'}})();
+</script></body></html>
+HTML;
+	}
+
+	private function proposal_approval_app_html(): string {
+		return <<<'HTML'
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+:root{color-scheme:light dark;font:14px/1.45 system-ui,sans-serif}html,body{margin:0;min-height:0;overflow:hidden}body{padding:16px;background:transparent;color:CanvasText}.app{box-sizing:border-box;height:var(--app-height,680px);display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:12px;overflow:hidden}.header{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.header h2{margin:0;font-size:18px}.status{padding:3px 8px;border-radius:999px;background:color-mix(in srgb,#00a32a 18%,Canvas);font-size:12px;font-weight:700}.status[data-status="rejected"],.status[data-status="invalidated"],.status[data-status="expired"]{background:color-mix(in srgb,#b32d2e 16%,Canvas)}.notice{margin:8px 0;padding:8px 10px;border-left:4px solid #dba617;background:color-mix(in srgb,#dba617 12%,Canvas)}.meta{display:flex;flex-wrap:wrap;gap:8px;color:GrayText}.preview{min-height:0;contain:layout paint style;isolation:isolate;overflow:auto;border:1px solid color-mix(in srgb,CanvasText 16%,transparent);border-radius:12px;background:Canvas}.preview[data-ready="false"]{visibility:hidden}.actions,.confirm-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}button{border:0;border-radius:7px;padding:9px 14px;font-weight:700;cursor:pointer}button:disabled{cursor:not-allowed;opacity:.55}.approve{background:#00a32a;color:white}.reject{color:#b32d2e}.changes{color:#8a6100}.link{margin-right:auto;color:LinkText;background:transparent;text-decoration:underline}.message{min-height:1.45em;margin-top:6px;color:GrayText}.error{color:#b32d2e}.dialog-backdrop{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:color-mix(in srgb,CanvasText 38%,transparent)}.dialog{box-sizing:border-box;width:min(480px,100%);padding:18px;border:1px solid color-mix(in srgb,#dba617 55%,Canvas);border-radius:12px;background:Canvas;box-shadow:0 18px 48px color-mix(in srgb,CanvasText 28%,transparent)}.dialog strong{display:block;font-size:16px}.dialog p{margin:8px 0}.dialog label{display:block;margin:12px 0 4px}textarea{box-sizing:border-box;width:100%;min-height:90px;resize:vertical;padding:8px;background:Canvas;color:CanvasText;border:1px solid GrayText;border-radius:6px}[hidden]{display:none!important}
+</style></head><body><div id="app" class="app"><section><header class="header"><div><h2 id="title">Update proposal review</h2><div id="subtitle"></div></div><span id="status" class="status">Pending</span></header><p class="notice">WordPress generated this preview with the selected post-type template and current data. The decision rechecks the exact proposal revision, rendered preview, source, and Blueprint before applying a merge.</p><div id="meta" class="meta"></div></section><main id="preview" class="preview" data-ready="false" aria-busy="true"></main><footer><div class="actions"><button id="full-preview" class="link" type="button" hidden>Open full WordPress preview</button><button id="reject" class="reject" type="button">Reject</button><button id="changes" class="changes" type="button">Request changes</button><button id="approve" class="approve" type="button">Approve merge</button></div><div id="message" class="message" aria-live="polite"></div></footer><section id="confirmation" class="dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-title" hidden><div class="dialog"><strong id="confirm-title"></strong><p id="confirm-copy"></p><label id="reason-label" for="reason" hidden>Reason for the author</label><textarea id="reason" maxlength="1000" hidden></textarea><div class="confirm-actions"><button id="cancel" type="button">Cancel</button><button id="confirm" type="button"></button></div></div></section></div><script>
+const app=document.getElementById('app'),preview=document.getElementById('preview'),root=preview.attachShadow({mode:'open'}),title=document.getElementById('title'),subtitle=document.getElementById('subtitle'),statusEl=document.getElementById('status'),meta=document.getElementById('meta'),message=document.getElementById('message'),approve=document.getElementById('approve'),changes=document.getElementById('changes'),reject=document.getElementById('reject'),fullPreview=document.getElementById('full-preview'),confirmation=document.getElementById('confirmation'),confirmTitle=document.getElementById('confirm-title'),confirmCopy=document.getElementById('confirm-copy'),reason=document.getElementById('reason'),reasonLabel=document.getElementById('reason-label'),cancel=document.getElementById('cancel'),confirm=document.getElementById('confirm');const pending=new Map();let requestId=1,generation=0,current=null,pendingDecision=null,lastKey='';const chromeCss=':host{display:block;padding:clamp(16px,4vw,40px);color:CanvasText;background:Canvas}:host([dir="rtl"]){direction:rtl}body.smartcloud-composer-preview-document{box-sizing:border-box;width:100%;height:auto!important;overflow:visible!important}img{max-width:100%;height:auto}table{display:block;max-width:100%;overflow:auto}a{color:LinkText}';
+function post(value){window.parent.postMessage(value,'*')}function request(method,params){const id=requestId++;post({jsonrpc:'2.0',id,method,params});return new Promise((resolve,reject)=>pending.set(id,{resolve,reject}))}function notify(method,params){post({jsonrpc:'2.0',method,...(params===undefined?{}:{params})})}function height(value){const n=Number(value);app.style.setProperty('--app-height',(Number.isFinite(n)&&n>0?Math.min(760,Math.max(320,n-32)):680)+'px')}function dataOf(payload){const value=payload?.structuredContent??payload;return value?.document?value:(value?.result??value)}async function callTool(name,args){return window.openai?.callTool?window.openai.callTool(name,args):request('tools/call',{name,arguments:args})}
+function sanitize(html){const parsed=new DOMParser().parseFromString(String(html||''),'text/html');parsed.querySelectorAll('script,iframe,object,embed,base,meta,link,style,form,input,button,textarea,select,audio,video,source,track,picture').forEach(node=>node.remove());parsed.querySelectorAll('*').forEach(node=>{for(const attr of [...node.attributes])if(attr.name.toLowerCase().startsWith('on')||['srcdoc','srcset','poster'].includes(attr.name.toLowerCase()))node.removeAttribute(attr.name)});const fragment=document.createDocumentFragment();fragment.append(...parsed.body.childNodes);return fragment}function safeUrl(value){try{const url=new URL(String(value||''));return ['http:','https:'].includes(url.protocol)&&!url.username&&!url.password?url.href:''}catch{return''}}function openPreview(value){const url=safeUrl(value);if(!url)return;if(window.openai?.openExternal)window.openai.openExternal({href:url});else window.open(url,'_blank','noopener,noreferrer')}function showStatus(value){const state=String(value||'pending').toLowerCase();statusEl.textContent=state.charAt(0).toUpperCase()+state.slice(1);statusEl.dataset.status=state;return state}function statusMessage(state){return state==='approved'?'The proposal was merged.':state==='changes-requested'?'The proposal was returned for changes.':state==='rejected'?'The proposal was rejected.':state==='expired'?'This approval request expired.':state==='invalidated'?'The proposal or preview changed. Request a new review.':''}
+function assetData(input){let value=input;for(let i=0;i<6&&value;i++){if(value.asset_id)return value;if(value.structuredContent){value=value.structuredContent;continue}if(value.result){value=value.result;continue}const text=value.content?.find(item=>item.type==='text')?.text;if(text){try{value=JSON.parse(text);continue}catch{}}break}throw new Error('Preview asset response is missing.')}async function loadAsset(asset,session){const response=await callTool('smartcloud-agent-composer-get-proposal-approval-asset',{id:session.id,token:session.approval_token,asset_id:asset.asset_id});const data=assetData(response);if(data.asset_id!==asset.asset_id||data.kind!==asset.kind||data.mime_type!==asset.mime_type)throw new Error('Preview asset changed.');if(asset.kind==='stylesheet'){if(typeof data.css!=='string'||!data.css)throw new Error('Stylesheet asset is missing.');return{asset,css:data.css}}if(typeof data.data_base64!=='string'||!data.data_base64||data.byte_length!==asset.byte_length||data.sha256!==asset.sha256)throw new Error('Binary asset changed.');return{asset,url:'data:'+data.mime_type+';base64,'+data.data_base64}}async function loadPool(assets,session,token){const results=new Array(assets.length);let cursor=0;async function worker(){while(cursor<assets.length){const index=cursor++;try{results[index]=await loadAsset(assets[index],session)}catch(error){results[index]={asset:assets[index],error}}}}await Promise.all(Array.from({length:Math.min(2,assets.length)},worker));return token===generation?results:[]}
+async function render(payload){const data=dataOf(payload);if(!data?.document||!data?.id)return;const doc=data.document,key=[data.id,doc.revision,doc.sha256].join('|');if(key===lastKey)return;lastKey=key;const token=++generation;preview.dataset.ready='false';preview.setAttribute('aria-busy','true');approve.disabled=changes.disabled=reject.disabled=true;fullPreview.hidden=true;confirmation.hidden=true;message.classList.remove('error');message.textContent='Opening the protected review session…';try{const session=dataOf(await callTool('smartcloud-agent-composer-open-proposal-approval',{id:data.id}));if(token!==generation)return;if(!session?.status)throw new Error('The approval session could not be opened.');current={...data,...session};const state=showStatus(current.status),active=state==='pending'&&Boolean(current.approval_token);approve.disabled=!active||Boolean(data.conflict)||!data.validation?.valid;changes.disabled=!active||Boolean(data.conflict);reject.disabled=!active;fullPreview.hidden=!safeUrl(data.preview_url);message.textContent=active?'':statusMessage(state)}catch(error){if(token!==generation)return;lastKey='';message.classList.add('error');message.textContent=error?.message||'The approval session could not be opened.';return}title.textContent=doc.title||'Update proposal review';subtitle.textContent='Proposal #'+data.proposal_id+' · Published source #'+data.source_post_id;meta.replaceChildren();for(const value of ['Revision: '+doc.revision,'Validation: '+(data.validation?.valid?'valid':'invalid'),data.conflict?'Source conflict — merge unavailable':'Source unchanged','Expires: '+current.expires_gmt+' UTC','Changed fields: '+(Array.isArray(data.changes)?data.changes.join(', '):'unknown')]){const span=document.createElement('span');span.textContent=value;meta.append(span)}root.replaceChildren();const base=document.createElement('style');base.textContent=chromeCss;root.append(base);const fragment=sanitize(doc.html),article=fragment.querySelector('article'),shell=document.createElement('body');shell.className=article?.getAttribute('data-smartcloud-preview-body-classes')||'';shell.classList.add('smartcloud-composer-preview-document');article?.removeAttribute('data-smartcloud-preview-body-classes');const site=document.createElement('div'),main=document.createElement('main'),content=document.createElement('div');site.className='wp-site-blocks';content.className='wp-block-post-content';const body=(doc.scope==='template'||!doc.body_empty)&&(String(fragment.textContent||'').trim()!==''||Boolean(fragment.querySelector('img,figure,hr,table,ul,ol,blockquote,pre,details,canvas,svg')));if(doc.scope==='template'&&body)shell.append(fragment);else{if(body)content.append(fragment);else content.textContent='No saved body content is available in this static preview.';main.append(content);site.append(main);shell.append(site)}root.append(shell);root.host.setAttribute('dir',doc.direction==='rtl'?'rtl':'ltr');const assets=current.approval_token?[...(doc.assets||[])].sort((a,b)=>(a.order||0)-(b.order||0)):[];const loaded=await loadPool(assets,current,token);if(token!==generation)return;const urls=new Map();for(const item of loaded){if(!item)continue;if(item.error){message.textContent='Some preview assets could not be loaded.';continue}if(item.url){urls.set(item.asset.asset_id,item.url);if(item.asset.kind==='image')for(const img of root.querySelectorAll('img[data-smartcloud-preview-asset="'+CSS.escape(item.asset.asset_id)+'"]'))img.src=item.url}}for(const item of loaded)if(item&&!item.error&&item.css!==undefined){let css=item.css;for(const [id,url] of urls)css=css.split('smartcloud-preview-asset://'+id).join(url);css=css.replace(/smartcloud-preview-asset:\/\/pa_[A-Za-z0-9_-]{43}/g,'data:,');const style=document.createElement('style');style.textContent=css;root.insertBefore(style,shell)}if(document.fonts?.ready)await document.fonts.ready;if(token!==generation)return;await new Promise(resolve=>requestAnimationFrame(resolve));preview.dataset.ready='true';preview.setAttribute('aria-busy','false')}
+function ask(decision){if(!current?.approval_token)return;pendingDecision=decision;const label=decision==='approve'?'Approve merge':decision==='request-changes'?'Request changes':'Reject proposal';confirmTitle.textContent=label;confirmCopy.textContent=decision==='approve'?'Merge the exact reviewed proposal into the published source? The server will revalidate it first.':'Give the author a reason for this decision.';confirm.textContent=label;reason.hidden=reasonLabel.hidden=decision==='approve';reason.value='';confirmation.hidden=false;confirm.disabled=cancel.disabled=false;confirm.focus()}function close(){if(cancel.disabled)return;pendingDecision=null;confirmation.hidden=true;if(current?.approval_token){approve.disabled=Boolean(current.conflict)||!current.validation?.valid;changes.disabled=Boolean(current.conflict);reject.disabled=false}}
+async function decide(){if(!pendingDecision||!current?.approval_token)return;const decision=pendingDecision,note=reason.value.trim();if(decision!=='approve'&&!note){reason.focus();message.classList.add('error');message.textContent='Enter a reason before deciding.';return}confirm.disabled=cancel.disabled=true;message.classList.remove('error');message.textContent='Applying the human decision…';try{const response=await callTool('smartcloud-agent-composer-decide-proposal-approval',{id:current.id,token:current.approval_token,decision,reason:note,confirm_decision:true});const data=dataOf(response)||response?.result?.result||response,state=data?.status||data?.result?.status;if(!['approved','changes-requested','rejected'].includes(state))throw new Error('The decision was not accepted.');current={...current,...data,approval_token:null};pendingDecision=null;confirmation.hidden=true;showStatus(state);approve.disabled=changes.disabled=reject.disabled=true;message.textContent=statusMessage(state)}catch(error){confirm.disabled=cancel.disabled=false;message.classList.add('error');message.textContent=error?.message||'The decision could not be applied.'}}
+approve.addEventListener('click',()=>ask('approve'));changes.addEventListener('click',()=>ask('request-changes'));reject.addEventListener('click',()=>ask('reject'));cancel.addEventListener('click',close);confirm.addEventListener('click',decide);confirmation.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();close()}});fullPreview.addEventListener('click',()=>openPreview(current?.preview_url));root.addEventListener('click',event=>{if(event.target.closest('a'))event.preventDefault()},{capture:true});window.addEventListener('message',event=>{if(event.source!==window.parent)return;const msg=event.data;if(!msg||msg.jsonrpc!=='2.0')return;if(msg.id!==undefined&&pending.has(msg.id)){const waiter=pending.get(msg.id);pending.delete(msg.id);msg.error?waiter.reject(new Error(msg.error.message||'MCP Apps request failed')):waiter.resolve(msg.result);return}if(msg.method==='ui/notifications/tool-result')render(msg.params)},{passive:true});height(window.openai?.maxHeight);if(window.openai?.toolOutput)render(window.openai.toolOutput);window.addEventListener('openai:set_globals',event=>{const globals=event.detail?.globals||{};if(globals.maxHeight!==undefined)height(globals.maxHeight);if(globals.toolOutput!==undefined)render(globals.toolOutput)},{passive:true});(async()=>{try{await request('ui/initialize',{appInfo:{name:'Composer update proposal approval',version:'1.0.0'},appCapabilities:{tools:{}},protocolVersion:'2026-01-26'});notify('ui/notifications/initialized')}catch(error){message.textContent='The approval host bridge is unavailable.'}})();
 </script></body></html>
 HTML;
 	}

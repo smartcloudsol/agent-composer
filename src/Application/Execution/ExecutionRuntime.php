@@ -38,6 +38,7 @@ use SmartCloud\AgentComposer\Execution\Taxonomy_Term_Service;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\ActiveConfigurationSource;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\AuditTable;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\PublishApprovalTable;
+use SmartCloud\AgentComposer\Infrastructure\Persistence\ProposalApprovalTable;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\WordPressConfigurationRepository;
 use SmartCloud\AgentComposer\Integration\Abilities\ExecutionAbilityAliases;
 use SmartCloud\AgentComposer\Integration\Mcp\ComposerMcpServer;
@@ -45,6 +46,7 @@ use SmartCloud\AgentComposer\Security\CognitoJwtValidator;
 use SmartCloud\AgentComposer\Security\McpAccessGuard;
 use SmartCloud\AgentComposer\Security\McpSecuritySettings;
 use SmartCloud\AgentComposer\Security\PublishApprovalService;
+use SmartCloud\AgentComposer\Security\ProposalApprovalService;
 
 final class ExecutionRuntime {
 	private readonly Ability_Provider_Registry $providers;
@@ -62,6 +64,7 @@ final class ExecutionRuntime {
 	private readonly McpAccessGuard $mcp_access;
 	private readonly McpSecuritySettings $mcp_security_settings;
 	private readonly PublishApprovalService $publish_approvals;
+	private readonly ProposalApprovalService $proposal_approvals;
 
 	public function __construct() {
 		$repository         = new WordPressConfigurationRepository();
@@ -99,8 +102,9 @@ final class ExecutionRuntime {
 		$publisher_media    = new Publisher_Media_Uploader( $config );
 		$rendered_previews  = new Rendered_Preview_Service( $this->drafts );
 		$this->publish_approvals = new PublishApprovalService( $this->drafts, $rendered_previews, $this->mcp_security_settings, new PublishApprovalTable(), $audit_table );
+		$this->proposal_approvals = new ProposalApprovalService( $this->proposals, $this->drafts, $rendered_previews, $this->mcp_security_settings, new ProposalApprovalTable(), $audit_table );
 		$semantic_documents = new Semantic_Document_Service( $config, $this->drafts, $validator, $this->providers, $this->synced_patterns );
-		$this->abilities    = new Abilities( $config, $this->drafts, $audit, $this->patterns, $this->providers, $query_loops, $content_fields, $taxonomy_terms, $slots, $remote_media, $publisher_media, $this->proposals, $this->localization, $localized_drafts, $rendered_previews, $semantic_documents, $migrations, $bulk_migrations, $this->mcp_access, $this->publish_approvals );
+		$this->abilities    = new Abilities( $config, $this->drafts, $audit, $this->patterns, $this->providers, $query_loops, $content_fields, $taxonomy_terms, $slots, $remote_media, $publisher_media, $this->proposals, $this->localization, $localized_drafts, $rendered_previews, $semantic_documents, $migrations, $bulk_migrations, $this->mcp_access, $this->publish_approvals, $this->proposal_approvals );
 		$this->aliases      = new ExecutionAbilityAliases( $this->abilities );
 		$this->previews     = new PreviewDraftService( $this->abilities );
 		$this->mcp          = new ComposerMcpServer( $this->providers, $this->localization, $config, $this->mcp_access );

@@ -89,8 +89,10 @@ function smartcloud_composer_uninstall_site(): void {
 		delete_option( (string) $option );
 	}
 
-	$table = esc_sql( $wpdb->prefix . 'smartcloud_composer_audit' );
-	$wpdb->query( "DROP TABLE IF EXISTS {$table}" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange -- The table is plugin-owned and uninstall is explicit.
+	foreach ( array( 'smartcloud_composer_audit', 'smartcloud_composer_publish_approvals', 'smartcloud_composer_proposal_approvals' ) as $owned_table ) {
+		$table = esc_sql( $wpdb->prefix . $owned_table );
+		$wpdb->query( "DROP TABLE IF EXISTS {$table}" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange -- The table is plugin-owned and uninstall is explicit.
+	}
 
 	$capabilities = array(
 		'smartcloud_agent_use',

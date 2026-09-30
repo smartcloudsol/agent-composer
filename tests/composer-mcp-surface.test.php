@@ -183,8 +183,8 @@ namespace {
 		throw new RuntimeException( 'Composer MCP admitted a malformed external Ability name.' );
 	}
 	$server_version = (string) ( $adapter->arguments[5] ?? '' );
-	if ( ! str_contains( $server_version, '+surface.preview-csp.1' ) ) {
-		throw new RuntimeException( 'Composer MCP server version is missing the CSP-compatible preview cachebuster.' );
+	if ( ! str_contains( $server_version, '+surface.proposal-approval.1' ) ) {
+		throw new RuntimeException( 'Composer MCP server version is missing the update-proposal approval cachebuster.' );
 	}
 
 	$GLOBALS['composer_mcp_abilities_action_state'] = 'before';
@@ -220,6 +220,7 @@ namespace {
 		'smartcloud-agent-composer/rendered-preview-app-v2',
 		'smartcloud-agent-composer/rendered-preview-app-v1',
 		'smartcloud-agent-composer/publish-approval-app',
+		'smartcloud-agent-composer/proposal-approval-app',
 		'smartcloud-agent-composer/publish-approval-app-v5',
 		'smartcloud-agent-composer/publish-approval-app-v4',
 		'smartcloud-agent-composer/publish-approval-app-v3',

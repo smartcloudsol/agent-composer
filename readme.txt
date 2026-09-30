@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.3.4
+Stable tag: 1.3.5
 License: MIT
 License URI: https://mit-license.org/
 
@@ -154,6 +154,10 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 
 == Changelog ==
 
+= 1.3.5 =
+* Update proposals: Request a protected, revision-bound human approval card from ChatGPT or another MCP Apps client after submission. The card displays the WordPress-rendered post-type preview and lets the reviewer merge, return for changes, or reject; every decision rechecks the proposal and source.
+* Shared styling: Bundle WP Suite Hub 2.5.17 and the updated shared settings so administrators can list additional absolute or site-relative stylesheet URLs for supported frontend Shadow DOM components alongside the WP Suite Theme CSS.
+
 = 1.3.4 =
 * Rendered previews: Resolve the WordPress singular template for each post type, including block templates, dynamic blocks, synced patterns, overrides, and classic PHP templates. Preserve the content-only fallback with a clear warning when a full template cannot render.
 * Publication review: Show the same template-aware rendered snapshot in the inline approval card, with a full WordPress preview link for comparison.
@@ -287,6 +291,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.3.5 =
+Restart Composer's MCP runtime and refresh client tools and resources to discover the update-proposal approval card. Composer creates its proposal-approval table automatically. Additional shared stylesheet URLs are optional; no content migration is required.
 
 = 1.3.4 =
 Restart MCP and refresh client tools and resources to load the v8 preview and publication-review cards with CSP-compatible images. Composer adds a rendered-preview hash to its approval table automatically; pending approval requests created before this update need to be requested again. No content migration is required.

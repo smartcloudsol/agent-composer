@@ -146,6 +146,9 @@ namespace {
 	security_assert(! isset($contributor_caps[\SmartCloud\AgentComposer\Infrastructure\WordPress\Activation::CAP_PUBLISH_MEDIA]), 'Contributor requests must not receive the media-publication capability.');
 	$set_actor->invoke($protected, new \SmartCloud\AgentComposer\Security\ActorContext('cognito:publisher', 'issuer', 'sub2', '', array('admins'), 'internal', array('composer.read', 'composer.draft', 'composer.propose', 'composer.publish.request'), 'publisher', 'PROTECTED', 'cognito'));
 	security_assert(true === $protected->authorize_ability('smartcloud-agent-composer/request-publish'), 'Publisher may request human approval.');
+	security_assert(true === $protected->authorize_ability('smartcloud-agent-composer/request-proposal-approval'), 'Publisher may request update-proposal approval.');
+	security_assert(true === $protected->authorize_ability('smartcloud-agent-composer/open-proposal-approval'), 'Publisher may open the private update-proposal card.');
+	security_assert(true === $protected->authorize_ability('smartcloud-agent-composer/decide-proposal-approval'), 'Publisher may use the token-bound private decision helper.');
 	security_assert(true === $protected->authorize_ability('smartcloud-agent-composer/inspect-publishable-draft'), 'Publisher may inspect another principal\'s Composer draft at the read-only publication boundary.');
 	security_assert(true === $protected->authorize_ability('smartcloud-agent-composer/open-publish-approval'), 'The authenticated Publisher may open the app-only approval session.');
 	security_assert(true === $protected->authorize_ability('smartcloud-agent-composer/decide-publish-approval'), 'The authenticated Publisher may use the app-only decision helper.');

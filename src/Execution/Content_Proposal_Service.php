@@ -370,7 +370,8 @@ final class Content_Proposal_Service {
 		return $result;
 	}
 
-	public function merge( int $proposal_id, array $input ): array {
+	/** The final flag is reserved for a token-bound human decision in the private MCP App. */
+	public function merge( int $proposal_id, array $input, bool $approved_in_app = false ): array {
 		$proposal = $this->proposal( $proposal_id );
 		if ( 'ready-for-review' !== get_post_meta( $proposal_id, self::STATE_META, true ) ) {
 			throw new Execution_Exception( 'proposal_not_ready', 'Only a ready-for-review proposal can be merged.' );
@@ -379,7 +380,7 @@ final class Content_Proposal_Service {
 		if ( (string) ( $input['confirmation'] ?? '' ) !== 'merge:' . $proposal_id . ':' . $source_id ) {
 			throw new Execution_Exception( 'proposal_merge_confirmation_required', 'The exact proposal merge confirmation is required.' );
 		}
-		if ( ! current_user_can( Activation::CAP_MERGE_PROPOSALS ) || ! current_user_can( 'edit_post', $source_id ) ) {
+		if ( ! $approved_in_app && ( ! current_user_can( Activation::CAP_MERGE_PROPOSALS ) || ! current_user_can( 'edit_post', $source_id ) ) ) {
 			throw new Execution_Exception( 'proposal_merge_denied', 'Only an authorized human editor can merge this proposal.' );
 		}
 		$source = $this->fresh_post( $source_id );
@@ -389,7 +390,7 @@ final class Content_Proposal_Service {
 		$source_post_type = $source->post_type;
 		$post_type_object = get_post_type_object( $source->post_type );
 		$publish_cap = $post_type_object instanceof \WP_Post_Type ? (string) ( $post_type_object->cap->publish_posts ?? '' ) : '';
-		if ( '' === $publish_cap || ! current_user_can( $publish_cap ) ) {
+		if ( ! $approved_in_app && ( '' === $publish_cap || ! current_user_can( $publish_cap ) ) ) {
 			throw new Execution_Exception( 'proposal_publish_denied', 'The reviewer cannot update published items of this post type.' );
 		}
 		$this->assert_proposal_token( $proposal, $input );
@@ -500,8 +501,8 @@ final class Content_Proposal_Service {
 		return $this->inspect( $proposal_id );
 	}
 
-	public function reject( int $proposal_id, string $reason, array $input ): array {
-		if ( ! current_user_can( Activation::CAP_MERGE_PROPOSALS ) ) {
+	public function reject( int $proposal_id, string $reason, array $input, bool $approved_in_app = false ): array {
+		if ( ! $approved_in_app && ! current_user_can( Activation::CAP_MERGE_PROPOSALS ) ) {
 			throw new Execution_Exception( 'proposal_reject_denied', 'Only an authorized human reviewer can reject this proposal.' );
 		}
 		$reason = sanitize_textarea_field( $reason );
@@ -523,8 +524,8 @@ final class Content_Proposal_Service {
 	}
 
 	/** Return the same review copy to its assigned agent for another editing pass. */
-	public function return_for_changes( int $proposal_id, string $reason, array $input ): array {
-		if ( ! current_user_can( Activation::CAP_MERGE_PROPOSALS ) ) {
+	public function return_for_changes( int $proposal_id, string $reason, array $input, bool $approved_in_app = false ): array {
+		if ( ! $approved_in_app && ! current_user_can( Activation::CAP_MERGE_PROPOSALS ) ) {
 			throw new Execution_Exception( 'proposal_return_denied', 'Only an authorized human reviewer can return this proposal for changes.' );
 		}
 		$reason = sanitize_textarea_field( $reason );

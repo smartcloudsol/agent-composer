@@ -11,7 +11,7 @@ use SmartCloud\AgentComposer\Security\McpAccessGuard;
 
 final class ComposerMcpServer {
 	public const SERVER_ID = 'smartcloud-agent-composer';
-	public const SURFACE_REVISION = 'preview-csp.1';
+	public const SURFACE_REVISION = 'proposal-approval.1';
 	public const HTTP_ENDPOINT = '/wp-json/mcp/smartcloud-agent-composer';
 	public const PREVIEW_RESOURCE_URI = 'ui://smartcloud-agent-composer/rendered-preview/v8.html';
 	public const PREVIEW_RESOURCE_URI_V7 = 'ui://smartcloud-agent-composer/rendered-preview/v7.html';
@@ -22,6 +22,7 @@ final class ComposerMcpServer {
 	public const PREVIEW_RESOURCE_URI_V2 = 'ui://smartcloud-agent-composer/rendered-preview/v2.html';
 	public const PREVIEW_RESOURCE_URI_V1 = 'ui://smartcloud-agent-composer/rendered-preview/v1.html';
 	public const PUBLISH_APPROVAL_RESOURCE_URI = 'ui://smartcloud-agent-composer/publish-approval/v8.html';
+	public const PROPOSAL_APPROVAL_RESOURCE_URI = 'ui://smartcloud-agent-composer/proposal-approval/v1.html';
 	public const PUBLISH_APPROVAL_RESOURCE_URI_V7 = 'ui://smartcloud-agent-composer/publish-approval/v7.html';
 	public const PUBLISH_APPROVAL_RESOURCE_URI_V6 = 'ui://smartcloud-agent-composer/publish-approval/v6.html';
 	public const PUBLISH_APPROVAL_RESOURCE_URI_V5 = 'ui://smartcloud-agent-composer/publish-approval/v5.html';
@@ -122,7 +123,7 @@ final class ComposerMcpServer {
 
 	private function create_server( object $adapter, string $id, string $label, array $names, array $resources ): void {
 		$rendered_preview_required = null === $this->config || 'required' === $this->config->get_rendered_preview_policy();
-		$publisher_routing = ' For publication handoff, a Publisher MUST use inspect-publishable-draft rather than inspect-content-item when the ordinary Composer-owned draft may belong to another principal. request-publish may then use both returned concurrency tokens, or only post_id to atomically validate and lock the current revision. Neither operation transfers assignment or grants model publication.';
+		$publisher_routing = ' For publication handoff, a Publisher MUST use inspect-publishable-draft rather than inspect-content-item when the ordinary Composer-owned draft may belong to another principal. request-publish may then use both returned concurrency tokens, or only post_id to atomically validate and lock the current revision. For a published-content update proposal, submit-content-proposal first, then use request-proposal-approval with its proposal_id to show the exact rendered revision and human merge, change-request, or reject controls. Neither handoff transfers assignment or grants model publication.';
 		$description = ( $rendered_preview_required
 			? 'Governed discovery, draft creation, and published-content proposal execution through active Composer configuration. After the final successful draft write, call get-rendered-preview with its fresh concurrency tokens and let the inline rendered HTML preview be delivered before reporting completion. For a published-content update proposal, the exact preview response supplies the rendered_preview_token required by submit-content-proposal, so previewing must happen after the last write and before submission.'
 			: 'Governed discovery, draft creation, and published-content proposal execution through active Composer configuration. Rendered HTML preview after the final successful draft write remains the recommended default. If the user explicitly asks to skip HTML preview, complete a normal draft without it or validate and submit a published-content update proposal with fresh concurrency tokens and no rendered_preview_token.' ) . $publisher_routing;

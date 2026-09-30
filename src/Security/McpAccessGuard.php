@@ -251,7 +251,7 @@ final class McpAccessGuard {
 		}
 		if ( in_array( $name, array( 'smartcloud-static-publisher/list-targets', 'smartcloud-static-publisher/list-content-sync-rules', 'smartcloud-static-publisher/get-job-status' ), true ) ) { return 'read'; }
 		if ( str_contains( $name, 'upload-media-asset' ) ) { return 'publish_media'; }
-		if ( str_contains( $name, 'request-publish' ) || str_contains( $name, 'publishable-draft' ) || str_contains( $name, 'publish-approval' ) ) { return 'request_publish'; }
+		if ( str_contains( $name, 'request-publish' ) || str_contains( $name, 'publishable-draft' ) || str_contains( $name, 'publish-approval' ) || str_contains( $name, 'proposal-approval' ) ) { return 'request_publish'; }
 		if ( preg_match( '/(?:^|[-\/])(publish|delete|trash|unpublish)(?:$|[-\/])/', $name ) ) { return 'forbidden'; }
 		$slug = str_replace( Abilities::PREFIX, '', str_replace( 'smartcloud-agent-composer-', '', $name ) );
 		if ( in_array( $slug, self::read_slugs(), true ) || str_contains( $slug, 'preview' ) || str_starts_with( $slug, 'get-' ) || str_starts_with( $slug, 'list-' ) || str_starts_with( $slug, 'inspect-' ) || str_starts_with( $slug, 'search-' ) || str_starts_with( $slug, 'validate-' ) ) {

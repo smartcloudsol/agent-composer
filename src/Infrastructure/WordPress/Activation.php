@@ -6,10 +6,11 @@ use SmartCloud\AgentComposer\Domain\Configuration\EntityType;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\AuditTable;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\WordPressConfigurationRepository;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\PublishApprovalTable;
+use SmartCloud\AgentComposer\Infrastructure\Persistence\ProposalApprovalTable;
 
 final class Activation {
 	private const ROLE_SCHEMA_VERSION = '8';
-	private const DB_SCHEMA_VERSION = '4';
+	private const DB_SCHEMA_VERSION = '5';
 	public const ROLE                = 'smartcloud_agent';
 	public const CAP_USE             = 'smartcloud_agent_use';
 	public const CAP_VIEW_STATUS     = 'smartcloud_composer_view_status';
@@ -46,6 +47,7 @@ final class Activation {
 		self::install_roles();
 		AuditTable::install();
 		PublishApprovalTable::install();
+		ProposalApprovalTable::install();
 		self::migrate_legacy_role_users();
 		self::migrate_blueprint_entity_keys();
 		update_option( 'smartcloud_composer_db_version', SMARTCLOUD_COMPOSER_VERSION, false );
@@ -59,6 +61,7 @@ final class Activation {
 		if ( (string) get_option( 'smartcloud_composer_db_schema_version', '' ) !== self::DB_SCHEMA_VERSION ) {
 			AuditTable::install();
 			PublishApprovalTable::install();
+			ProposalApprovalTable::install();
 			update_option( 'smartcloud_composer_db_schema_version', self::DB_SCHEMA_VERSION, false );
 		}
 		if ( (string) get_option( 'smartcloud_composer_db_version', '' ) !== SMARTCLOUD_COMPOSER_VERSION ) {
