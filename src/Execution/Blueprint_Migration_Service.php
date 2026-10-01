@@ -97,23 +97,40 @@ final class Blueprint_Migration_Service {
 			throw new Execution_Exception( 'migration_source_version_mismatch', 'The managed source baseline does not match this migration route.' );
 		}
 
-		$raw_blocks = parse_blocks( (string) $post->post_content );
-		try {
-			$expanded_source = $this->synced_patterns->expand_blocks( $raw_blocks, $blueprint );
-		} catch ( Execution_Exception $error ) {
-			throw new Execution_Exception( 'migration_source_pattern_invalid', 'The migration source contains an invalid synced structural pattern.' );
-		}
-		$source_validation = $this->structure->validate( (array) $migration['from_contract'], $expanded_source );
-		if ( ! $source_validation['valid'] ) {
-			throw new Execution_Exception( 'migration_source_drift', 'The source no longer matches its registered historical Structure Contract.', 0, array( 'violations' => $source_validation['errors'] ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Typed violations are returned through the API, not rendered.
+		$raw_blocks         = parse_blocks( (string) $post->post_content );
+		$refresh_operations = array_values( array_filter( (array) $migration['operations'], static fn( array $operation ): bool => 'refresh_pattern' === (string) ( $operation['type'] ?? '' ) ) );
+		$prepared_blocks    = $raw_blocks;
+		if ( empty( $refresh_operations ) ) {
+			try {
+				$expanded_source = $this->synced_patterns->expand_blocks( $raw_blocks, $blueprint );
+			} catch ( Execution_Exception $error ) {
+				throw new Execution_Exception( 'migration_source_pattern_invalid', 'The migration source contains an invalid synced structural pattern.' );
+			}
+			$source_validation = $this->structure->validate( (array) $migration['from_contract'], $expanded_source );
+			if ( ! $source_validation['valid'] ) {
+				throw new Execution_Exception( 'migration_source_drift', 'The source no longer matches its registered historical Structure Contract.', 0, array( 'violations' => $source_validation['errors'] ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Typed violations are returned through the API, not rendered.
+			}
+			$source_contract_hash = (string) $source_validation['contract_hash'];
+		} else {
+			// A shared wp_block revision replaces its former structure globally, so
+			// the historical expanded AST no longer exists. Gate this route by the
+			// stored historical contract hash and every exact per-instance pattern
+			// revision, then validate the completely refreshed target below.
+			$historical_contract = $this->structure->validate( (array) $migration['from_contract'], array() );
+			$source_contract_hash = (string) $historical_contract['contract_hash'];
+			try {
+				$prepared_blocks = $this->synced_patterns->refresh_migration_instances( $raw_blocks, $blueprint, $refresh_operations );
+			} catch ( Execution_Exception $error ) {
+				throw new Execution_Exception( 'migration_source_pattern_invalid', 'The migration source contains a synced pattern outside its exact reviewed source revision.', 0, array( 'reason' => $error->get_execution_code() ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Typed diagnostic data is returned through the API, not rendered.
+			}
 		}
 		$stored_hash = (string) ( $source_state['baseline']['contract_hash'] ?? $source_state['contract_hash'] ?? '' );
-		if ( '' === $stored_hash || ! hash_equals( $stored_hash, (string) $source_validation['contract_hash'] ) ) {
+		if ( '' === $stored_hash || ! hash_equals( $stored_hash, $source_contract_hash ) ) {
 			throw new Execution_Exception( 'migration_source_contract_hash_mismatch', 'The source baseline hash does not match the registered historical Structure Contract.' );
 		}
 
 		$rebase = $this->rebase_manifest( (array) $source_state['manifest'], $migration, (array) $blueprint['resolved_structure_contract'] );
-		$target_blocks = $this->apply_operations( $raw_blocks, $migration, $blueprint, $rebase['preserve_current_order'] );
+		$target_blocks = $this->apply_operations( $prepared_blocks, $migration, $blueprint, $rebase['preserve_current_order'] );
 		$target_content = $this->editor->project_content( (array) $blueprint['resolved_structure_contract'], serialize_blocks( $target_blocks ) );
 		$target_validation = $this->validator->validate( $page_type, $target_content, (string) $post->post_content, array( 'allow_structure_change' => true ) );
 		$target_metadata   = array();

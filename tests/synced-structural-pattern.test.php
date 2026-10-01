@@ -9,6 +9,10 @@ function wp_kses_post( string $value ): string {
 	return $value;
 }
 
+function absint( mixed $value ): int {
+	return abs( (int) $value );
+}
+
 if ( ! class_exists( 'WP_Block' ) ) {
 	class WP_Block {
 		public array $parsed_block = array();
@@ -72,6 +76,27 @@ $legacy_instance = $instance;
 unset( $legacy_instance['attrs']['metadata']['wpsuiteAgentComposer']['patternInstanceId'] );
 $upgraded_instance = $service->with_override( $legacy_instance, 'hero.title', 'content', 'Upgraded title', 'pattern-87654321' );
 $assert( 'pattern-87654321' === ( $upgraded_instance['attrs']['metadata']['wpsuiteAgentComposer']['patternInstanceId'] ?? '' ), 'The first mutation of a legacy reference must persist its compatibility pattern instance ID.' );
+
+$refresh = new ReflectionMethod( Synced_Structural_Pattern_Service::class, 'refresh_migration_block' );
+$refresh->setAccessible( true );
+$reviewed_instance = $instance;
+$reviewed_instance['attrs']['metadata']['wpsuiteAgentComposer'] += array(
+	'patternName' => 'wpsuite/hero',
+	'patternVersion' => 2,
+	'patternHash' => str_repeat( 'a', 64 ),
+);
+$refreshed_instance = $refresh->invoke(
+	$service,
+	$reviewed_instance,
+	'wpsuite/hero',
+	array( 'version' => 3 ),
+	array( 'post_id' => 42, 'hash' => str_repeat( 'b', 64 ) ),
+	array( 'from_version' => 2, 'from_hash' => 'sha256:' . str_repeat( 'a', 64 ) )
+);
+$assert( 3 === ( $refreshed_instance['attrs']['metadata']['wpsuiteAgentComposer']['patternVersion'] ?? 0 ), 'A reviewed migration must refresh the synced-pattern version attestation.' );
+$assert( str_repeat( 'b', 64 ) === ( $refreshed_instance['attrs']['metadata']['wpsuiteAgentComposer']['patternHash'] ?? '' ), 'A reviewed migration must refresh the synced-pattern content hash attestation.' );
+$assert( 'pattern-12345678' === ( $refreshed_instance['attrs']['metadata']['wpsuiteAgentComposer']['patternInstanceId'] ?? '' ), 'A synced-pattern revision refresh must preserve the stable instance ID.' );
+$assert( $instance['attrs']['content'] === $refreshed_instance['attrs']['content'], 'A synced-pattern revision refresh must preserve every native Pattern Override value.' );
 
 $pattern_blocks = array(
 	array(
@@ -162,6 +187,11 @@ $collect->invokeArgs( $service, array( $pattern_blocks, &$found ) );
 $assert( in_array( '__default', (array) ( $found['hero.title']['attributes'] ?? array() ), true ), 'Composer must recognize WordPress native __default Pattern Override bindings.' );
 
 $page_validator = ( new ReflectionClass( Page_Validator::class ) )->newInstanceWithoutConstructor();
+$should_validate_previous = new ReflectionMethod( Page_Validator::class, 'should_validate_previous_structure' );
+$should_validate_previous->setAccessible( true );
+$assert( true === $should_validate_previous->invoke( $page_validator, '<!-- wp:block {"ref":42} /-->', array() ), 'Ordinary updates must still validate the persisted structure and its synced-pattern attestations.' );
+$assert( false === $should_validate_previous->invoke( $page_validator, '<!-- wp:block {"ref":42} /-->', array( 'allow_structure_change' => true ) ), 'A privileged blueprint migration must not expand stale source-pattern attestations against the target blueprint.' );
+$assert( false === $should_validate_previous->invoke( $page_validator, null, array() ), 'A new document without persisted content must not request previous-structure validation.' );
 $validate_slot_patterns = new ReflectionMethod( Page_Validator::class, 'validate_slot_patterns' );
 $validate_slot_patterns->setAccessible( true );
 $slot_contract = array(

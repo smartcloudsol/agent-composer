@@ -16,7 +16,10 @@ namespace SmartCloud\AgentComposer\Execution {
 	final class Page_Validator {}
 	final class Target_Resolver {}
 	final class Localization_Provider_Registry {}
-	final class Draft_Service { public const PAGE_TYPE_META = '_wpsuite_agent_page_type'; }
+	final class Draft_Service {
+		public const PAGE_TYPE_META = '_wpsuite_agent_page_type';
+		public const OWNED_META = '_wpsuite_agent_owned';
+	}
 	final class Managed_Document_State { public const MANAGED_META = '_composer_managed_document'; }
 	final class Config_Repository {
 		public string $mode = 'required';
@@ -24,6 +27,13 @@ namespace SmartCloud\AgentComposer\Execution {
 			return 'vizsgalatok' === $post_type
 				? array( 'mode' => $this->mode, 'default_page_type' => 'examination' )
 				: array( 'mode' => 'off', 'default_page_type' => '' );
+		}
+		public function get_blueprint( string $page_type ): array {
+			return match ( $page_type ) {
+				'examination', 'examination-legacy-media' => array( 'target_post_type' => 'vizsgalatok' ),
+				'foreign-blueprint' => array( 'target_post_type' => 'other-type' ),
+				default => throw new \RuntimeException( 'unknown blueprint' ),
+			};
 		}
 	}
 
@@ -76,6 +86,34 @@ namespace SmartCloud\AgentComposer\Execution {
 			)
 		),
 		'A managed marker must not authorize a Blueprint assigned to another creation rule.'
+	);
+	$assert(
+		! $service->prevent_unmanaged_creation(
+			false,
+			array(
+				'post_type' => 'vizsgalatok',
+				'meta_input' => array(
+					Managed_Document_State::MANAGED_META => '1',
+					Draft_Service::OWNED_META => '1',
+					Draft_Service::PAGE_TYPE_META => 'examination-legacy-media',
+				),
+			)
+		),
+		'A Composer-owned proposal may use a non-default Blueprint that targets the same governed post type.'
+	);
+	$assert(
+		$service->prevent_unmanaged_creation(
+			false,
+			array(
+				'post_type' => 'vizsgalatok',
+				'meta_input' => array(
+					Managed_Document_State::MANAGED_META => '1',
+					Draft_Service::OWNED_META => '1',
+					Draft_Service::PAGE_TYPE_META => 'foreign-blueprint',
+				),
+			)
+		),
+		'A Composer-owned marker must not authorize a Blueprint targeting another post type.'
 	);
 	$config->mode = 'optional';
 	$assert(

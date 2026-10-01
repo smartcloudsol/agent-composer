@@ -5,7 +5,7 @@ namespace SmartCloud\AgentComposer\Domain\Structure;
 /** Pure normalization for deterministic, version-gated Structure migrations. */
 final class StructureMigration {
 	private const OVERRIDE_TYPES = array( 'CONTENT', 'VISIBILITY', 'ORDER', 'STRUCTURE', 'DETACHED' );
-	private const OPERATION_TYPES = array( 'move_section', 'add_section', 'add_field', 'map_field' );
+	private const OPERATION_TYPES = array( 'move_section', 'add_section', 'add_field', 'map_field', 'refresh_pattern' );
 
 	/** @return array{valid:bool,value:array<string,array>,errors:list<array{code:string,message:string,path:string}>} */
 	public static function normalize_registry( mixed $value ): array {
@@ -150,6 +150,7 @@ final class StructureMigration {
 			'add_section'  => array( 'type', 'id', 'pattern', 'fields', 'before', 'after' ),
 			'add_field'    => array( 'type', 'id', 'default' ),
 			'map_field'    => array( 'type', 'from', 'to' ),
+			'refresh_pattern' => array( 'type', 'pattern', 'from_version', 'from_hash' ),
 		};
 		$errors = array();
 		if ( array_diff( array_keys( $value ), $allowed ) ) {
@@ -162,6 +163,23 @@ final class StructureMigration {
 				$errors[] = self::issue( 'structure-migration-field-map-invalid', 'A field map requires distinct stable source and target semantic IDs.', $path );
 			}
 			return self::result( empty( $errors ) ? array( 'type' => $type, 'from' => $from, 'to' => $to ) : array(), $errors );
+		}
+		if ( 'refresh_pattern' === $type ) {
+			$pattern      = is_string( $value['pattern'] ?? null ) ? strtolower( trim( $value['pattern'] ) ) : '';
+			$from_version = $value['from_version'] ?? null;
+			$from_hash    = is_string( $value['from_hash'] ?? null ) ? strtolower( trim( $value['from_hash'] ) ) : '';
+			if (
+				1 !== preg_match( '#^[a-z0-9-]+/[a-z0-9-]+$#', $pattern )
+				|| ! is_int( $from_version )
+				|| $from_version < 1
+				|| 1 !== preg_match( '/^sha256:[a-f0-9]{64}$/', $from_hash )
+			) {
+				$errors[] = self::issue( 'structure-migration-pattern-revision-invalid', 'A refreshed synced pattern requires a namespaced pattern, positive source version, and exact source SHA-256 hash.', $path );
+			}
+			return self::result(
+				empty( $errors ) ? array( 'type' => $type, 'pattern' => $pattern, 'from_version' => $from_version, 'from_hash' => $from_hash ) : array(),
+				$errors
+			);
 		}
 
 		$id = is_string( $value['id'] ?? null ) ? trim( $value['id'] ) : '';

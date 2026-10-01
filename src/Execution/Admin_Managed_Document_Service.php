@@ -92,6 +92,17 @@ final class Admin_Managed_Document_Service {
 		if ( $managed && $page_type === (string) ( $rule['default_page_type'] ?? '' ) ) {
 			return $maybe_empty;
 		}
+		$composer_owned = '1' === (string) ( $meta[ Draft_Service::OWNED_META ] ?? '' );
+		if ( $managed && $composer_owned && '' !== $page_type ) {
+			try {
+				$blueprint = $this->config->get_blueprint( $page_type );
+				if ( $post_type === sanitize_key( (string) ( $blueprint['target_post_type'] ?? '' ) ) ) {
+					return $maybe_empty;
+				}
+			} catch ( \Throwable ) {
+				// Unknown or invalid Blueprints remain blocked by the creation boundary.
+			}
+		}
 		return true;
 	}
 
@@ -111,6 +122,7 @@ final class Admin_Managed_Document_Service {
 			throw new Execution_Exception(
 				'admin_creation_default_invalid',
 				'The configured native-editor starting document does not satisfy its active Blueprint and Structure Contract.',
+				0,
 				array( 'validation' => $validation ) // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Structured exception context is returned to the caller and is never rendered as HTML.
 			);
 		}
@@ -168,14 +180,26 @@ final class Admin_Managed_Document_Service {
 
 	private function audit_failure( string $post_type, string $page_type, \Throwable $error ): void {
 		try {
+			$error_message = sanitize_text_field( wp_strip_all_tags( $error->getMessage() ) );
+			if ( strlen( $error_message ) > 500 ) {
+				$error_message = substr( $error_message, 0, 500 );
+			}
+			$context = array(
+				'post_type' => sanitize_key( $post_type ),
+				'page_type' => sanitize_key( $page_type ),
+				'error'     => $error instanceof Execution_Exception ? $error->get_execution_code() : 'unexpected_error',
+				'error_class' => sanitize_text_field( get_class( $error ) ),
+				'error_message' => $error_message,
+				'error_file' => sanitize_file_name( basename( $error->getFile() ) ),
+				'error_line' => max( 0, $error->getLine() ),
+			);
+			if ( $error instanceof Execution_Exception && array() !== $error->get_execution_data() ) {
+				$context['error_data'] = $error->get_execution_data();
+			}
 			$this->audit->record(
 				'admin-managed-document-create-failed',
 				'failure',
-				array(
-					'post_type' => sanitize_key( $post_type ),
-					'page_type' => sanitize_key( $page_type ),
-					'error'     => $error instanceof Execution_Exception ? $error->get_execution_code() : 'unexpected_error',
-				)
+				$context
 			);
 		} catch ( \Throwable ) {
 			// Preserve the original failure shown to the operator.

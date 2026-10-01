@@ -97,3 +97,9 @@
   font-size: 12px;
   margin-top: 8px;
 }
+
+/* Sidebar controls remain in normal layout; no canvas/modal positioning. */
+.smartcloud-agent-composer-slot-settings { display: grid; gap: 8px; }
+.smartcloud-agent-composer-slot-settings__item { border-top: 1px solid #ddd; padding-top: 8px; }
+.smartcloud-agent-composer-slot-settings__actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.smartcloud-agent-composer-slot-settings button { height: auto; min-height: 32px; white-space: normal; overflow-wrap: anywhere; }

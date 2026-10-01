@@ -14,6 +14,8 @@ import {
   type EditorBlock,
   withComposerMetadata,
 } from "./identity";
+import InstanceSlotEditor from "./instance-editor";
+import { instanceOwner, type EditorSelector } from "./adapter";
 
 interface ExtensionSlotAttributes {
   slotId?: string;
@@ -26,6 +28,8 @@ interface ExtensionSlotAttributes {
 
 interface BlockEditorSelector {
   getBlocks(rootClientId?: string): EditorBlock[];
+  getBlock(clientId: string): (EditorBlock & { blockName?: string }) | null;
+  getBlockParents(clientId: string): string[];
   canInsertBlockType(blockName: string, rootClientId: string): boolean;
 }
 
@@ -64,15 +68,18 @@ export default function Edit({
     typeof attributes.maxBlocks === "number"
       ? Math.max(0, attributes.maxBlocks)
       : null;
-  const { documentBlocks, insertableBlocks, slotBlocks } = useSelect(
+  const { documentBlocks, insertableBlocks, slotBlocks, owner, insidePattern } = useSelect(
     (select) => {
       const editor = select("core/block-editor") as BlockEditorSelector;
+      const managedOwner = instanceOwner(editor as unknown as EditorSelector, clientId);
       return {
         documentBlocks: editor.getBlocks(),
         insertableBlocks: allowedBlocks.filter((blockName) =>
           editor.canInsertBlockType(blockName, clientId),
         ),
         slotBlocks: editor.getBlocks(clientId),
+        owner: managedOwner ?? null,
+        insidePattern: editor.getBlockParents(clientId).some((id) => editor.getBlock(id)?.name === "core/block"),
       };
     },
     [allowedBlocks, clientId],
@@ -83,6 +90,9 @@ export default function Edit({
   const [isChoosingBlock, setIsChoosingBlock] = useState(false);
 
   useEffect(() => {
+    if (owner || insidePattern) {
+      return;
+    }
     const idCounts = new Map<string, number>();
     for (const block of flattenBlocks(documentBlocks)) {
       const userBlockId = composerMetadata(block.attributes).userBlockId;
@@ -117,20 +127,26 @@ export default function Edit({
         }),
       );
     }
-  }, [documentBlocks, slotBlocks, slotId, updateBlockAttributes]);
+  }, [documentBlocks, owner, insidePattern, slotBlocks, slotId, updateBlockAttributes]);
+
+  const blockProps = useBlockProps();
+
+  if (owner) {
+    return <div {...blockProps}>
+      <div className="smartcloud-agent-composer-slot__header">
+        <span>{sprintf(__("Additional content: %s", "smartcloud-agent-composer"), slotId)}</span>
+      </div>
+      <InstanceSlotEditor owner={owner} clientId={clientId} attributes={attributes as Record<string, unknown>} />
+    </div>;
+  }
+
+  if (insidePattern) return <div {...blockProps}>
+    <p>{__("This section belongs to the shared pattern and cannot be changed from this post.", "smartcloud-agent-composer")}</p>
+  </div>;
 
   const count = slotBlocks.length;
   const atMaximum = null !== maximum && count >= maximum;
   const belowMinimum = count < minimum;
-  const blockProps = useBlockProps();
-  const innerBlocksProps = useInnerBlocksProps(
-    { className: "smartcloud-agent-composer-slot__content" },
-    {
-      allowedBlocks: editorAllowedBlocks,
-      renderAppender: () => null,
-      templateLock: false,
-    },
-  );
 
   const capacity =
     null === maximum
@@ -152,7 +168,7 @@ export default function Edit({
           {capacity}
         </span>
       </div>
-      <div {...innerBlocksProps} />
+      <NativeContent allowedBlocks={editorAllowedBlocks} />
       {!atMaximum && (
         <div className="smartcloud-agent-composer-slot__appender">
           {0 === count && (
@@ -230,4 +246,9 @@ export default function Edit({
       )}
     </div>
   );
+}
+
+function NativeContent({ allowedBlocks }: { allowedBlocks: string[] }) {
+  const innerBlocksProps = useInnerBlocksProps({ className: "smartcloud-agent-composer-slot__content" }, { allowedBlocks, renderAppender: () => null, templateLock: false });
+  return <div {...innerBlocksProps} />;
 }

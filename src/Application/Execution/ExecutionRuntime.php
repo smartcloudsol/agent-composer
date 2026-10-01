@@ -40,6 +40,7 @@ use SmartCloud\AgentComposer\Infrastructure\Persistence\AuditTable;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\PublishApprovalTable;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\ProposalApprovalTable;
 use SmartCloud\AgentComposer\Infrastructure\Persistence\WordPressConfigurationRepository;
+use SmartCloud\AgentComposer\Infrastructure\WordPress\InstanceSlotEditorController;
 use SmartCloud\AgentComposer\Integration\Abilities\ExecutionAbilityAliases;
 use SmartCloud\AgentComposer\Integration\Mcp\ComposerMcpServer;
 use SmartCloud\AgentComposer\Security\CognitoJwtValidator;
@@ -61,6 +62,7 @@ final class ExecutionRuntime {
 	private readonly Structure_Contract_Save_Guard $structure_guard;
 	private readonly Admin_Managed_Document_Service $admin_documents;
 	private readonly Synced_Structural_Pattern_Service $synced_patterns;
+	private readonly InstanceSlotEditorController $instance_slot_editor;
 	private readonly McpAccessGuard $mcp_access;
 	private readonly McpSecuritySettings $mcp_security_settings;
 	private readonly PublishApprovalService $publish_approvals;
@@ -88,6 +90,7 @@ final class ExecutionRuntime {
 		$this->structure_guard = new Structure_Contract_Save_Guard( $config, $validator, $document_state, $audit_table );
 		$editor             = new Structure_Editor_Projector();
 		$assembler          = new Pattern_Assembler( $config, $this->patterns, $slots, $editor, $this->synced_patterns );
+		$this->instance_slot_editor = new InstanceSlotEditorController( $config, $assembler );
 		$this->admin_documents = new Admin_Managed_Document_Service( $config, $assembler, $validator, $targets, $document_state, $this->localization, $audit_table );
 		$this->drafts       = new Draft_Service( $assembler, $validator, $targets, $trees, $config, $language, $this->localization, $document_state );
 		$localized_drafts   = new Localized_Draft_Service( $config, $this->drafts, $this->localization );
@@ -123,6 +126,7 @@ final class ExecutionRuntime {
 		add_action( 'wp_abilities_api_init', array( $this->localization, 'reset' ), 999 );
 		add_action( 'mcp_adapter_init', array( $this->mcp, 'register' ) );
 		add_action( 'rest_api_init', array( $this->structure_guard, 'register' ), 5 );
+		add_action( 'rest_api_init', array( $this->instance_slot_editor, 'register' ) );
 		add_action( 'post_updated', array( $this->drafts, 'rotate_revision' ), 10, 3 );
 		add_action( PreviewDraftService::CLEANUP_HOOK, array( $this->previews, 'cleanup' ) );
 	}

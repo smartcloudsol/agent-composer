@@ -111,7 +111,148 @@ final class Pattern_Assembler {
 			static fn( string $pattern ): array => array( 'pattern' => $pattern, 'fields' => array() ),
 			(array) $blueprint['required_sequence']
 		);
-		return $this->assemble( $page_type, $sections, array( 'allow_pattern_defaults' => true ) );
+		$assembled = $this->assemble( $page_type, $sections, array( 'allow_pattern_defaults' => true ) );
+		$blocks    = parse_blocks( (string) $assembled['content'] );
+		$blocks    = $this->seed_admin_minimum_slots( $blocks, $blueprint );
+		$assembled['content'] = trim( serialize_blocks( $blocks ) );
+		return $assembled;
+	}
+
+	/**
+	 * Give a native-editor starting document the minimum valid slot children.
+	 *
+	 * Required user-authored text starts as an empty paragraph, so Composer can
+	 * create the governed structure without publishing instructional copy. A
+	 * required repeatable-pattern slot receives its declared minimum pattern
+	 * instances, and those children are seeded recursively before attachment.
+	 */
+	private function seed_admin_minimum_slots( array $blocks, array $blueprint, int $depth = 0 ): array {
+		if ( $depth > 12 ) {
+			throw new Execution_Exception( 'admin_creation_slot_nesting_too_deep', 'The native-editor starting document contains excessively nested required slots.' );
+		}
+		$contract = is_array( $blueprint['resolved_structure_contract'] ?? null )
+			? $blueprint['resolved_structure_contract']
+			: array();
+		foreach ( (array) ( $contract['nodes'] ?? array() ) as $node ) {
+			if ( ! is_array( $node ) || 'slot' !== (string) ( $node['mode'] ?? '' ) ) {
+				continue;
+			}
+			$slot_id = trim( (string) ( $node['id'] ?? '' ) );
+			$minimum = max( 0, (int) ( $node['min_blocks'] ?? 0 ) );
+			if ( '' === $slot_id || 0 === $minimum ) {
+				continue;
+			}
+
+			$owners = $this->synced_patterns->find_slot_owners( $blocks, $blueprint, $slot_id );
+			foreach ( $owners as $owner ) {
+				$children = array_values( (array) ( $owner['children'] ?? array() ) );
+				$children = $this->admin_slot_minimum_children( $children, $node, $blueprint, $depth );
+				$updated  = $this->synced_patterns->with_slot_children( (array) $owner['block'], $slot_id, $children );
+				$blocks   = $this->replace_block_at_path( $blocks, (array) ( $owner['path'] ?? array() ), $updated );
+			}
+		}
+		return $blocks;
+	}
+
+	/** Add the declared minimum direct blocks or synced-pattern occurrences. */
+	private function admin_slot_minimum_children( array $children, array $node, array $blueprint, int $depth ): array {
+		$minimum          = max( 0, (int) ( $node['min_blocks'] ?? 0 ) );
+		$maximum          = isset( $node['max_blocks'] ) ? max( 0, (int) $node['max_blocks'] ) : null;
+		$allowed_patterns = array_values( array_filter( array_map( 'strval', (array) ( $node['allowed_patterns'] ?? array() ) ) ) );
+		$occurrences      = is_array( $node['pattern_occurrences'] ?? null ) ? $node['pattern_occurrences'] : array();
+		$counts           = array_fill_keys( $allowed_patterns, 0 );
+		foreach ( $children as $child ) {
+			$pattern = strtolower( trim( (string) ( $child['attrs']['metadata']['wpsuiteAgentComposer']['patternName'] ?? '' ) ) );
+			if ( isset( $counts[ $pattern ] ) ) {
+				++$counts[ $pattern ];
+			}
+		}
+
+		// Plan the complete addition before materializing any pattern instances.
+		// An impossible contract must not leave partially generated defaults.
+		$additions = array();
+		$limits    = array();
+		if ( null !== $maximum && max( $minimum, count( $children ) ) > $maximum ) {
+			throw new Execution_Exception( 'admin_creation_slot_default_missing', 'The native-editor slot minimum cannot fit within its maximum.' );
+		}
+		foreach ( $allowed_patterns as $pattern ) {
+			$required = max( 0, (int) ( $occurrences[ $pattern ]['min'] ?? 0 ) );
+			$limits[ $pattern ] = isset( $occurrences[ $pattern ]['max'] ) ? max( 0, (int) $occurrences[ $pattern ]['max'] ) : null;
+			if ( null !== $limits[ $pattern ] && max( $required, $counts[ $pattern ] ) > $limits[ $pattern ] ) {
+				throw new Execution_Exception( 'admin_creation_slot_default_missing', 'A native-editor pattern minimum cannot fit within its occurrence maximum.' );
+			}
+			while ( ( $counts[ $pattern ] ?? 0 ) < $required ) {
+				$additions[] = $pattern;
+				++$counts[ $pattern ];
+			}
+		}
+		if ( null !== $maximum && count( $children ) + count( $additions ) > $maximum ) {
+			throw new Execution_Exception( 'admin_creation_slot_default_missing', 'Required native-editor patterns exceed the slot maximum.' );
+		}
+
+		$allowed_blocks = array_values( array_filter( array_map( 'strval', (array) ( $node['allowed_blocks'] ?? array() ) ) ) );
+		while ( count( $children ) + count( $additions ) < $minimum ) {
+			$next_pattern = null;
+			foreach ( $allowed_patterns as $pattern ) {
+				if ( null === $limits[ $pattern ] || $counts[ $pattern ] < $limits[ $pattern ] ) {
+					$next_pattern = $pattern;
+					++$counts[ $pattern ];
+					break;
+				}
+			}
+			if ( null === $next_pattern && ! in_array( 'core/paragraph', $allowed_blocks, true ) ) {
+				throw new Execution_Exception( 'admin_creation_slot_default_missing', 'A required native-editor slot needs remaining approved-pattern capacity or an allowed paragraph block.' );
+			}
+			$additions[] = $next_pattern;
+		}
+		foreach ( $additions as $pattern ) {
+			if ( null !== $pattern ) {
+				$children[] = $this->admin_default_pattern_instance( $pattern, $blueprint, $depth + 1 );
+				continue;
+			}
+			$children[] = array(
+				'blockName'    => 'core/paragraph',
+				'attrs'        => array(),
+				'innerBlocks'  => array(),
+				'innerHTML'    => '<p></p>',
+				'innerContent' => array( '<p></p>' ),
+			);
+		}
+		return $children;
+	}
+
+	/** Materialize one valid repeatable child pattern for a required slot. */
+	private function admin_default_pattern_instance( string $pattern, array $blueprint, int $depth ): array {
+		$instance = $this->synced_patterns->materialize_instance( $pattern, array(), $blueprint, true );
+		$seeded   = $this->seed_admin_minimum_slots( array( $instance['block'] ), $blueprint, $depth );
+		if ( 1 !== count( $seeded ) || ! is_array( $seeded[0] ?? null ) ) {
+			throw new Execution_Exception( 'admin_creation_pattern_default_invalid', 'A required native-editor child pattern could not be materialized.' );
+		}
+		return $seeded[0];
+	}
+
+	/** Build a validated, per-instance starting block for the native slot editor. */
+	public function admin_slot_pattern_instance( string $pattern, array $blueprint ): array {
+		return $this->admin_default_pattern_instance( $pattern, $blueprint, 0 );
+	}
+
+	/** Replace one raw document block addressed by its zero-based block path. */
+	private function replace_block_at_path( array $blocks, array $path, array $replacement ): array {
+		$index = array_shift( $path );
+		if ( ! is_int( $index ) && ! ctype_digit( (string) $index ) ) {
+			throw new Execution_Exception( 'admin_creation_slot_owner_invalid', 'A required native-editor slot has no stable owner path.' );
+		}
+		$index = (int) $index;
+		if ( ! isset( $blocks[ $index ] ) || ! is_array( $blocks[ $index ] ) ) {
+			throw new Execution_Exception( 'admin_creation_slot_owner_invalid', 'A required native-editor slot owner no longer exists.' );
+		}
+		if ( empty( $path ) ) {
+			$blocks[ $index ] = $replacement;
+			return $blocks;
+		}
+		$children = is_array( $blocks[ $index ]['innerBlocks'] ?? null ) ? $blocks[ $index ]['innerBlocks'] : array();
+		$blocks[ $index ]['innerBlocks'] = $this->replace_block_at_path( $children, $path, $replacement );
+		return $blocks;
 	}
 
 	/**

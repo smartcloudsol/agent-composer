@@ -283,6 +283,93 @@ final class Synced_Structural_Pattern_Service {
 		return $block;
 	}
 
+	/**
+	 * Refresh reviewed synced-pattern identity metadata during an exact Blueprint migration.
+	 *
+	 * The shared wp_block is already WordPress' live rendering source. This operation
+	 * changes only the governed per-document revision attestation while preserving
+	 * every native Pattern Override, instance slot, and stable instance ID.
+	 */
+	public function refresh_migration_instances( array $blocks, array $blueprint, array $operations ): array {
+		$revisions = array();
+		foreach ( $operations as $operation ) {
+			if ( 'refresh_pattern' !== (string) ( $operation['type'] ?? '' ) ) {
+				continue;
+			}
+			$pattern = strtolower( trim( (string) ( $operation['pattern'] ?? '' ) ) );
+			if ( isset( $revisions[ $pattern ] ) ) {
+				throw new Execution_Exception( 'migration_pattern_revision_duplicate', 'A migration may declare only one source revision for each synced pattern.' );
+			}
+			$revisions[ $pattern ] = $operation;
+		}
+		if ( empty( $revisions ) ) {
+			return $blocks;
+		}
+		return $this->refresh_migration_blocks( $blocks, $blueprint, $revisions );
+	}
+
+	private function refresh_migration_blocks( array $blocks, array $blueprint, array $revisions ): array {
+		foreach ( $blocks as $index => $block ) {
+			if ( ! is_array( $block ) || null === ( $block['blockName'] ?? null ) ) {
+				continue;
+			}
+			if ( 'core/block' === (string) $block['blockName'] ) {
+				$pattern    = $this->pattern_name( $block );
+				$definition = '' === $pattern ? null : $this->definition( $pattern, $blueprint );
+				if ( null === $definition ) {
+					throw new Execution_Exception( 'synced_pattern_identity_missing', 'Every migrated core/block reference must identify an enabled synced structural pattern.' );
+				}
+				$resolved = $this->resolve( $pattern, $definition );
+				if ( isset( $revisions[ $pattern ] ) ) {
+					$block = $this->refresh_migration_block( $block, $pattern, $definition, $resolved, $revisions[ $pattern ] );
+				} else {
+					$this->assert_instance_contract( $block, $pattern, $definition, $resolved );
+				}
+				$composer = (array) ( $block['attrs']['metadata']['wpsuiteAgentComposer'] ?? array() );
+				$slots    = (array) ( $composer[ self::INSTANCE_SLOTS_KEY ] ?? array() );
+				foreach ( $slots as $slot_id => $children ) {
+					if ( is_array( $children ) ) {
+						$slots[ $slot_id ] = $this->refresh_migration_blocks( $children, $blueprint, $revisions );
+					}
+				}
+				if ( ! empty( $slots ) ) {
+					$block['attrs']['metadata']['wpsuiteAgentComposer'][ self::INSTANCE_SLOTS_KEY ] = $slots;
+				}
+			}
+			$children = (array) ( $block['innerBlocks'] ?? array() );
+			if ( ! empty( $children ) ) {
+				$block['innerBlocks'] = $this->refresh_migration_blocks( $children, $blueprint, $revisions );
+			}
+			$blocks[ $index ] = $block;
+		}
+		return $blocks;
+	}
+
+	private function refresh_migration_block( array $block, string $pattern, array $definition, array $resolved, array $revision ): array {
+		if ( absint( $block['attrs']['ref'] ?? 0 ) !== (int) $resolved['post_id'] ) {
+			throw new Execution_Exception( 'migration_pattern_reference_mismatch', 'A migrated synced pattern does not point to the configured local wp_block record.' );
+		}
+		$metadata = is_array( $block['attrs']['metadata'] ?? null ) ? $block['attrs']['metadata'] : array();
+		$composer = is_array( $metadata['wpsuiteAgentComposer'] ?? null ) ? $metadata['wpsuiteAgentComposer'] : array();
+		if ( $pattern !== strtolower( trim( (string) ( $composer['patternName'] ?? '' ) ) ) ) {
+			throw new Execution_Exception( 'migration_pattern_name_mismatch', 'A migrated synced pattern has stale identity metadata.' );
+		}
+		$expected_hash = preg_replace( '/^sha256:/', '', strtolower( trim( (string) ( $revision['from_hash'] ?? '' ) ) ) );
+		if (
+			(int) ( $composer['patternVersion'] ?? 0 ) !== (int) ( $revision['from_version'] ?? 0 )
+			|| ! is_string( $expected_hash )
+			|| ! hash_equals( $expected_hash, strtolower( trim( (string) ( $composer['patternHash'] ?? '' ) ) ) )
+		) {
+			throw new Execution_Exception( 'migration_pattern_revision_mismatch', 'A migrated synced pattern does not match its exact reviewed source revision.' );
+		}
+		$composer['patternVersion'] = (int) $definition['version'];
+		$composer['patternHash']    = (string) $resolved['hash'];
+		$metadata['wpsuiteAgentComposer'] = $composer;
+		$block['attrs']['ref']      = (int) $resolved['post_id'];
+		$block['attrs']['metadata'] = $metadata;
+		return $block;
+	}
+
 	/** Inventory managed references without expanding away their instance identity. */
 	public function inventory( array $blocks, array $blueprint, array $path = array(), ?string $slot_id = null, array &$seen = array() ): array {
 		$result   = array();

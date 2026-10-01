@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.3.5
+Stable tag: 1.3.6
 License: MIT
 License URI: https://mit-license.org/
 
@@ -150,9 +150,17 @@ https://github.com/smartcloudsol/agent-composer
 Public TypeScript contracts:
 https://www.npmjs.com/package/@smart-cloud/agent-composer-core
 
-The distributed JavaScript and CSS are built from public `admin/src` and `core` sources. PHP owns registration, authorization, persistence, audit, portability, and execution. The release assembler adds the shared Hub runtime, verifies the package, normalizes timestamps, and records SHA-256 checksums.
+The distributed JavaScript and CSS are built from public `admin/src`, `blocks/src`, and `core` sources. PHP owns registration, authorization, persistence, audit, portability, and execution. The release assembler adds the shared Hub runtime, verifies the package, normalizes timestamps, and records SHA-256 checksums.
 
 == Changelog ==
+
+= 1.3.6 =
+* Gutenberg editing: Edit per-post content inside synced structural patterns inline, including nested instances. Add, remove, and reorder approved content from the block sidebar's List View tab within the configured contract limits.
+* Pattern instances: Preserve each post's content and native Pattern Overrides without changing shared patterns or other instances.
+* Blueprint migrations: Refresh exact, reviewed synced-pattern revision attestations through proposal-only migrations while preserving Pattern Overrides, instance slots, and stable instance identities.
+* Block serialization: Exclude empty block separators from content counts and prevent them from becoming invalid blocks.
+* Managed documents: Initialize required content slots in WordPress admin while respecting section and per-pattern limits.
+* Provider discovery: Initialize lazy-loaded WordPress Ability providers before validating managed documents and improve creation failure diagnostics.
 
 = 1.3.5 =
 * Update proposals: Request a protected, revision-bound human approval card from ChatGPT or another MCP Apps client after submission. The card displays the WordPress-rendered post-type preview and lets the reviewer merge, return for changes, or reject; every decision rechecks the proposal and source.
@@ -291,6 +299,9 @@ The distributed JavaScript and CSS are built from public `admin/src` and `core` 
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.3.6 =
+Reload open block editors after updating. Content controls are available in the right Block sidebar's List View tab. Existing per-instance content is retained; no shared-pattern rewrite is required. Registered Blueprint migrations remain proposal-only and require human review before merge. Available blocks remain governed by the site's contract.
 
 = 1.3.5 =
 Restart Composer's MCP runtime and refresh client tools and resources to discover the update-proposal approval card. Composer creates its proposal-approval table automatically. Additional shared stylesheet URLs are optional; no content migration is required.

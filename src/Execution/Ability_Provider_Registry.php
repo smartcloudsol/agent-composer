@@ -56,6 +56,18 @@ final class Ability_Provider_Registry {
 			return $this->providers;
 		}
 
+		// WordPress 6.9 initializes the Abilities registry lazily. Provider
+		// manifests are populated by callbacks on wp_abilities_api_init, so an
+		// early wp-admin request must initialize the registry before asking
+		// providers for their manifests.
+		if (
+			class_exists( '\\WP_Abilities_Registry' )
+			&& function_exists( 'did_action' )
+			&& did_action( 'init' )
+		) {
+			\WP_Abilities_Registry::get_instance();
+		}
+
 		$manifests = apply_filters( 'smartcloud_composer_execution_providers', array() );
 		if ( ! is_array( $manifests ) ) {
 			return $this->providers;

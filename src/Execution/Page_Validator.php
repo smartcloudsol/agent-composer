@@ -62,7 +62,9 @@ final class Page_Validator {
 		$raw_blocks = parse_blocks( $content );
 		$blocks = $raw_blocks;
 		$pattern_inventory = array();
-		$previous_blocks = null === $previous_content ? null : parse_blocks( $previous_content );
+		$previous_blocks = $this->should_validate_previous_structure( $previous_content, $context )
+			? parse_blocks( (string) $previous_content )
+			: null;
 		try {
 			$seen_pattern_instances = array();
 			$pattern_inventory = $this->synced_patterns->inventory( $raw_blocks, $blueprint, array(), null, $seen_pattern_instances );
@@ -158,6 +160,15 @@ final class Page_Validator {
 			$result['structure_contract'] = array( 'mode' => 'legacy-document' );
 		}
 		return $result;
+	}
+
+	/**
+	 * Privileged blueprint migrations replace the governed structure exactly.
+	 * Their old synced-pattern attestations belong to the source blueprint and
+	 * must not be expanded against the target blueprint contract.
+	 */
+	private function should_validate_previous_structure( ?string $previous_content, array $context ): bool {
+		return null !== $previous_content && true !== ( $context['allow_structure_change'] ?? false );
 	}
 
 	private function validate_blocks( array $blocks, array $blueprint, array $policy, array &$errors, array &$stats ): void {

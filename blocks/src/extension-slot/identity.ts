@@ -1,4 +1,6 @@
 export interface EditorBlock {
+  isValid?: boolean;
+  name: string;
   clientId: string;
   attributes: Record<string, unknown>;
   innerBlocks: EditorBlock[];

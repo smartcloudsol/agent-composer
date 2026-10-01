@@ -36,6 +36,7 @@ $definition = array(
 		array( 'type' => 'move_section', 'id' => 'benefits', 'before' => 'architecture' ),
 		array( 'type' => 'add_section', 'id' => 'proof', 'pattern' => 'wpsuite/proof', 'fields' => array( 'proof.title' => array( 'content' => 'Evidence' ) ), 'after' => 'architecture' ),
 		array( 'type' => 'map_field', 'from' => 'hero.title', 'to' => 'hero.headline' ),
+		array( 'type' => 'refresh_pattern', 'pattern' => 'wpsuite/hero', 'from_version' => 2, 'from_hash' => 'sha256:' . str_repeat( 'a', 64 ) ),
 	),
 	'override_rules' => array(
 		array( 'type' => 'CONTENT', 'path' => 'hero.title', 'strategy' => 'map', 'target_path' => 'hero.headline' ),
@@ -45,7 +46,7 @@ $definition = array(
 
 $normalized = StructureMigration::normalize_registry( array( 'solution-page-3-to-4' => $definition ) );
 $assert( $normalized['valid'], 'A complete version-gated migration registry must normalize.' );
-$assert( 4 === count( $normalized['value']['solution-page-3-to-4']['operations'] ?? array() ), 'Migration operation order must be preserved.' );
+$assert( 5 === count( $normalized['value']['solution-page-3-to-4']['operations'] ?? array() ), 'Migration operation order must be preserved.' );
 $assert( 3 === ( $normalized['value']['solution-page-3-to-4']['from_contract']['version'] ?? 0 ), 'The exact historical source contract must remain in the normalized migration.' );
 
 $wrong_contract = $definition;
@@ -72,6 +73,11 @@ $missing_default = $definition;
 unset( $missing_default['operations'][0]['default'] );
 $invalid = StructureMigration::normalize_registry( array( 'solution-page-3-to-4' => $missing_default ) );
 $assert( ! $invalid['valid'] && in_array( 'structure-migration-field-default-missing', array_column( $invalid['errors'], 'code' ), true ), 'An added field must declare an explicit default, including null.' );
+
+$bad_pattern_revision = $definition;
+$bad_pattern_revision['operations'][4]['from_hash'] = 'unreviewed';
+$invalid = StructureMigration::normalize_registry( array( 'solution-page-3-to-4' => $bad_pattern_revision ) );
+$assert( ! $invalid['valid'] && in_array( 'structure-migration-pattern-revision-invalid', array_column( $invalid['errors'], 'code' ), true ), 'A synced-pattern refresh must require an exact reviewed source revision.' );
 
 if ( $failures ) {
 	fwrite( STDERR, implode( PHP_EOL, $failures ) . PHP_EOL );
