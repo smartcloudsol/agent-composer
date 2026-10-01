@@ -187,6 +187,38 @@ $assert( str_contains( $config_source, "'structure_contract_mode'] = 'legacy-doc
 $assert( str_contains( $config_source, "'structure_contract_mode']     = 'enforced'" ), 'Resolved Structure Contracts must receive an explicit enforced mode.' );
 $assert( str_contains( $config_source, "'resolved_structure_contract']" ), 'Runtime Blueprint output must expose the resolved deterministic contract.' );
 
+if ( ! class_exists( 'WP_Block_Type_Registry' ) ) {
+	class WP_Block_Type_Registry {
+		public static function get_instance(): self {
+			return new self();
+		}
+
+		public function get_registered( string $name ): ?object {
+			if ( 'example/recommendations' !== $name ) return null;
+			return new class() {
+				public array $attributes = array( 'collectionSelector' => array( 'type' => array( 'object', 'null' ) ) );
+				public function is_dynamic(): bool { return true; }
+			};
+		}
+	}
+}
+$registered_blocks = new ReflectionMethod( ConfigSetValidator::class, 'validate_registered_block_contracts' );
+$registered_blocks->setAccessible( true );
+$block_policy = array( 'design_policy' => array( 'block_extensions' => array(
+	'allowed_plugin_namespaces' => array( 'example' ),
+	'registered_block_contracts' => array( 'example/recommendations' => array(
+		'attributes' => array( 'collectionSelector' => array( 'type' => 'object' ) ),
+	) ),
+) ) );
+$block_blueprints = array( array( 'payload' => array( 'allowed_blocks' => array( 'example/recommendations' ) ) ) );
+$errors = array();
+$registered_blocks->invokeArgs( $validator, array( $block_policy, $block_blueprints, &$errors ) );
+$assert( array() === $errors, 'A contracted object attribute must match a registered object-or-null union schema.' );
+$block_policy['design_policy']['block_extensions']['registered_block_contracts']['example/recommendations']['attributes']['collectionSelector']['type'] = 'string';
+$errors = array();
+$registered_blocks->invokeArgs( $validator, array( $block_policy, $block_blueprints, &$errors ) );
+$assert( in_array( 'registered-block-attribute-type-mismatch', array_column( $errors, 'code' ), true ), 'A type outside the registered union must still fail closed.' );
+
 if ( $failures ) {
 	fwrite( STDERR, implode( PHP_EOL, $failures ) . PHP_EOL );
 	exit( 1 );

@@ -60,6 +60,39 @@ $validation_args = array(
 $validate_attributes->invokeArgs( $tree_service, $validation_args );
 $assert( array() === $validation_errors, 'The editor projector templateLock attribute must pass the shared block validator.' );
 
+$validate_attributes->invokeArgs( $tree_service, array(
+	'example/recommendations',
+	array( 'collectionSelector' => array( 'filter' => array( 'kind' => 'taxonomy-match' ) ) ),
+	array( 'collectionSelector' => array( 'type' => array( 'object', 'null' ) ) ),
+	&$validation_errors,
+) );
+$assert( array() === $validation_errors, 'A registered object-or-null attribute must accept a serialized object.' );
+$validate_registered_contract = new ReflectionMethod( \SmartCloud\AgentComposer\Execution\Block_Tree_Service::class, 'validate_registered_block_contract' );
+$validate_registered_contract->invokeArgs( $tree_service, array(
+	'example/recommendations',
+	array(),
+	array( 'limit' => array( 'type' => 'integer', 'default' => 3 ) ),
+	array( 'attributes' => array( 'limit' => array( 'type' => 'integer', 'required' => true ) ) ),
+	&$validation_errors,
+) );
+$assert( array() === $validation_errors, 'A fixed contract attribute omitted from serialization must use its registered default.' );
+$validate_registered_contract->invokeArgs( $tree_service, array(
+	'example/recommendations',
+	array(),
+	array( 'collectionSelector' => array( 'type' => array( 'object', 'null' ), 'default' => null ) ),
+	array( 'attributes' => array( 'collectionSelector' => array( 'type' => 'object' ) ) ),
+	&$validation_errors,
+) );
+$assert( array() === $validation_errors, 'An optional contracted object must remain absent when its registered default is null.' );
+$validate_registered_contract->invokeArgs( $tree_service, array(
+	'example/recommendations',
+	array(),
+	array( 'limit' => array( 'type' => 'integer' ) ),
+	array( 'attributes' => array( 'limit' => array( 'type' => 'integer', 'required' => true ) ) ),
+	&$validation_errors,
+) );
+$assert( in_array( 'required_component_attribute_missing', array_column( $validation_errors, 'code' ), true ), 'A required contract attribute without a registered default must remain mandatory.' );
+
 $identity_source = (string) file_get_contents( $root . '/blocks/src/extension-slot/identity.ts' );
 $edit_source = (string) file_get_contents( $root . '/blocks/src/extension-slot/edit.tsx' );
 $registry_source = (string) file_get_contents( $root . '/src/Infrastructure/WordPress/BlockRegistry.php' );

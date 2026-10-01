@@ -5,6 +5,7 @@ namespace SmartCloud\AgentComposer\Execution;
 
 use SmartCloud\AgentComposer\Infrastructure\Persistence\AuditTable;
 use SmartCloud\AgentComposer\Infrastructure\WordPress\Activation;
+use SmartCloud\AgentComposer\Security\ActorIdentity;
 
 /** Enforce the same document validator on native Gutenberg REST saves. */
 final class Structure_Contract_Save_Guard {
@@ -94,7 +95,12 @@ final class Structure_Contract_Save_Guard {
 			return $prepared_post;
 		}
 		$blueprint = $this->config->get_blueprint( $page_type );
-		if ( 'publish' === $current->post_status && 'proposal-only' === (string) ( $blueprint['published_update_policy'] ?? 'disabled' ) ) {
+		$native_published_edit = 'publish' === $current->post_status
+			&& 'proposal-only' === (string) ( $blueprint['published_update_policy'] ?? 'disabled' )
+			&& $this->allows_native_published_edit( $request, $current, $blueprint );
+		if ( 'publish' === $current->post_status
+			&& 'proposal-only' === (string) ( $blueprint['published_update_policy'] ?? 'disabled' )
+			&& ! $native_published_edit ) {
 			return new \WP_Error(
 				'smartcloud_agent_published_proposal_required',
 				'This managed published item can be changed only through a separate review proposal.',
@@ -104,10 +110,24 @@ final class Structure_Contract_Save_Guard {
 		$proposed_content = is_object( $prepared_post ) && isset( $prepared_post->post_content )
 			? (string) $prepared_post->post_content
 			: (string) $current->post_content;
+		$previous_content = (string) $current->post_content;
+		$native_pattern_refreshes = array();
+		if ( $native_published_edit ) {
+			try {
+				$previous = $this->validator->refresh_native_pattern_revisions( $page_type, $previous_content );
+				$proposed = $this->validator->refresh_native_pattern_revisions( $page_type, $proposed_content );
+				$previous_content = (string) $previous['content'];
+				$proposed_content = (string) $proposed['content'];
+				$native_pattern_refreshes = array_values( array_unique( array_merge( (array) $previous['operations'], (array) $proposed['operations'] ), SORT_REGULAR ) );
+				$prepared_post->post_content = $proposed_content;
+			} catch ( Execution_Exception $error ) {
+				return new \WP_Error( 'smartcloud_agent_' . $error->get_execution_code(), $error->getMessage(), array( 'status' => 409, 'post_id' => $post_id ) );
+			}
+		}
 		$legacy_baseline = $this->legacy_baseline_validation( $post_id, $page_type, (string) $current->post_content );
 
 		try {
-			$validation = $this->validator->validate( $page_type, $proposed_content, (string) $current->post_content );
+			$validation = $this->validator->validate( $page_type, $proposed_content, $previous_content );
 		} catch ( Execution_Exception $error ) {
 			return new \WP_Error(
 				'smartcloud_agent_' . $error->get_execution_code(),
@@ -122,6 +142,7 @@ final class Structure_Contract_Save_Guard {
 				'privileged_structure_change' => false,
 				'operations'                  => array(),
 				'legacy_baseline'             => $legacy_baseline,
+				'native_pattern_refreshes'    => $native_pattern_refreshes,
 			);
 			return $prepared_post;
 		}
@@ -137,7 +158,7 @@ final class Structure_Contract_Save_Guard {
 				$privileged_validation = $this->validator->validate(
 					$page_type,
 					$proposed_content,
-					(string) $current->post_content,
+					$previous_content,
 					array( 'allow_structure_change' => true )
 				);
 			} catch ( Execution_Exception $error ) {
@@ -154,6 +175,7 @@ final class Structure_Contract_Save_Guard {
 					'privileged_structure_change' => true,
 					'operations'                  => array_values( (array) ( $validation['structure_contract']['operations'] ?? array() ) ),
 					'legacy_baseline'             => $legacy_baseline,
+					'native_pattern_refreshes'    => $native_pattern_refreshes,
 				);
 				return $prepared_post;
 			}
@@ -177,6 +199,26 @@ final class Structure_Contract_Save_Guard {
 		);
 	}
 
+	/** Only an opted-in, cookie-authenticated wp-admin editor may bypass the agent proposal gate. */
+	private function allows_native_published_edit( \WP_REST_Request $request, \WP_Post $post, array $blueprint ): bool {
+		if ( 'browser-editor' !== (string) ( $blueprint['native_published_edit_policy'] ?? 'blocked' )
+			|| null !== ActorIdentity::context()
+			|| '' !== (string) $request->get_header( 'authorization' )
+			|| ! defined( 'LOGGED_IN_COOKIE' ) ) {
+			return false;
+		}
+		$user_id = get_current_user_id();
+		$cookie = (string) ( $_COOKIE[ LOGGED_IN_COOKIE ] ?? '' );
+		$post_type = get_post_type_object( $post->post_type );
+		return $user_id > 0
+			&& '' !== $cookie
+			&& $user_id === (int) wp_validate_auth_cookie( $cookie, 'logged_in' )
+			&& false !== wp_verify_nonce( (string) $request->get_header( 'x_wp_nonce' ), 'wp_rest' )
+			&& current_user_can( 'edit_post', $post->ID )
+			&& $post_type instanceof \WP_Post_Type
+			&& current_user_can( $post_type->cap->edit_published_posts );
+	}
+
 	public function record_save( \WP_Post $post, \WP_REST_Request $request, bool $creating ): void {
 		if ( $creating || ! isset( $this->pending[ $post->ID ] ) ) {
 			return;
@@ -187,6 +229,15 @@ final class Structure_Contract_Save_Guard {
 			$this->document_state->persist( $post->ID, (string) $pending['page_type'], $pending['legacy_baseline'] );
 		}
 		$state = $this->document_state->persist( $post->ID, (string) $pending['page_type'], (array) $pending['validation'] );
+		if ( ! empty( $pending['native_pattern_refreshes'] ) ) {
+			$this->audit->record(
+				'native-pattern-revision-accepted',
+				'success',
+				array( 'post_id' => $post->ID, 'page_type' => (string) $pending['page_type'], 'revisions' => (array) $pending['native_pattern_refreshes'] ),
+				0,
+				$post->ID
+			);
+		}
 		if ( true === ( $pending['privileged_structure_change'] ?? false ) ) {
 			$this->audit->record(
 				'structure-drift-created',

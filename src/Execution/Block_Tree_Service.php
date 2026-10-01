@@ -330,7 +330,7 @@ final class Block_Tree_Service {
 			}
 
 			$this->validate_attributes( $name, $node['attrs'], $schema['attributes'], $errors );
-			$this->validate_registered_block_contract( $name, $node['attrs'], $schema['composer_contract'] ?? array(), $errors );
+			$this->validate_registered_block_contract( $name, $node['attrs'], $schema['attributes'], $schema['composer_contract'] ?? array(), $errors );
 			$this->validate_relationships( $name, $schema, $parent, $ancestors, $errors );
 			$this->validate_raw_html( $name, (string) $node['innerHTML'], $errors );
 			if ( 'core/image' === $name ) {
@@ -380,22 +380,27 @@ final class Block_Tree_Service {
 	}
 
 	private function validate_schema_value( mixed $value, array $schema, string $path, array &$errors ): void {
-		$type       = (string) ( $schema['type'] ?? '' );
-		$valid_type = match ( $type ) {
-			'string'  => is_string( $value ),
-			'boolean' => is_bool( $value ),
-			'number'  => is_int( $value ) || is_float( $value ),
-			'integer' => is_int( $value ),
-			'array'   => is_array( $value ) && array_is_list( $value ),
-			'object'  => is_array( $value ) && ( empty( $value ) || ! array_is_list( $value ) ),
-			'null'    => null === $value,
-			default   => true,
-		};
+		$type_definition = $schema['type'] ?? '';
+		$types = is_array( $type_definition ) ? array_map( 'strval', $type_definition ) : array( (string) $type_definition );
+		$valid_type = false;
+		foreach ( $types as $type ) {
+			$valid_type = match ( $type ) {
+				'string'  => is_string( $value ),
+				'boolean' => is_bool( $value ),
+				'number'  => is_int( $value ) || is_float( $value ),
+				'integer' => is_int( $value ),
+				'array'   => is_array( $value ) && array_is_list( $value ),
+				'object'  => is_array( $value ) && ( empty( $value ) || ! array_is_list( $value ) ),
+				'null'    => null === $value,
+				default   => true,
+			};
+			if ( $valid_type ) break;
+		}
 		if ( ! $valid_type ) {
 			$errors[] = $this->issue(
 				'invalid_attribute_type',
 				'A block attribute does not match its registered type.',
-				array( 'attribute' => $path, 'expected' => $type )
+				array( 'attribute' => $path, 'expected' => implode( '|', $types ) )
 			);
 			return;
 		}
@@ -411,12 +416,12 @@ final class Block_Tree_Service {
 		if ( ( is_int( $value ) || is_float( $value ) ) && isset( $schema['maximum'] ) && $value > $schema['maximum'] ) {
 			$errors[] = $this->issue( 'attribute_above_maximum', 'A block attribute exceeds its Composer contract maximum.', array( 'attribute' => $path ) );
 		}
-		if ( 'array' === $type && isset( $schema['items'] ) && is_array( $schema['items'] ) ) {
+		if ( in_array( 'array', $types, true ) && is_array( $value ) && array_is_list( $value ) && isset( $schema['items'] ) && is_array( $schema['items'] ) ) {
 			foreach ( $value as $index => $item ) {
 				$this->validate_schema_value( $item, $schema['items'], $path . '[' . $index . ']', $errors );
 			}
 		}
-		if ( 'object' === $type && isset( $schema['properties'] ) && is_array( $schema['properties'] ) ) {
+		if ( in_array( 'object', $types, true ) && is_array( $value ) && ( empty( $value ) || ! array_is_list( $value ) ) && isset( $schema['properties'] ) && is_array( $schema['properties'] ) ) {
 			foreach ( $value as $key => $item ) {
 				if ( isset( $schema['properties'][ $key ] ) && is_array( $schema['properties'][ $key ] ) ) {
 					$this->validate_schema_value( $item, $schema['properties'][ $key ], $path . '.' . $key, $errors );
@@ -425,7 +430,7 @@ final class Block_Tree_Service {
 		}
 	}
 
-	private function validate_registered_block_contract( string $name, array $attrs, mixed $contract, array &$errors ): void {
+	private function validate_registered_block_contract( string $name, array $attrs, array $definitions, mixed $contract, array &$errors ): void {
 		if ( ! is_array( $contract ) || empty( $contract ) ) {
 			return;
 		}
@@ -434,6 +439,10 @@ final class Block_Tree_Service {
 				continue;
 			}
 			if ( ! array_key_exists( $attribute, $attrs ) ) {
+				if ( ! empty( $schema['required'] ) && isset( $definitions[ $attribute ] ) && array_key_exists( 'default', $definitions[ $attribute ] ) ) {
+					$this->validate_schema_value( $definitions[ $attribute ]['default'], $schema, $name . '.' . $attribute, $errors );
+					continue;
+				}
 				if ( ! empty( $schema['required'] ) ) {
 					$errors[] = $this->issue( 'required_component_attribute_missing', 'A fixed registered-block contract attribute is missing.', array( 'block' => $name, 'attribute' => $attribute ) );
 				}

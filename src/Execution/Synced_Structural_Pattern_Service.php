@@ -308,6 +308,47 @@ final class Synced_Structural_Pattern_Service {
 		return $this->refresh_migration_blocks( $blocks, $blueprint, $revisions );
 	}
 
+	/** Re-attest only exact historical revisions explicitly accepted for native editor saves. */
+	public function refresh_native_known_revisions( array $blocks, array $blueprint ): array {
+		$accepted = (array) ( $blueprint['native_pattern_revisions'] ?? array() );
+		$revisions = array();
+		$visit = function ( array $items ) use ( &$visit, &$revisions, $accepted ): void {
+			foreach ( $items as $block ) {
+				if ( ! is_array( $block ) ) continue;
+				if ( 'core/block' === (string) ( $block['blockName'] ?? '' ) ) {
+					$pattern = $this->pattern_name( $block );
+					$composer = (array) ( $block['attrs']['metadata']['wpsuiteAgentComposer'] ?? array() );
+					$version = (int) ( $composer['patternVersion'] ?? 0 );
+					$hash = strtolower( trim( (string) ( $composer['patternHash'] ?? '' ) ) );
+					foreach ( (array) ( $accepted[ $pattern ] ?? array() ) as $revision ) {
+						$known_hash = preg_replace( '/^sha256:/', '', strtolower( (string) ( $revision['from_hash'] ?? '' ) ) );
+						if ( $version !== (int) ( $revision['from_version'] ?? 0 ) || ! is_string( $known_hash ) || ! hash_equals( $known_hash, $hash ) ) continue;
+						if ( isset( $revisions[ $pattern ] ) && $revisions[ $pattern ] !== $revision ) {
+							throw new Execution_Exception( 'native_pattern_revision_mixed', 'A native editor save cannot combine different historical revisions of one synced pattern.' );
+						}
+						$revisions[ $pattern ] = $revision;
+					}
+					foreach ( (array) ( $composer[ self::INSTANCE_SLOTS_KEY ] ?? array() ) as $children ) {
+						if ( is_array( $children ) ) $visit( $children );
+					}
+				}
+				$visit( (array) ( $block['innerBlocks'] ?? array() ) );
+			}
+		};
+		$visit( $blocks );
+		if ( empty( $revisions ) ) return array( 'blocks' => $blocks, 'operations' => array() );
+		$operations = array();
+		foreach ( $revisions as $pattern => $revision ) {
+			$operations[] = array(
+				'type' => 'refresh_pattern',
+				'pattern' => $pattern,
+				'from_version' => (int) $revision['from_version'],
+				'from_hash' => (string) $revision['from_hash'],
+			);
+		}
+		return array( 'blocks' => $this->refresh_migration_instances( $blocks, $blueprint, $operations ), 'operations' => $operations );
+	}
+
 	private function refresh_migration_blocks( array $blocks, array $blueprint, array $revisions ): array {
 		foreach ( $blocks as $index => $block ) {
 			if ( ! is_array( $block ) || null === ( $block['blockName'] ?? null ) ) {

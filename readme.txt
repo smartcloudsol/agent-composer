@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.3.6
+Stable tag: 1.3.7
 License: MIT
 License URI: https://mit-license.org/
 
@@ -154,6 +154,12 @@ The distributed JavaScript and CSS are built from public `admin/src`, `blocks/sr
 
 == Changelog ==
 
+= 1.3.7 =
+* Allow an explicitly opted-in, cookie-authenticated WordPress editor to save a published managed document through Gutenberg while retaining full Blueprint and Structure Contract validation.
+* Keep Composer/MCP agent updates on the separate human-reviewed proposal path; native editing remains blocked by default.
+* Expose the native published-edit policy in Blueprint configuration.
+* Allow registered block union types and schema defaults during validation, so optional unsaved attributes do not prevent existing managed documents from being edited.
+
 = 1.3.6 =
 * Gutenberg editing: Edit per-post content inside synced structural patterns inline, including nested instances. Add, remove, and reorder approved content from the block sidebar's List View tab within the configured contract limits.
 * Pattern instances: Preserve each post's content and native Pattern Overrides without changing shared patterns or other instances.
@@ -299,6 +305,9 @@ The distributed JavaScript and CSS are built from public `admin/src`, `blocks/sr
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.3.7 =
+Native editing remains blocked until a new, validated Config Set explicitly enables `native_published_edit_policy: browser-editor` on a proposal-only Blueprint. Existing published posts with stale synced-pattern attestations also require exact `native_pattern_revisions` entries in that Config Set; unknown revisions remain blocked and require a reviewed migration.
 
 = 1.3.6 =
 Reload open block editors after updating. Content controls are available in the right Block sidebar's List View tab. Existing per-instance content is retained; no shared-pattern rewrite is required. Registered Blueprint migrations remain proposal-only and require human review before merge. Available blocks remain governed by the site's contract.

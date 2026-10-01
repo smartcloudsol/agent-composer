@@ -162,6 +162,16 @@ final class Page_Validator {
 		return $result;
 	}
 
+	/** Prepare an opted-in browser save without changing authored content or instance overrides. */
+	public function refresh_native_pattern_revisions( string $page_type, string $content ): array {
+		$blueprint = $this->config->get_blueprint( $page_type );
+		$result = $this->synced_patterns->refresh_native_known_revisions( parse_blocks( $content ), $blueprint );
+		return array(
+			'content' => empty( $result['operations'] ) ? $content : serialize_blocks( $result['blocks'] ),
+			'operations' => $result['operations'],
+		);
+	}
+
 	/**
 	 * Privileged blueprint migrations replace the governed structure exactly.
 	 * Their old synced-pattern attestations belong to the source blueprint and

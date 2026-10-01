@@ -510,8 +510,9 @@ final class ConfigSetValidator {
 					$errors[] = $this->issue( 'registered-block-attribute-unavailable', 'A contracted attribute is absent from the registered block schema.', $attribute_path );
 					continue;
 				}
-				$registered_type = (string) ( $registered_attributes[ $attribute ]['type'] ?? '' );
-				if ( '' !== (string) ( $schema['type'] ?? '' ) && $registered_type !== (string) $schema['type'] ) {
+				$registered_type = $registered_attributes[ $attribute ]['type'] ?? '';
+				$registered_types = is_array( $registered_type ) ? array_map( 'strval', $registered_type ) : array( (string) $registered_type );
+				if ( '' !== (string) ( $schema['type'] ?? '' ) && ! in_array( (string) $schema['type'], $registered_types, true ) ) {
 					$errors[] = $this->issue( 'registered-block-attribute-type-mismatch', 'A contracted attribute type differs from the registered block schema.', $attribute_path );
 				}
 			}
@@ -637,6 +638,29 @@ final class ConfigSetValidator {
 			if ( ! in_array( $mode, array( 'disabled', 'proposal-only' ), true ) ) {
 				$errors[] = $this->issue( 'blueprint-published-update-policy-invalid', 'Published update policy must be disabled or proposal-only.', $blueprint['key'] . ':published_update_policy' );
 				continue;
+			}
+			$native_mode = (string) ( $payload['native_published_edit_policy'] ?? 'blocked' );
+			if ( ! in_array( $native_mode, array( 'blocked', 'browser-editor' ), true )
+				|| ( 'browser-editor' === $native_mode && 'proposal-only' !== $mode ) ) {
+				$errors[] = $this->issue( 'blueprint-native-published-edit-policy-invalid', 'Native published editing must be blocked or explicitly enabled for a proposal-only Blueprint.', $blueprint['key'] . ':native_published_edit_policy' );
+			}
+			$revisions = $payload['native_pattern_revisions'] ?? array();
+			if ( ! is_array( $revisions ) || ( ! empty( $revisions ) && array_is_list( $revisions ) ) || count( $revisions ) > 20 || ( ! empty( $revisions ) && 'browser-editor' !== $native_mode ) ) {
+				$errors[] = $this->issue( 'blueprint-native-pattern-revisions-invalid', 'Native pattern revisions require a browser-editor Blueprint and a bounded pattern map.', $blueprint['key'] . ':native_pattern_revisions' );
+			} else {
+				foreach ( $revisions as $pattern => $history ) {
+					if ( ! in_array( $pattern, (array) ( $payload['synced_patterns'] ?? array() ), true ) || ! is_array( $history ) || ! array_is_list( $history ) || empty( $history ) || count( $history ) > 12 ) {
+						$errors[] = $this->issue( 'blueprint-native-pattern-history-invalid', 'Each native pattern history must name an enabled synced pattern and contain a bounded revision list.', $blueprint['key'] . ':native_pattern_revisions.' . $pattern );
+						continue;
+					}
+					foreach ( $history as $revision ) {
+						if ( ! is_array( $revision ) || array_diff( array_keys( $revision ), array( 'from_version', 'from_hash' ) )
+							|| ! is_int( $revision['from_version'] ?? null ) || (int) $revision['from_version'] < 1
+							|| ! preg_match( '/^sha256:[a-f0-9]{64}$/', (string) ( $revision['from_hash'] ?? '' ) ) ) {
+							$errors[] = $this->issue( 'blueprint-native-pattern-revision-invalid', 'A native pattern revision requires an exact historical version and SHA-256 hash.', $blueprint['key'] . ':native_pattern_revisions.' . $pattern );
+						}
+					}
+				}
 			}
 			$post_type = sanitize_key( (string) ( $payload['target_post_type'] ?? '' ) );
 			if ( 'proposal-only' === $mode && empty( $access[ $post_type ]['propose_updates'] ) ) {

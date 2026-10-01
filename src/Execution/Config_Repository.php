@@ -459,6 +459,12 @@ final class Config_Repository {
 		$blueprint['published_update_policy'] = 'proposal-only' === (string) ( $blueprint['published_update_policy'] ?? 'disabled' )
 			? 'proposal-only'
 			: 'disabled';
+		$blueprint['native_published_edit_policy'] = 'browser-editor' === (string) ( $blueprint['native_published_edit_policy'] ?? 'blocked' )
+			? 'browser-editor'
+			: 'blocked';
+		$blueprint['native_pattern_revisions'] = is_array( $blueprint['native_pattern_revisions'] ?? null )
+			? $blueprint['native_pattern_revisions']
+			: array();
 		$site_language = (string) ( $policy['content_language'] ?? '' );
 		$blueprint_language = $this->normalize_language_tag( $blueprint['content_language'] ?? '', true );
 		$allowed_site_languages = (array) ( $policy['localization']['allowed_content_languages'] ?? ( '' !== $site_language ? array( $site_language ) : array() ) );
