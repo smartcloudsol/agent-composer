@@ -17,6 +17,7 @@ namespace SmartCloud\AgentComposer\Execution {
 	require_once dirname(__DIR__) . '/src/Execution/Abilities.php';
 	require_once dirname(__DIR__) . '/src/Execution/Config_Repository.php';
 	require_once dirname(__DIR__) . '/src/Execution/Content_Field_Materializer.php';
+	require_once dirname(__DIR__) . '/src/Execution/Relation_Value_Validator.php';
 
 	function field_assert_true(bool $condition, string $message): void {
 		if (! $condition) {

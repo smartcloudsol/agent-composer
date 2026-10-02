@@ -152,37 +152,11 @@ final class Taxonomy_Term_Service {
 		$context = $this->context( $input, 'create' );
 		$this->language->assert_request_language( $context['page_type'], $input );
 
-		$name        = sanitize_text_field( (string) ( $input['name'] ?? '' ) );
-		$slug_input  = trim( (string) ( $input['slug'] ?? '' ) );
-		$slug        = sanitize_title( $slug_input );
-		$description = sanitize_textarea_field( (string) ( $input['description'] ?? '' ) );
-		$parent_slug = sanitize_title( (string) ( $input['parent_slug'] ?? '' ) );
-		$parent_id   = 0;
-		if ( '' === $name || $this->string_length( $name ) > 200 ) {
-			throw new Execution_Exception( 'taxonomy_term_name_invalid', 'A bounded public taxonomy-term name is required.' );
-		}
-		if ( '' === $slug || $slug_input !== $slug || $this->string_length( $slug ) > 200 ) {
-			throw new Execution_Exception( 'taxonomy_term_slug_invalid', 'A durable lowercase taxonomy-term slug is required.' );
-		}
-		if ( '' === $description || $this->string_length( $description ) > 2000 ) {
-			throw new Execution_Exception( 'taxonomy_term_description_invalid', 'A bounded standalone archive description is required.' );
-		}
-		if ( ! empty( $this->language->issues( $context['page_type'], $name . "\n" . $description ) ) ) {
-			throw new Execution_Exception( 'taxonomy_term_language_mismatch', 'The taxonomy-term copy conflicts with the strict Blueprint content language.' );
-		}
-		if ( '' !== $parent_slug ) {
-			if ( empty( $context['object']->hierarchical ) || 'allowlist' !== ( $context['rule']['creation_parent_policy'] ?? 'root-only' ) ) {
-				throw new Execution_Exception( 'taxonomy_term_parent_not_allowed', 'The active taxonomy policy requires new terms to remain at the taxonomy root.' );
-			}
-			if ( ! in_array( $parent_slug, (array) ( $context['rule']['creation_parent_slugs'] ?? array() ), true ) ) {
-				throw new Execution_Exception( 'taxonomy_term_parent_not_allowed', 'The requested taxonomy parent slug is not allowed by the active Site Contract.' );
-			}
-			$parent = get_term_by( 'slug', $parent_slug, $context['taxonomy'] );
-			if ( ! $parent instanceof \WP_Term ) {
-				throw new Execution_Exception( 'taxonomy_term_parent_not_found', 'The allowed parent slug does not resolve to an existing term.' );
-			}
-			$parent_id = (int) $parent->term_id;
-		}
+		$definition = ( new Term_Definition_Validator( $this->language ) )->validate( $input, $context['taxonomy'], $context['rule'], $this->config->get_blueprint( $context['page_type'] ) );
+		$name = $definition['name'];
+		$slug = $definition['slug'];
+		$description = $definition['description'];
+		$parent_id = $definition['parent'];
 
 		$existing = get_term_by( 'slug', $slug, $context['taxonomy'] );
 		if ( $existing instanceof \WP_Term ) {
@@ -238,21 +212,7 @@ final class Taxonomy_Term_Service {
 			throw new Execution_Exception( 'taxonomy_draft_target_mismatch', 'The assigned draft does not match the selected Blueprint taxonomy target.' );
 		}
 
-		$submitted = $input['term_ids'] ?? null;
-		if ( ! is_array( $submitted ) || ! array_is_list( $submitted ) || empty( $submitted ) ) {
-			throw new Execution_Exception( 'taxonomy_term_ids_invalid', 'term_ids must be a non-empty list of positive integer term IDs.' );
-		}
-		$term_ids = array();
-		foreach ( $submitted as $term_id ) {
-			if ( ! is_int( $term_id ) || $term_id < 1 ) {
-				throw new Execution_Exception( 'taxonomy_term_ids_invalid', 'Every taxonomy term ID must be a positive integer.' );
-			}
-			$term_ids[] = $term_id;
-		}
-		$term_ids = array_values( array_unique( $term_ids ) );
-		if ( count( $term_ids ) !== count( $submitted ) ) {
-			throw new Execution_Exception( 'taxonomy_term_ids_duplicate', 'Taxonomy term IDs must be unique.' );
-		}
+		$term_ids = Taxonomy_Value_Validator::assert_assignment( $input['term_ids'] ?? null, $context['taxonomy'], $context['rule'] );
 
 		$mode = (string) ( $input['mode'] ?? '' );
 		if ( ! in_array( $mode, array( 'replace', 'append' ), true ) ) {
@@ -263,15 +223,6 @@ final class Taxonomy_Term_Service {
 			throw new Execution_Exception( 'taxonomy_assignment_mode_denied', 'The requested assignment mode differs from the active Site Contract.' );
 		}
 		$maximum = $this->maximum_terms( $context['rule'] );
-		if ( count( $term_ids ) > $maximum ) {
-			throw new Execution_Exception( 'taxonomy_term_limit_exceeded', 'The assignment exceeds the Site Contract taxonomy-term limit.' );
-		}
-		foreach ( $term_ids as $term_id ) {
-			$term = get_term( $term_id, $context['taxonomy'] );
-			if ( ! $term instanceof \WP_Term ) {
-				throw new Execution_Exception( 'taxonomy_term_not_found', 'A requested term does not exist in the selected taxonomy.' );
-			}
-		}
 
 		$result = $this->drafts->update_owned_taxonomy_terms( $input, $context['taxonomy'], $term_ids, 'append' === $mode, $maximum );
 		$result['taxonomy']       = $context['taxonomy'];

@@ -2869,7 +2869,7 @@ HTML;
 				'taxonomy'              => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 32, 'pattern' => '^[a-z0-9_-]+$' ),
 				'term_ids'              => array(
 					'type'        => 'array',
-					'minItems'    => 1,
+					'minItems'    => 0,
 					'maxItems'    => 100,
 					'uniqueItems' => true,
 					'items'       => array( 'type' => 'integer', 'minimum' => 1 ),

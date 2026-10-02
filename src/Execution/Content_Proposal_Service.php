@@ -667,21 +667,17 @@ final class Content_Proposal_Service {
 				$result['errors'][] = array( 'code' => 'migration_proposal_changed', 'message' => 'The migration proposal no longer matches its reviewed structural plan.', 'path' => 'migration' );
 			}
 		}
-		$blueprint = $this->config->get_blueprint( $page_type );
-		$seo = trim( (string) get_post_meta( $proposal->ID, Draft_Service::YOAST_METADESC_META, true ) );
-		$seo_contract = (array) ( $blueprint['seo_contract']['meta_description'] ?? array() );
-		$minimum = max( 0, (int) ( $seo_contract['minimum_characters'] ?? 120 ) );
-		$maximum = max( $minimum, (int) ( $seo_contract['maximum_characters'] ?? 160 ) );
-		$seo_length = function_exists( 'mb_strlen' ) ? mb_strlen( $seo ) : strlen( $seo );
-		if ( $seo_length < $minimum || $seo_length > $maximum ) {
+		$editorial_validator = new Editorial_Field_Validator( $this->config, new Content_Language_Validator( $this->config ) );
+		try {
+			Editorial_Field_Validator::sanitize_title( $proposal->post_title );
+			$editorial = $editorial_validator->sanitize_fields( array(
+				'excerpt' => (string) $proposal->post_excerpt,
+				'meta_description' => get_post_meta( $proposal->ID, Draft_Service::YOAST_METADESC_META, true ),
+			), $page_type );
+			$result = $editorial_validator->add_language_issues( $result, $page_type, array( 'title' => $proposal->post_title ), $editorial );
+		} catch ( Execution_Exception $error ) {
 			$result['valid'] = false;
-			$result['errors'][] = array( 'code' => 'meta_description_invalid', 'message' => 'The proposal SEO description does not meet its Blueprint length contract.', 'path' => 'meta_description' );
-		}
-		$excerpt = trim( wp_strip_all_tags( (string) $proposal->post_excerpt ) );
-		$excerpt_policy = (string) ( $blueprint['excerpt_policy'] ?? 'optional' );
-		if ( ( 'required' === $excerpt_policy && '' === $excerpt ) || ( 'disabled' === $excerpt_policy && '' !== $excerpt ) ) {
-			$result['valid'] = false;
-			$result['errors'][] = array( 'code' => 'excerpt_policy_invalid', 'message' => 'The proposal excerpt does not meet its Blueprint policy.', 'path' => 'excerpt' );
+			$result['errors'][] = array( 'code' => $error->get_execution_code(), 'message' => $error->getMessage(), 'path' => 'editorial_fields' );
 		}
 		return $result;
 	}

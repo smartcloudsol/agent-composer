@@ -117,6 +117,7 @@ final class ExecutionRuntime {
 		$this->mcp_access->register_hooks();
 		$this->synced_patterns->register_frontend_rendering();
 		$this->admin_documents->register();
+		add_action( 'init', array( $this->structure_guard, 'register_admin' ), 5 );
 		add_filter( 'block_editor_settings_all', array( $this->structure_guard, 'filter_editor_settings' ), 10, 2 );
 		add_action( 'init', array( $this->patterns, 'register_approved_patterns' ), 20 );
 		add_action( 'wp_abilities_api_init', array( $this->abilities, 'register' ), 20 );

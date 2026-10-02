@@ -58,6 +58,9 @@ final class Draft_Service {
 	public function validate_request( array $input ): array {
 		$page_type = sanitize_key( (string) ( $input['page_type'] ?? '' ) );
 		$this->language->assert_request_language( $page_type, $input );
+		if ( array_key_exists( 'title', $input ) ) {
+			$this->sanitize_title( $input['title'] );
+		}
 		$target    = $this->targets->resolve( $page_type );
 		$editorial = $this->sanitize_editorial_fields( $input, $page_type );
 		$assembled = $this->assembler->assemble( $page_type, $input['sections'] ?? array() );
@@ -275,6 +278,7 @@ final class Draft_Service {
 		$target = $this->targets->resolve( $page_type );
 		$this->assert_post_contract( $post, $page_type, $target );
 		$this->targets->assert_current_user_can_edit( $post, true );
+		$this->assert_partial_document( $post, $page_type, $fields );
 
 		global $wpdb;
 		$this->begin_locked_update( $post_id, $expected_modified, $expected_revision, $page_type, $target );
@@ -320,8 +324,8 @@ final class Draft_Service {
 	public function update_owned_taxonomy_terms( array $input, string $taxonomy, array $term_ids, bool $append, int $maximum_items ): array {
 		$this->assert_no_forbidden_input( $input );
 		$taxonomy = sanitize_key( $taxonomy );
-		if ( '' === $taxonomy || empty( $term_ids ) ) {
-			throw new Execution_Exception( 'taxonomy_assignment_invalid', 'A taxonomy and at least one term ID are required.' );
+		if ( '' === $taxonomy ) {
+			throw new Execution_Exception( 'taxonomy_assignment_invalid', 'A registered taxonomy is required.' );
 		}
 
 		$post_id           = absint( $input['post_id'] ?? 0 );
@@ -335,6 +339,7 @@ final class Draft_Service {
 		$target = $this->targets->resolve( $page_type );
 		$this->assert_post_contract( $post, $page_type, $target );
 		$this->targets->assert_current_user_can_edit( $post, true );
+		$this->assert_partial_document( $post, $page_type );
 		if ( ! is_object_in_taxonomy( $post->post_type, $taxonomy ) ) {
 			throw new Execution_Exception( 'taxonomy_post_type_mismatch', 'The taxonomy is not registered for this draft post type.' );
 		}
@@ -1670,13 +1675,23 @@ final class Draft_Service {
 		}
 	}
 
-	private function sanitize_title( mixed $title ): string {
-		$title = sanitize_text_field( (string) $title );
-		$length = function_exists( 'mb_strlen' ) ? mb_strlen( $title ) : strlen( $title );
-		if ( '' === $title || $length > 200 ) {
-			throw new Execution_Exception( 'invalid_title', 'The title must contain between 1 and 200 characters.' );
+	/** A field-only or taxonomy-only agent save still validates the complete document. */
+	private function assert_partial_document( \WP_Post $post, string $page_type, array $fields = array() ): void {
+		$this->sanitize_title( $post->post_title );
+		$editorial = $this->sanitize_editorial_fields( array(
+			'excerpt' => (string) $post->post_excerpt,
+			'meta_description' => array_key_exists( self::YOAST_METADESC_META, $fields )
+				? $fields[ self::YOAST_METADESC_META ] : get_post_meta( $post->ID, self::YOAST_METADESC_META, true ),
+		), $page_type );
+		$validation = $this->validator->validate( $page_type, (string) $post->post_content, (string) $post->post_content );
+		$validation = $this->add_editorial_language_issues( $validation, $page_type, array( 'title' => $post->post_title ), $editorial );
+		if ( true !== ( $validation['valid'] ?? false ) ) {
+			throw $this->validation_exception( $validation, 'The draft does not satisfy its active Blueprint.' );
 		}
-		return $title;
+	}
+
+	private function sanitize_title( mixed $title ): string {
+		return Editorial_Field_Validator::sanitize_title( $title );
 	}
 
 	private function sanitize_slug( mixed $slug ): string {
@@ -1696,76 +1711,23 @@ final class Draft_Service {
 	}
 
 	private function sanitize_editorial_fields( array $input, string $page_type ): array {
-		$policy = $this->excerpt_policy( $page_type );
-		return array(
-			'excerpt'          => Excerpt_Policy::sanitize_input( $input['excerpt'] ?? '', array_key_exists( 'excerpt', $input ), $policy ),
-			'excerpt_policy'   => $policy,
-			'meta_description' => $this->sanitize_editorial_text( $input['meta_description'] ?? '', 'meta description', 120, 160 ),
-		);
+		return ( new Editorial_Field_Validator( $this->config, $this->language ) )->sanitize_fields( $input, $page_type );
 	}
 
 	private function sanitize_editorial_text( mixed $value, string $label, int $minimum, int $maximum ): string {
-		$value = sanitize_text_field( wp_strip_all_tags( (string) $value, true ) );
-		$value = trim( preg_replace( '/\s+/u', ' ', $value ) ?? $value );
-		$length = function_exists( 'mb_strlen' ) ? mb_strlen( $value ) : strlen( $value );
-		if ( $length < $minimum || $length > $maximum ) {
-			throw new Execution_Exception(
-				'invalid_seo_metadata',
-				sprintf( 'The %s must contain between %d and %d characters.', $label, $minimum, $maximum ) // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Exception data is returned by an Ability and is not rendered as HTML.
-			);
-		}
-		return $value;
+		return Editorial_Field_Validator::sanitize_text( $value, $label, $minimum, $maximum );
 	}
 
 	private function add_editorial_language_issues( array $validation, string $page_type, array $input, array $editorial ): array {
-		$text = implode(
-			"\n",
-			array_filter(
-				array(
-					isset( $input['title'] ) ? (string) $input['title'] : '',
-					(string) ( $editorial['excerpt'] ?? '' ),
-					(string) ( $editorial['meta_description'] ?? '' ),
-				)
-			)
-		);
-		$issues = $this->language->issues( $page_type, $text );
-		foreach ( $issues as $issue ) {
-			$validation['errors'][] = array(
-				'code'    => (string) ( $issue['code'] ?? 'content_language_mismatch' ),
-				'message' => (string) ( $issue['message'] ?? 'Generated editorial fields conflict with the strict content language policy.' ),
-				'context' => array( 'surface' => 'title-excerpt-seo' ),
-			);
-		}
-		$validation['errors'] = array_values( (array) ( $validation['errors'] ?? array() ) );
-		$validation['valid']  = empty( $validation['errors'] );
-		return $validation;
+		return ( new Editorial_Field_Validator( $this->config, $this->language ) )->add_language_issues( $validation, $page_type, $input, $editorial );
 	}
 
 	private function describe_editorial_fields( string $excerpt, string $meta_description, string $excerpt_policy ): array {
-		return array(
-			'excerpt'                    => $excerpt,
-			'excerpt_characters'         => function_exists( 'mb_strlen' ) ? mb_strlen( $excerpt ) : strlen( $excerpt ),
-			'excerpt_policy'             => $excerpt_policy,
-			'meta_description'           => $meta_description,
-			'meta_description_characters' => function_exists( 'mb_strlen' ) ? mb_strlen( $meta_description ) : strlen( $meta_description ),
-			'meta_description_provider'  => 'Yoast SEO',
-		);
+		return Editorial_Field_Validator::describe( $excerpt, $meta_description, $excerpt_policy );
 	}
 
 	private function validate_stored_editorial_fields( string $excerpt, string $meta_description, string $page_type ): array {
-		$policy  = $this->excerpt_policy( $page_type );
-		$summary = $this->describe_editorial_fields( $excerpt, $meta_description, $policy );
-		$errors  = Excerpt_Policy::stored_errors( $excerpt, $policy );
-		if ( $summary['meta_description_characters'] < 120 || $summary['meta_description_characters'] > 160 ) {
-			$errors[] = array(
-				'code' => 'invalid_meta_description_length',
-				'message' => 'The Yoast SEO meta description must contain between 120 and 160 characters.',
-				'context' => array( 'found' => $summary['meta_description_characters'], 'minimum' => 120, 'maximum' => 160 ),
-			);
-		}
-		$summary['valid']  = empty( $errors );
-		$summary['errors'] = $errors;
-		return $summary;
+		return ( new Editorial_Field_Validator( $this->config, $this->language ) )->stored_errors( $excerpt, $meta_description, $page_type );
 	}
 
 	private function excerpt_policy( string $page_type ): string {

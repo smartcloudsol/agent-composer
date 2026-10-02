@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.3.7
+Stable tag: 1.3.8
 License: MIT
 License URI: https://mit-license.org/
 
@@ -153,6 +153,12 @@ https://www.npmjs.com/package/@smart-cloud/agent-composer-core
 The distributed JavaScript and CSS are built from public `admin/src`, `blocks/src`, and `core` sources. PHP owns registration, authorization, persistence, audit, portability, and execution. The release assembler adds the shared Hub runtime, verifies the package, normalizes timestamps, and records SHA-256 checksums.
 
 == Changelog ==
+
+= 1.3.8 =
+* Share editorial, relation, taxonomy assignment, and public term-definition validators across agent and native editing integrations.
+* Validate classic admin, Quick Edit, and Bulk Edit document changes before core writes using the real native editor session and nonce, preserving the explicit published-edit opt-in.
+* Validate complete stored editorial fields and the active Blueprint on partial Gutenberg saves, including metadata-only requests, while retaining separate agent proposal permissions.
+* Reject relations to the edited document or its proposal source, allow empty taxonomy replacements, and report actual stored content-field values after updates.
 
 = 1.3.7 =
 * Allow an explicitly opted-in, cookie-authenticated WordPress editor to save a published managed document through Gutenberg while retaining full Blueprint and Structure Contract validation.
@@ -305,6 +311,9 @@ The distributed JavaScript and CSS are built from public `admin/src`, `blocks/sr
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.3.8 =
+Partial native saves now enforce the same title, excerpt, SEO description, language, and document rules as agent edits. Review and correct invalid existing editorial metadata before editing; omitting content no longer bypasses validation or the published proposal gate. Native consumer plugins can use the shared validators without granting agents additional permissions.
 
 = 1.3.7 =
 Native editing remains blocked until a new, validated Config Set explicitly enables `native_published_edit_policy: browser-editor` on a proposal-only Blueprint. Existing published posts with stale synced-pattern attestations also require exact `native_pattern_revisions` entries in that Config Set; unknown revisions remain blocked and require a reviewed migration.

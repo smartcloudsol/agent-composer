@@ -229,7 +229,10 @@ final class Content_Field_Materializer {
 
 		$page_type = sanitize_key( (string) ( $input['page_type'] ?? '' ) );
 		$result = $this->drafts->update_owned_meta_fields( $input, $values );
-		$result['fields'] = $values;
+		$result['fields'] = array();
+		foreach ( array_keys( $values ) as $meta_key ) {
+			$result['fields'][ $meta_key ] = get_post_meta( (int) $result['post_id'], $meta_key, true );
+		}
 		return $result;
 	}
 
@@ -246,6 +249,13 @@ final class Content_Field_Materializer {
 		$post_type = (string) $blueprint['target_post_type'];
 		$allowed   = $this->allowed_fields( $post_type, true );
 		$values    = array();
+		$excluded_ids = $post_id > 0 ? array( $post_id ) : array();
+		if ( $post_id > 0 ) {
+			$source_id = absint( get_post_meta( $post_id, Content_Proposal_Service::SOURCE_META, true ) );
+			if ( $source_id > 0 ) {
+				$excluded_ids[] = $source_id;
+			}
+		}
 		foreach ( $submitted as $meta_key => $value ) {
 			$meta_key = (string) $meta_key;
 			if ( ! isset( $allowed[ $meta_key ] ) ) {
@@ -255,10 +265,10 @@ final class Content_Field_Materializer {
 				throw new Execution_Exception( 'content_field_capability_denied', 'The current WordPress user cannot edit an approved content field: ' . $meta_key ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Ability error, not HTML.
 			}
 			$this->assert_value( $value, $allowed[ $meta_key ], $meta_key );
-			$this->assert_relation_value( $value, $allowed[ $meta_key ]['composer_contract'] ?? array(), $meta_key );
+			$this->assert_relation_value( $value, $allowed[ $meta_key ]['composer_contract'] ?? array(), $meta_key, $excluded_ids );
 			$sanitized = sanitize_meta( $meta_key, $value, 'post', $post_type );
 			$this->assert_value( $sanitized, $allowed[ $meta_key ], $meta_key );
-			$this->assert_relation_value( $sanitized, $allowed[ $meta_key ]['composer_contract'] ?? array(), $meta_key );
+			$this->assert_relation_value( $sanitized, $allowed[ $meta_key ]['composer_contract'] ?? array(), $meta_key, $excluded_ids );
 			$values[ $meta_key ] = $sanitized;
 		}
 		$language_text = wp_json_encode( $values, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
@@ -343,40 +353,8 @@ final class Content_Field_Materializer {
 		}
 	}
 
-	private function assert_relation_value( mixed $value, array $contract, string $meta_key ): void {
-		if ( 'relation' !== ( $contract['semantic_type'] ?? '' ) ) {
-			return;
-		}
-
-		$cardinality = (string) ( $contract['cardinality'] ?? 'many' );
-		$ids = 'one' === $cardinality ? array( $value ) : $value;
-		if ( ! is_array( $ids ) || ( 'many' === $cardinality && ! array_is_list( $ids ) ) ) {
-			throw new Execution_Exception( 'relation_cardinality_mismatch', 'A relation field does not match its declared cardinality: ' . $meta_key ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
-		}
-		if ( count( $ids ) > (int) ( $contract['maximum_items'] ?? 1 ) ) {
-			throw new Execution_Exception( 'relation_item_limit_exceeded', 'A relation field exceeds its declared item limit: ' . $meta_key ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
-		}
-		if ( count( $ids ) !== count( array_unique( $ids, SORT_REGULAR ) ) ) {
-			throw new Execution_Exception( 'relation_duplicate_target', 'A relation field cannot contain duplicate targets: ' . $meta_key ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
-		}
-
-		$target_types    = (array) ( $contract['target_post_types'] ?? array() );
-		$target_statuses = (array) ( $contract['target_post_statuses'] ?? array( 'publish' ) );
-		foreach ( $ids as $id ) {
-			if ( ! is_int( $id ) || $id < 1 ) {
-				throw new Execution_Exception( 'relation_target_id_invalid', 'A relation target must be a positive integer post ID: ' . $meta_key ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
-			}
-			$target = get_post( $id );
-			if ( ! $target instanceof \WP_Post ) {
-				throw new Execution_Exception( 'relation_target_missing', 'A relation target post does not exist: ' . $meta_key ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
-			}
-			if ( ! in_array( $target->post_type, $target_types, true ) ) {
-				throw new Execution_Exception( 'relation_target_type_mismatch', 'A relation target uses a forbidden post type: ' . $meta_key ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
-			}
-			if ( ! in_array( $target->post_status, $target_statuses, true ) ) {
-				throw new Execution_Exception( 'relation_target_status_mismatch', 'A relation target uses a forbidden post status: ' . $meta_key ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
-			}
-		}
+	private function assert_relation_value( mixed $value, array $contract, string $meta_key, array $excluded_ids = array() ): void {
+		Relation_Value_Validator::assert_value( $value, $contract, $meta_key, $excluded_ids );
 	}
 
 	private function rest_schema( array $registration ): array {

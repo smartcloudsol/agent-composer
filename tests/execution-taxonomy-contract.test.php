@@ -42,6 +42,7 @@ namespace SmartCloud\AgentComposer\Execution {
 		'Term assignment must require ownership scope, policy mode, both concurrency tokens, and confirmation.'
 	);
 	taxonomy_same(true, $assign['properties']['term_ids']['uniqueItems'] ?? null, 'Term IDs must be unique.');
+	taxonomy_same(0, $assign['properties']['term_ids']['minItems'] ?? null, 'An empty replacement must permit clearing assignments.');
 	taxonomy_same(array('replace', 'append'), $assign['properties']['mode']['enum'] ?? null, 'Assignment mode must remain bounded.');
 
 	$inspect = $abilities->taxonomy_inspection_schema();
@@ -62,14 +63,18 @@ namespace SmartCloud\AgentComposer\Execution {
 	foreach (array(
 		'get_content_taxonomy_access',
 		'wp_insert_term',
-		'creation_parent_policy',
-		'creation_parent_slugs',
+		'Term_Definition_Validator',
+		'Taxonomy_Value_Validator',
 		'assignment_mode',
 		'CAP_CREATE_TERMS',
 		'CAP_ASSIGN_TERMS',
 		'get_owned_draft',
 	) as $required) {
 		taxonomy_assert(str_contains($service_source, $required), 'Taxonomy service is missing required policy or ownership boundary: ' . $required);
+	}
+	$term_validator_source = file_get_contents(dirname(__DIR__) . '/src/Execution/Term_Definition_Validator.php');
+	foreach (array('creation_parent_policy', 'creation_parent_slugs') as $required) {
+		taxonomy_assert(str_contains($term_validator_source, $required), 'The shared validator must retain the governed parent boundary.');
 	}
 	taxonomy_assert(! str_contains($service_source, 'wp_update_term'), 'Composer must never edit an existing taxonomy term.');
 	taxonomy_assert(! str_contains($service_source, 'wp_delete_term'), 'Composer must never delete a taxonomy term.');
