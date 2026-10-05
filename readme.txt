@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.3.8
+Stable tag: 1.3.9
 License: MIT
 License URI: https://mit-license.org/
 
@@ -153,6 +153,10 @@ https://www.npmjs.com/package/@smart-cloud/agent-composer-core
 The distributed JavaScript and CSS are built from public `admin/src`, `blocks/src`, and `core` sources. PHP owns registration, authorization, persistence, audit, portability, and execution. The release assembler adds the shared Hub runtime, verifies the package, normalizes timestamps, and records SHA-256 checksums.
 
 == Changelog ==
+
+= 1.3.9 =
+* Restore Composer MCP connectivity with WordPress MCP Adapter 0.7.0 by using its revision-aware protocol processor; retain support for MCP Adapter 0.6.1.
+* Keep Composer's external-principal transport request-authenticated without using WordPress-user MCP sessions.
 
 = 1.3.8 =
 * Share editorial, relation, taxonomy assignment, and public term-definition validators across agent and native editing integrations.
@@ -311,6 +315,9 @@ The distributed JavaScript and CSS are built from public `admin/src`, `blocks/sr
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.3.9 =
+Install this update when upgrading WordPress MCP Adapter to 0.7.0. Restart the MCP tunnel and reconnect clients after installation. No content migration is required.
 
 = 1.3.8 =
 Partial native saves now enforce the same title, excerpt, SEO description, language, and document rules as agent edits. Review and correct invalid existing editorial metadata before editing; omitting content no longer bypasses validation or the published proposal gate. Native consumer plugins can use the shared validators without granting agents additional permissions.

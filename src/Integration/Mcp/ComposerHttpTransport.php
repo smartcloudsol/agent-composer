@@ -2,11 +2,15 @@
 
 namespace SmartCloud\AgentComposer\Integration\Mcp;
 
+use WP\MCP\Core\McpVersionNegotiator;
 use WP\MCP\Infrastructure\ErrorHandling\McpErrorFactory;
 use WP\MCP\Transport\Contracts\McpRestTransportInterface;
+use WP\MCP\Transport\Infrastructure\HttpRequestContext;
 use WP\MCP\Transport\Infrastructure\JsonRpcResponseBuilder;
 use WP\MCP\Transport\Infrastructure\McpTransportContext;
 use WP\MCP\Transport\Infrastructure\McpTransportHelperTrait;
+use WP\MCP\Transport\Infrastructure\McpWireOrchestrator;
+use WP\McpSchema\Record;
 
 /**
  * Stateless HTTP transport for Composer's external OAuth principals.
@@ -19,7 +23,10 @@ use WP\MCP\Transport\Infrastructure\McpTransportHelperTrait;
 final class ComposerHttpTransport implements McpRestTransportInterface {
 	use McpTransportHelperTrait;
 
+	private readonly ?McpWireOrchestrator $wire;
+
 	public function __construct( private readonly McpTransportContext $context ) {
+		$this->wire = class_exists( McpWireOrchestrator::class ) ? new McpWireOrchestrator( $context ) : null;
 		add_action( 'rest_api_init', array( $this, 'register_routes' ), 16 );
 	}
 
@@ -59,6 +66,72 @@ final class ComposerHttpTransport implements McpRestTransportInterface {
 	}
 
 	public function handle_request( \WP_REST_Request $request ): \WP_REST_Response {
+		if ( null === $this->wire ) {
+			return $this->handle_legacy_request( $request );
+		}
+
+		$http = new HttpRequestContext( $request );
+		if ( 'GET' === $http->method ) {
+			return new \WP_REST_Response( null, 405 );
+		}
+		if ( 'DELETE' === $http->method ) {
+			return new \WP_REST_Response( null, 200 );
+		}
+		if ( 'POST' !== $http->method ) {
+			return $this->error_response( McpErrorFactory::invalid_request( null, 'Method not allowed' ), 405 );
+		}
+
+		try {
+			$message = $this->wire->decode( $http->raw_body );
+		} catch ( \UnexpectedValueException | \RangeException $exception ) {
+			return $this->error_response( McpErrorFactory::invalid_request( null, $exception->getMessage() ), 400 );
+		} catch ( \Throwable $exception ) {
+			return $this->error_response( McpErrorFactory::parse_error( null, $exception->getMessage() ), 400 );
+		}
+
+		try {
+			// Composer authenticates each request as an external principal, so the
+			// Adapter's WordPress-user session store cannot hold 2025 client state.
+			// Basic Composer tools need no connection-scoped client capabilities.
+			$client_params = $this->wire->requires_2025_11_25_http_session( $message, $http->protocol_version )
+				? array(
+					'protocolVersion' => McpVersionNegotiator::negotiate( $http->protocol_version ?? '' ),
+					'capabilities'   => array(),
+				)
+				: null;
+			$processed = $this->wire->process(
+				$message,
+				'HTTP',
+				array(
+					'headers'          => $http->headers,
+					'protocol_version' => $http->protocol_version,
+					'session_id'       => $http->session_id,
+				),
+				$client_params
+			);
+
+			if ( null === $processed['response'] ) {
+				return new \WP_REST_Response( null, 202 );
+			}
+
+			$response = $processed['response'];
+			$status   = $this->wire->http_response_status( $response, $processed['context'], $message, $http->protocol_version );
+			$data     = $response instanceof Record ? $response->jsonSerialize() : $response;
+			return new \WP_REST_Response( $processed['notification'] ? null : $data, $processed['notification'] ? max( 400, $status ) : $status );
+		} catch ( \Throwable $exception ) {
+			$this->context->error_handler->log(
+				'Unexpected Composer HTTP transport error: ' . $exception->getMessage(),
+				array( 'ComposerHttpTransport::handle_request' )
+			);
+			return $this->error_response( McpErrorFactory::internal_error( null, 'Handler error occurred' ), 500 );
+		}
+	}
+
+	/**
+	 * MCP Adapter 0.6.1 uses DTO errors and the earlier array-based router.
+	 * Keep its transport path until all supported sites run Adapter 0.7.0.
+	 */
+	private function handle_legacy_request( \WP_REST_Request $request ): \WP_REST_Response {
 		if ( 'GET' === $request->get_method() ) {
 			return new \WP_REST_Response( null, 405 );
 		}
@@ -80,7 +153,7 @@ final class ComposerHttpTransport implements McpRestTransportInterface {
 			$response = JsonRpcResponseBuilder::process_messages(
 				$messages,
 				$is_batch,
-				fn( mixed $message ): ?array => $this->process_message( $message )
+				fn( mixed $message ): ?array => $this->process_legacy_message( $message )
 			);
 
 			if ( null === $response ) {
@@ -94,13 +167,13 @@ final class ComposerHttpTransport implements McpRestTransportInterface {
 		} catch ( \Throwable $exception ) {
 			$this->context->error_handler->log(
 				'Unexpected Composer HTTP transport error: ' . $exception->getMessage(),
-				array( 'ComposerHttpTransport::handle_request' )
+				array( 'ComposerHttpTransport::handle_legacy_request' )
 			);
 			return $this->error_response( McpErrorFactory::internal_error( null, 'Handler error occurred' )->toArray(), 500 );
 		}
 	}
 
-	private function process_message( mixed $message ): ?array {
+	private function process_legacy_message( mixed $message ): ?array {
 		if ( ! is_array( $message ) ) {
 			return McpErrorFactory::invalid_request( null, 'JSON-RPC message must be an object' )->toArray();
 		}
