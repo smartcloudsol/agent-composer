@@ -183,12 +183,12 @@ test("every WP Suite Blueprint enables every public content language", () => {
   assert.equal(JSON.parse(read("presets/wpsuite/blueprints/docs-shell.json")).content_language, "en-US");
 });
 
-test("every proposal-enabled WP Suite Blueprint has its Site Contract update gate", () => {
+test("every WP Suite Blueprint permits proposals with its Site Contract update gate", () => {
   const site = JSON.parse(read("presets/wpsuite/site-contract.json"));
   const pageTypes = JSON.parse(read("presets/wpsuite/page-types.json"));
   for (const { id } of pageTypes.blueprints) {
     const blueprint = JSON.parse(read(`presets/wpsuite/blueprints/${id}.json`));
-    if (blueprint.published_update_policy !== "proposal-only") continue;
+    assert.equal(blueprint.published_update_policy, "proposal-only", `${id} must permit regular published-content proposals`);
     assert.equal(
       site.design_policy.content_access?.[blueprint.target_post_type]?.propose_updates,
       true,

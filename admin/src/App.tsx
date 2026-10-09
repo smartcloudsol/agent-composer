@@ -39,6 +39,8 @@ import { notifications } from "@mantine/notifications";
 import { __ } from "@wordpress/i18n";
 import { useEffect, useMemo, useState } from "react";
 import { auditUtcDateTime, formatAuditLocalTime } from "./auditTime";
+import { resolveComposerAdminPage } from "./admin-page";
+import { useAdminSectionHistory } from "./admin-section-history";
 import {
   exportConfigBackup,
   getConfigSet,
@@ -74,8 +76,14 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [section, setSection] = useState<Section>("overview");
+  const [section, setSection] = useState<Section>(() => resolveComposerAdminPage(window.location.search));
   const [entityChangesPending, setEntityChangesPending] = useState(false);
+  const navigateSection = useAdminSectionHistory(section, resolveComposerAdminPage, next => {
+    if (entityChangesPending && next !== section && !window.confirm(__("Discard the staged Config Set modifications and leave this page?", TEXT_DOMAIN))) return false;
+    if (next !== section) setEntityChangesPending(false);
+    setSection(next);
+    return next;
+  });
   const [docsOpened, { open: openDocs, close: closeDocs }] = useDisclosure(false);
   const [docsTopic, setDocsTopic] = useState<DocTopic | null>(null);
 
@@ -151,22 +159,18 @@ export function App() {
 
   const navLinks = navigation.map((item) => (
     <NavLink key={item.id} active={section === item.id} label={item.label} leftSection={<item.icon size={17} />}
-      onClick={() => {
-        if (entityChangesPending && item.id !== section && !window.confirm(__("Discard the staged Config Set modifications and leave this page?", TEXT_DOMAIN))) return;
-        if (item.id !== section) setEntityChangesPending(false);
-        setSection(item.id);
-      }} color="blue" variant="light" />
+      onClick={() => navigateSection(item.id)} color="blue" variant="light" />
   ));
 
   return (
     <Container size={1440} py="xl" px={{ base: "sm", sm: "md" }}
       style={{ alignSelf: "flex-start", marginInline: 0, width: "100%" }}>
       <Stack gap="md">
-        <Card withBorder radius="md" p="lg">
+        {!document.querySelector('#wpsuite-product-details[data-wpsuite-product="ai-editing"]') && <><Card withBorder radius="md" p="lg">
           <Stack gap="sm">
             <Group justify="space-between" align="flex-start" wrap="wrap">
               <div>
-                <Title order={1} c="blue.6">{__("SmartCloud Agent Composer", TEXT_DOMAIN)}</Title>
+                <Title order={1} c="blue.6">{__("AI Editing", TEXT_DOMAIN)}</Title>
                 <Text c="dimmed" mt={6}>{__("Governed Gutenberg drafts and human-reviewed published-content proposals.", TEXT_DOMAIN)}</Text>
               </div>
               {!status && <Badge color="gray" variant="light" size="lg">{__("Checking", TEXT_DOMAIN)}</Badge>}
@@ -178,7 +182,7 @@ export function App() {
           </Stack>
         </Card>
 
-        <Onboarding />
+        <Onboarding /></>}
 
         {error && <Alert icon={<IconAlertTriangle size={18} />} color="red" withCloseButton onClose={() => setError(null)}>{error}</Alert>}
 
@@ -313,8 +317,9 @@ function DiscoveryPanel({ selectedSet, run, pendingAction, setNotice, showDocs }
   const contentTypeEligible = (item: ProviderDiscovery["registered_post_types"][number]) =>
     item.public && item.show_ui && item.show_in_rest && item.supports_editor && item.current_user_can_edit;
   return <Stack gap="md">
-    <SectionHeading title={__("Theme & providers", TEXT_DOMAIN)} description={__("Inspect the local theme manifest, provider Ability profiles, and runtime readiness.", TEXT_DOMAIN)} icon={<IconPlugConnected size={21} />} openDocumentation={() => showDocs()} />
-    <Group><Button variant="default" leftSection={<IconRefresh size={16} />} loading={pendingAction === "rescan-site"} onClick={() => run(async () => { setDiscovery(await runDiscovery()); setNotice(__("Immutable discovery snapshot created.", TEXT_DOMAIN)); }, "rescan-site")}>{__("Rescan site", TEXT_DOMAIN)}</Button></Group>
+    <SectionHeading title={__("Theme & providers", TEXT_DOMAIN)} description={__("Inspect the current theme, blocks, patterns and provider runtime readiness.", TEXT_DOMAIN)} icon={<IconPlugConnected size={21} />} openDocumentation={() => showDocs()} />
+    <Group><Button variant="default" leftSection={<IconRefresh size={16} />} loading={pendingAction === "rescan-site"} onClick={() => run(async () => { setDiscovery(await runDiscovery()); setNotice(__("Discovery snapshot saved. Configuration and content are unchanged.", TEXT_DOMAIN)); }, "rescan-site")}>{__("Rescan site", TEXT_DOMAIN)}</Button></Group>
+    <Text size="sm" c="dimmed">{__("Rescan saves a fresh inventory and audit record after theme or plugin changes. It does not repair, validate or activate your configuration; the current inventory is already refreshed when this section opens.", TEXT_DOMAIN)}</Text>
     {discoveryLoading && !discovery && <DiscoverySkeleton />}
     {discovery && <>
       <SimpleGrid cols={{ base: 1, sm: 2 }}><StatusCard label={__("Theme", TEXT_DOMAIN)} value={`${discovery.theme.name} ${discovery.theme.version}`} icon={<IconSettings size={18} />} />

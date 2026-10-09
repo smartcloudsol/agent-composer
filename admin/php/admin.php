@@ -4,13 +4,54 @@ namespace SmartCloud\AgentComposer\Admin;
 
 use SmartCloud\AgentComposer\Infrastructure\WordPress\Activation;
 
+require_once __DIR__ . '/surface.php';
+require_once __DIR__ . '/configuration-reset.php';
+
 final class AdminPage {
+	use EditingSurface;
+	use EditingConfigurationReset;
 	private const SLUG = 'smartcloud-agent-composer';
 	private string $hook_suffix = '';
 
 	public function hooks(): void {
+		add_filter( 'smartcloud_wpsuite_admin_capabilities', array( $this, 'registerHubCapabilities' ) );
 		add_action( 'admin_menu', array( $this, 'menu' ), 30 );
 		add_action( 'admin_enqueue_scripts', array( $this, 'assets' ) );
+	}
+
+	/** Register navigation without depending on a particular hub generation. */
+	public function registerHubCapabilities( array $capabilities ): array {
+		$capabilities[] = array(
+			'schema_version' => 1,
+			'id' => 'ai-editing',
+			'product_id' => 'smartcloud-agent-composer',
+			'label' => __('AI Editing', 'smartcloud-agent-composer'),
+			'product' => __('Agent Composer', 'smartcloud-agent-composer'),
+			'description' => __('Create and review governed AI-assisted changes.', 'smartcloud-agent-composer'),
+			'order' => 30,
+			'primary_url' => admin_url('admin.php?page=' . self::SLUG),
+			'primary_label' => __('Open AI Editing', 'smartcloud-agent-composer'),
+			'required_capability' => Activation::CAP_VIEW_STATUS,
+			'surface_capability' => Activation::CAP_VIEW_STATUS,
+			'configuration_reset' => $this->editingConfigurationReset(),
+            'surface_provider' => array($this, 'editingSurface'),
+			'detail_page' => self::SLUG,
+			'detail_enqueue' => array($this, 'assets'),
+			'surface_action' => array($this, 'editingSurfaceAction'),
+			'advanced_links' => array(
+				array('label' => __('Config sets', 'smartcloud-agent-composer'), 'url' => admin_url('admin.php?page=' . self::SLUG . '&section=configuration'), 'required_capability' => Activation::CAP_VIEW_STATUS),
+				array('label' => __('Configuration and blueprints', 'smartcloud-agent-composer'), 'url' => admin_url('admin.php?page=' . self::SLUG . '&section=blueprints'), 'required_capability' => Activation::CAP_VIEW_STATUS),
+				array('label' => __('Content proposals', 'smartcloud-agent-composer'), 'url' => admin_url('admin.php?page=' . self::SLUG . '&section=proposals'), 'required_capability' => Activation::CAP_MERGE_PROPOSALS),
+				array('label' => __('MCP access', 'smartcloud-agent-composer'), 'url' => admin_url('admin.php?page=' . self::SLUG . '&section=mcp-access'), 'required_capability' => Activation::CAP_VIEW_STATUS),
+				array('label' => __('Theme and providers', 'smartcloud-agent-composer'), 'url' => admin_url('admin.php?page=' . self::SLUG . '&section=providers'), 'required_capability' => Activation::CAP_VIEW_STATUS),
+				array('label' => __('Audit and portability', 'smartcloud-agent-composer'), 'url' => admin_url('admin.php?page=' . self::SLUG . '&section=audit'), 'required_capability' => Activation::CAP_VIEW_AUDIT),
+				array('label' => __('Composer status', 'smartcloud-agent-composer'), 'url' => admin_url('admin.php?page=' . self::SLUG), 'required_capability' => Activation::CAP_VIEW_STATUS),
+			),
+			'quick_links' => array(
+			),
+			'legacy_menu_slugs' => array(self::SLUG),
+		);
+		return $capabilities;
 	}
 
 	public function menu(): void {

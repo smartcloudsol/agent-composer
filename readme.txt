@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.3.9
+Stable tag: 1.4.0
 License: MIT
 License URI: https://mit-license.org/
 
@@ -93,12 +93,10 @@ An authorized human reviewer can return a submitted or rejected proposal for cha
 
 == Screenshots ==
 
-1. Composer status and execution-boundary overview
-2. Config Set lifecycle with an explicit Active-to-Selected comparison
-3. Archived configuration validation and restore confirmation
-4. Guided page Blueprint editor with target, excerpt, field, relation, media, pattern, block, and policy controls
-5. Theme and provider discovery and readiness view
-6. Audit event details and hash-chain verification
+1. AI Editing overview and the configured execution boundary.
+2. Preset and Config Set administration.
+3. Theme and provider discovery information.
+4. Audit and portability tools for configuration review.
 
 == External Services ==
 
@@ -153,6 +151,15 @@ https://www.npmjs.com/package/@smart-cloud/agent-composer-core
 The distributed JavaScript and CSS are built from public `admin/src`, `blocks/src`, and `core` sources. PHP owns registration, authorization, persistence, audit, portability, and execution. The release assembler adds the shared Hub runtime, verifies the package, normalizes timestamps, and records SHA-256 checksums.
 
 == Changelog ==
+
+= 1.4.0 =
+* Keep all preset choices visible and selectable in the setup dialog.
+* Improve shared navigation alignment, connection details, inline help and setup field guidance.
+* Keep discovery rescans in Theme & providers and explain their inventory-only purpose.
+* Keep AI Editing status and detailed editing on one page, with site rescanning and initial presets when no configuration exists.
+* Preserve configuration validation, activation and editing permissions in the detailed interface.
+* Add shared product navigation and separate Platform Settings with reCAPTCHA, Styling and Translations tabs.
+* Preserve existing admin links, permissions and compatibility with older plugin menus.
 
 = 1.3.9 =
 * Restore Composer MCP connectivity with WordPress MCP Adapter 0.7.0 by using its revision-aware protocol processor; retain support for MCP Adapter 0.6.1.
@@ -315,6 +322,9 @@ The distributed JavaScript and CSS are built from public `admin/src`, `blocks/sr
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.4.0 =
+WP Suite admin navigation now groups everyday tasks by capability and detailed settings under Advanced. Existing settings and bookmarked admin URLs remain available; no configuration migration is required.
 
 = 1.3.9 =
 Install this update when upgrading WordPress MCP Adapter to 0.7.0. Restart the MCP tunnel and reconnect clients after installation. No content migration is required.
