@@ -26,7 +26,16 @@ final class Config_Repository {
 		if ( is_array( $active_blueprint ) ) {
 			return $this->normalize_blueprint( $active_blueprint, $page_type );
 		}
-		throw new Execution_Exception( 'blueprint_not_found', 'No active Composer blueprint exists for this page type.' );
+		throw new Execution_Exception(
+			'blueprint_not_found',
+			'No active Composer blueprint exists for this page type.',
+			0,
+			array(
+				'requested_page_type'  => $page_type,
+				'active_config_set'    => $this->active_source?->active_config_set() ?? '',
+				'available_page_types' => $this->list_page_types(),
+			)
+		);
 	}
 
 	public function list_page_types(): array {

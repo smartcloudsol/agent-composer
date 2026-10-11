@@ -38,6 +38,19 @@ final class Audit_Logger {
 		return $this->request_id;
 	}
 
+	/** Record a secondary diagnostic without replacing the original failure. */
+	public function log_failure( string $operation, string $outcome, array $input = array(), int $object_id = 0, string $error_code = '', array $context = array() ): void {
+		try {
+			$this->log( $operation, $outcome, $input, $object_id, $error_code, $context );
+		} catch ( \Throwable $error ) {
+			try {
+				do_action( 'smartcloud_composer_audit_error', $error, $operation, $this->request_id );
+			} catch ( \Throwable ) {
+				// Diagnostic observers cannot mask the original operation failure.
+			}
+		}
+	}
+
 	public function begin_operation(): string {
 		$this->request_id = function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : bin2hex( random_bytes( 16 ) );
 		return $this->request_id;

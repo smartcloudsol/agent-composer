@@ -7,6 +7,7 @@ use SmartCloud\AgentComposer\Domain\Configuration\CanonicalJson;
 use SmartCloud\AgentComposer\Security\ActorIdentity;
 
 final class AuditTable {
+	private const MAX_APPEND_ATTEMPTS = 3;
 	public static function name(): string {
 		global $wpdb;
 		return $wpdb->prefix . 'smartcloud_composer_audit';
@@ -51,57 +52,108 @@ final class AuditTable {
 			$context['composer_actor'] = $actor->audit_context();
 		}
 		$clean_context = $this->redact( $context );
-		if ( $manage_transaction ) {
-			$wpdb->query( 'START TRANSACTION' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- The append-only audit chain requires a database transaction.
-		}
-		$existing = $wpdb->get_var( $wpdb->prepare( "SELECT event_uuid FROM {$table} WHERE event_uuid = %s LIMIT 1 FOR UPDATE", $event_uuid ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Locking audit rows cannot use the object cache.
-		if ( $event_uuid === $existing ) {
-			if ( $manage_transaction ) {
-				$wpdb->query( 'COMMIT' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Completes the audit transaction.
+		$actor_user_id = get_current_user_id();
+		for ( $attempt = 1; ; ++$attempt ) {
+			$started = false;
+			try {
+				if ( $manage_transaction ) {
+					if ( false === $wpdb->query( 'START TRANSACTION' ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- The audit append owns this transaction.
+						throw $this->database_exception( 'start the audit transaction' );
+					}
+					$started = true;
+				}
+				// Activation creates this permanent per-site row; reset preserves it.
+				// Lock it before either audit index so missing-UUID gap locks cannot
+				// deadlock concurrent appenders. Its value is never changed here.
+				// In caller-owned transactions the lock survives until their commit.
+				$options = esc_sql( $wpdb->options );
+				$mutex = $wpdb->get_var( $wpdb->prepare( "SELECT option_id FROM {$options} WHERE option_name = %s LIMIT 1 FOR UPDATE", 'smartcloud_composer_db_schema_version' ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- A permanent row serializes the append-only chain.
+				$this->assert_database_read( 'lock the audit chain' );
+				if ( null === $mutex ) {
+					throw new RuntimeException( 'Composer audit serialization row is unavailable. Reactivate the plugin to restore its database installation.' );
+				}
+				$existing = $wpdb->get_var( $wpdb->prepare( "SELECT event_uuid FROM {$table} WHERE event_uuid = %s LIMIT 1 FOR UPDATE", $event_uuid ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Locking audit rows cannot use the object cache.
+				$this->assert_database_read( 'read the audit event identity' );
+				if ( $event_uuid === $existing ) {
+					if ( $manage_transaction ) {
+						$this->commit();
+					}
+					return $event_uuid;
+				}
+				$previous_hash = (string) $wpdb->get_var( "SELECT event_hash FROM {$table} ORDER BY id DESC LIMIT 1 FOR UPDATE" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- The hash-chain tail must be locked and must not be cached.
+				$this->assert_database_read( 'read the audit chain tail' );
+				$hash_payload  = array(
+					'event_uuid'    => $event_uuid,
+					'created_gmt'   => $created_gmt,
+					'request_id'    => $request_id,
+					'actor_user_id' => $actor_user_id,
+					'event_type'    => sanitize_key( $event_type ),
+					'outcome'       => sanitize_key( $outcome ),
+					'config_set_id' => $config_set_id,
+					'entity_id'     => $entity_id,
+					'context'       => $clean_context,
+					'previous_hash' => $previous_hash,
+				);
+				$event_hash = hash( 'sha256', CanonicalJson::encode( $hash_payload ) );
+				$inserted   = $wpdb->insert( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- This plugin owns the append-only audit table.
+					$table,
+					array(
+						'event_uuid'    => $event_uuid,
+						'created_gmt'   => $created_gmt,
+						'request_id'    => $request_id,
+						'actor_user_id' => $actor_user_id,
+						'event_type'    => sanitize_key( $event_type ),
+						'outcome'       => sanitize_key( $outcome ),
+						'config_set_id' => $config_set_id,
+						'entity_id'     => $entity_id,
+						'context_json'  => CanonicalJson::encode( $clean_context ),
+						'previous_hash' => $previous_hash,
+						'event_hash'    => $event_hash,
+					),
+					array( '%s', '%s', '%s', '%d', '%s', '%s', '%d', '%d', '%s', '%s', '%s' )
+				);
+				if ( false === $inserted ) {
+					throw $this->database_exception( 'append the audit event' );
+				}
+				if ( $manage_transaction ) {
+					$this->commit();
+				}
+				return $event_uuid;
+			} catch ( \Throwable $error ) {
+				if ( ! $manage_transaction ) {
+					// A deadlock may have rolled back the entire caller operation.
+					// Never retry just its audit suffix or commit caller-owned work.
+					throw $error;
+				}
+				$rolled_back = ! $started || false !== $wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Explicitly cleans up owned deadlocks and lock timeouts.
+				if ( ! $rolled_back || $attempt >= self::MAX_APPEND_ATTEMPTS || ! in_array( $error->getCode(), array( 1213, 1205 ), true ) ) {
+					throw $error;
+				}
+				usleep( random_int( 10000, 30000 ) * $attempt );
 			}
-			return $event_uuid;
 		}
-		$previous_hash = (string) $wpdb->get_var( "SELECT event_hash FROM {$table} ORDER BY id DESC LIMIT 1 FOR UPDATE" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- The hash-chain tail must be locked and must not be cached.
-		$hash_payload  = array(
-			'event_uuid'    => $event_uuid,
-			'created_gmt'   => $created_gmt,
-			'request_id'    => $request_id,
-			'actor_user_id' => get_current_user_id(),
-			'event_type'    => sanitize_key( $event_type ),
-			'outcome'       => sanitize_key( $outcome ),
-			'config_set_id' => $config_set_id,
-			'entity_id'     => $entity_id,
-			'context'       => $clean_context,
-			'previous_hash' => $previous_hash,
-		);
-		$event_hash = hash( 'sha256', CanonicalJson::encode( $hash_payload ) );
-		$inserted   = $wpdb->insert( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- This plugin owns the append-only audit table.
-			$table,
-			array(
-				'event_uuid'    => $event_uuid,
-				'created_gmt'   => $created_gmt,
-				'request_id'    => $request_id,
-				'actor_user_id' => get_current_user_id(),
-				'event_type'    => sanitize_key( $event_type ),
-				'outcome'       => sanitize_key( $outcome ),
-				'config_set_id' => $config_set_id,
-				'entity_id'     => $entity_id,
-				'context_json'  => CanonicalJson::encode( $clean_context ),
-				'previous_hash' => $previous_hash,
-				'event_hash'    => $event_hash,
-			),
-			array( '%s', '%s', '%s', '%d', '%s', '%s', '%d', '%d', '%s', '%s', '%s' )
-		);
-		if ( false === $inserted ) {
-			if ( $manage_transaction ) {
-				$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Rolls back a failed audit append.
-			}
-			throw new RuntimeException( 'Unable to append the Composer audit event.' );
+	}
+
+	private function assert_database_read( string $operation ): void {
+		global $wpdb;
+		if ( '' !== (string) $wpdb->last_error ) {
+			throw $this->database_exception( $operation );
 		}
-		if ( $manage_transaction ) {
-			$wpdb->query( 'COMMIT' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Commits the audit append atomically.
+	}
+
+	private function database_exception( string $operation ): RuntimeException {
+		global $wpdb;
+		$error = (string) $wpdb->last_error;
+		$code = str_contains( $error, 'Deadlock found when trying to get lock' ) ? 1213 : ( str_contains( $error, 'Lock wait timeout exceeded' ) ? 1205 : 0 );
+		return new RuntimeException( 'Composer could not ' . $operation . '.', $code );
+	}
+
+	private function commit(): void {
+		global $wpdb;
+		if ( false === $wpdb->query( 'COMMIT' ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Commits only the owned audit transaction.
+			// A failed commit has an ambiguous outcome; never replay it locally.
+			throw new RuntimeException( 'Composer could not commit the audit transaction.' );
 		}
-		return $event_uuid;
 	}
 
 	public function events( int $limit = 50, int $offset = 0 ): array {

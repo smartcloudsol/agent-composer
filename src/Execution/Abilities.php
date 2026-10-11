@@ -2005,7 +2005,7 @@ HTML;
 				array( 'edit_conflict', 'document_read_conflict', 'draft_assigned_to_other_agent', 'taxonomy_term_conflict', 'proposal_creation_conflict', 'proposal_assigned_to_other_agent', 'localization_context_conflict', 'localized_content_group_conflict', 'localized_group_snapshot_conflict', 'localized_group_language_slot_conflict', 'localized_group_member_conflict' ),
 				true
 			);
-			$this->audit->log( $operation, 'error', $input, $post_id, $error->get_execution_code(), array( 'conflict' => $conflict ) );
+			$this->audit->log_failure( $operation, 'error', $input, $post_id, $error->get_execution_code(), array( 'conflict' => $conflict ) );
 			$denied = in_array( $error->get_execution_code(), array( 'taxonomy_term_create_denied', 'taxonomy_assignment_denied', 'proposal_create_denied', 'proposal_source_read_denied', 'localization_content_read_denied', 'localized_content_edit_forbidden', 'migration_permission_denied', 'publisher_media_upload_denied' ), true );
 			$status = $conflict ? 409 : ( $denied ? 403 : 400 );
 			return new \WP_Error(
@@ -2017,7 +2017,7 @@ HTML;
 				)
 			);
 		} catch ( \Throwable $error ) {
-			$this->audit->log( $operation, 'error', $input, absint( $input['post_id'] ?? 0 ), 'internal_error' );
+			$this->audit->log_failure( $operation, 'error', $input, absint( $input['post_id'] ?? 0 ), 'internal_error' );
 			do_action( 'smartcloud_composer_internal_error', $error, $operation );
 			return new \WP_Error( 'smartcloud_agent_internal_error', 'The ability failed unexpectedly.', array( 'status' => 500, 'request_id' => $this->audit->get_request_id() ) );
 		}

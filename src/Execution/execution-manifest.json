@@ -1,15 +1,15 @@
 {
   "contract": "smartcloud-agent-composer-execution",
   "files": {
-    "Abilities.php": "sha256:8b64bc76801f5a69975ff21b8c85d95710914b4ccf613d77ab2bc44c1fe1b1bc",
+    "Abilities.php": "sha256:037afbf979829b6b834d21fb7022d84058a9eea846bc2049d99365d2abeaacd7",
     "Ability_Provider_Registry.php": "sha256:fd37d499af3bfb20355735f00b47208eb9b7b0f36e348439fb44b1df551d1354",
     "Admin_Managed_Document_Service.php": "sha256:a904b5a073b5bc85592abff1dd0c4965006c9f3e8fec86e5152b5422460bc4b9",
-    "Audit_Logger.php": "sha256:f517fa4314ebbdd3f2004b61ba49c4d3885b05b90aab13393acbec6f49b7b163",
+    "Audit_Logger.php": "sha256:401e07835b31f855d8674075801007c4da6a4c22b906e468270b7cf18478424f",
     "Block_Catalog.php": "sha256:8434ffcbee11b25893475212e02cc3173c345ba3e2a7f31af344669b8bad2700",
     "Block_Tree_Service.php": "sha256:266bed94aae69b48ee8d86b924ab679815e25f0a9ed36bdc4a37bc47734d1dee",
     "Blueprint_Migration_Service.php": "sha256:d8e69715701c1d2f06dd5a7a6d8ce215710783705eaa1009deef9da18b25ca5f",
     "Bulk_Blueprint_Migration_Service.php": "sha256:50d8808a6c4b9a3cc48afb4dc82eb8f8d1e56750b0047a3433f758049bfe4fdb",
-    "Config_Repository.php": "sha256:97f92e17ce7f081af7db6318098cb0df5cd9178206aa623f3a13bc4cb8fbbb9c",
+    "Config_Repository.php": "sha256:f8ff0d9f39206ce1a680a0afa51237d3a187d27184b1ab4b7cd1c195d4404d73",
     "Content_Field_Materializer.php": "sha256:0b2c28cf91c8c0aa51d896622f023b92d6413a82241cff86f646e5ffa8cc2159",
     "Content_Language_Validator.php": "sha256:f983e1f0eb9ecee37016a9aeaed84e9c7af74c76f4a5d557c2ac6779ef0ae63e",
     "Content_Proposal_Service.php": "sha256:6613d6010d940dbf4213fe3fb8f4627145ee8cbea27a0d3c97e061fbffe6eeff",
