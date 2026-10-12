@@ -145,6 +145,9 @@ Uninstall removes Composer configuration, options, scheduled cleanup, dedicated 
 Human-readable source and reproducible build instructions:
 https://github.com/smartcloudsol/agent-composer
 
+Full historical upgrade guidance (source/GitHub archive, not installed with the plugin):
+https://github.com/smartcloudsol/agent-composer/blob/main/UPGRADE-HISTORY.md
+
 Public TypeScript contracts:
 https://www.npmjs.com/package/@smart-cloud/agent-composer-core
 
@@ -346,31 +349,31 @@ WP Suite admin navigation now groups everyday tasks by capability and detailed s
 Install this update when upgrading WordPress MCP Adapter to 0.7.0. Restart the MCP tunnel and reconnect clients after installation. No content migration is required.
 
 = 1.3.8 =
-Native and agent saves enforce the same editorial and document rules. Correct invalid existing metadata before editing; partial saves cannot bypass validation or proposal gates. Native plugins may use shared validators without expanding agent permissions. Full guidance: UPGRADE-HISTORY.md.
+Native and agent saves enforce the same editorial and document rules. Correct invalid existing metadata before editing; partial saves cannot bypass validation or proposal gates. Native plugins may use shared validators without expanding agent permissions. See the linked upgrade archive.
 
 = 1.3.7 =
-Native editing requires a validated Config Set opting into browser-editor for a proposal-only Blueprint. Stale synced patterns need exact native_pattern_revisions attestations; unknown revisions remain blocked pending reviewed migration. Full guidance: UPGRADE-HISTORY.md.
+Native editing requires a validated Config Set opting into browser-editor for a proposal-only Blueprint. Stale synced patterns need exact native_pattern_revisions attestations; unknown revisions remain blocked pending reviewed migration. See the linked upgrade archive.
 
 = 1.3.6 =
-Reload editors. Content controls are in Block sidebar List View. Existing instance content is retained; shared patterns need no rewrite. Blueprint migrations remain proposal-only with human review; available blocks remain site-contract governed. Full guidance: UPGRADE-HISTORY.md.
+Reload editors. Content controls are in Block sidebar List View. Existing instance content is retained; shared patterns need no rewrite. Blueprint migrations remain proposal-only with human review; available blocks remain site-contract governed. See the linked upgrade archive.
 
 = 1.3.5 =
 Restart Composer's MCP runtime and refresh client tools and resources to discover the update-proposal approval card. Composer creates its proposal-approval table automatically. Additional shared stylesheet URLs are optional; no content migration is required.
 
 = 1.3.4 =
-Restart MCP and refresh tools/resources for v8 preview and review cards. The approval table adds a rendered-preview hash; recreate pending approval requests. No content migration is required. Full guidance: UPGRADE-HISTORY.md.
+Restart MCP and refresh tools/resources for v8 preview and review cards. The approval table adds a rendered-preview hash; recreate pending approval requests. No content migration is required. See the linked upgrade archive.
 
 = 1.3.3 =
 Update to restore saved instance-slot content in public bodies and rendered previews. No content migration is required; clear page caches after installation.
 
 = 1.3.2 =
-Restart MCP and refresh tools/resources for v6 previews and semantic slot IDs. Existing instances remain readable. Clone, validate and activate a Config Set before new slot pattern policies or pinned hashes. No automatic publication or migration. Full guidance: UPGRADE-HISTORY.md.
+Restart MCP and refresh tools/resources for v6 previews and semantic slot IDs. Existing instances remain readable. Clone, validate and activate a Config Set before new slot pattern policies or pinned hashes. No automatic publication or migration. See the linked upgrade archive.
 
 = 1.3.1 =
-Install matching Static Publisher; restart MCP and refresh tools. Protected publish/content-sync and rule discovery require Publisher; crawl/deploy use Contributor. Media upload needs explicit validated Config Set approval and publish.request scope. Full setup and restrictions: UPGRADE-HISTORY.md.
+Install matching Static Publisher; restart MCP and refresh tools. Protected publish/content-sync and rule discovery require Publisher; crawl/deploy use Contributor. Media upload needs explicit validated Config Set approval and publish.request scope. See the linked upgrade archive.
 
 = 1.3.0 =
-Install MCP Adapter 0.6.1+. Validate and activate the Structure Contract and sync patterns; restart MCP and refresh clients. Protection remains Open. Configure Cognito/resource URI and test OAuth before Protected Required or scope enforcement. Full setup: UPGRADE-HISTORY.md.
+Install MCP Adapter 0.6.1+. Validate and activate the Structure Contract and sync patterns; restart MCP and refresh clients. Protection remains Open. Configure Cognito/resource URI and test OAuth before Protected Required or scope enforcement. See the linked upgrade archive.
 
 = 1.2.6 =
 To enable Solution update proposals, activate the bundled theme 1.0.59 Config Set, restart MCP, and refresh tools. The restart also enables rendered-preview language recovery for localized proposals.

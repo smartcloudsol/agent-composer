@@ -54,11 +54,16 @@ $assert(str_contains($approval, 'echo esc_html( $message )'), 'Approval HTML err
 $security = $read('src/Security/McpSecuritySettings.php');
 $assert(str_contains($security, 'wp_parse_url( $value )') && !str_contains($security, '= parse_url('), 'Security URI parsing must use the WordPress compatibility wrapper.');
 $readme = $read('readme.txt');
+$archive_link = 'https://github.com/smartcloudsol/agent-composer/blob/main/UPGRADE-HISTORY.md';
+$notice_position = strpos($readme, '== Upgrade Notice ==');
+$assert(str_contains($readme, $archive_link) && strpos($readme, $archive_link) < $notice_position, 'The complete upgrade archive must have a discoverable absolute public GitHub link outside notice bodies.');
+$assert(str_contains($readme, 'not installed with the plugin'), 'The archive link must not imply the file is installed with the runtime plugin.');
 $notice = explode('== Upgrade Notice ==', $readme, 2)[1] ?? '';
+$assert(!str_contains($notice, 'UPGRADE-HISTORY.md'), 'Notice bodies must refer to the linked archive, not a local bundled file.');
 preg_match_all('/\n= ([0-9.]+) =\n(.*?)(?=\n= [0-9.]+ =\n|\z)/s', $notice, $matches, PREG_SET_ORDER);
 foreach ($matches as $match) {
     $assert(strlen(trim($match[2])) <= 300, 'Upgrade summary exceeds WordPress.org limit: ' . $match[1]);
-    if (str_contains($match[2], 'UPGRADE-HISTORY.md')) {
+    if (str_contains($match[2], 'linked upgrade archive')) {
         $assert(str_contains($read('UPGRADE-HISTORY.md'), '## ' . $match[1]), 'Full historical upgrade guidance must be retained: ' . $match[1]);
     }
 }
