@@ -145,7 +145,7 @@ final class McpSecuritySettings {
 		$value = rtrim( trim( sanitize_text_field( (string) $value ) ), '/' );
 		if ( '' === $value ) { return ''; }
 		if ( strlen( $value ) > 220 || str_contains( $value, '|' ) ) { return ''; }
-		$parts = parse_url( $value );
+		$parts = wp_parse_url( $value );
 		if (
 			! is_array( $parts )
 			|| 'https' !== strtolower( (string) ( $parts['scheme'] ?? '' ) )

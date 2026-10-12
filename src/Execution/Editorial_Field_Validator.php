@@ -28,7 +28,7 @@ final class Editorial_Field_Validator {
 		$value = sanitize_text_field( wp_strip_all_tags( (string) $value, true ) );
 		$value = trim( preg_replace( '/\s+/u', ' ', $value ) ?? $value );
 		if ( self::length( $value ) < $minimum || self::length( $value ) > $maximum ) {
-			throw new Execution_Exception( 'invalid_seo_metadata', sprintf( 'The %s must contain between %d and %d characters.', $label, $minimum, $maximum ) );
+			throw new Execution_Exception( 'invalid_seo_metadata', sprintf( 'The %s must contain between %d and %d characters.', $label, $minimum, $maximum ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Raw diagnostic for WP_Error/MCP JSON; native HTML errors are escaped by reject_admin_save().
 		}
 		return $value;
 	}

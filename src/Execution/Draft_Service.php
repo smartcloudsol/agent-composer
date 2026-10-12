@@ -1686,7 +1686,7 @@ final class Draft_Service {
 		$validation = $this->validator->validate( $page_type, (string) $post->post_content, (string) $post->post_content );
 		$validation = $this->add_editorial_language_issues( $validation, $page_type, array( 'title' => $post->post_title ), $editorial );
 		if ( true !== ( $validation['valid'] ?? false ) ) {
-			throw $this->validation_exception( $validation, 'The draft does not satisfy its active Blueprint.' );
+			throw $this->validation_exception( $validation, 'The draft does not satisfy its active Blueprint.' ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Validation details are structured WP_Error/MCP JSON, not rendered HTML.
 		}
 	}
 

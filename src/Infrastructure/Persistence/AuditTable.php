@@ -137,7 +137,7 @@ final class AuditTable {
 	private function assert_database_read( string $operation ): void {
 		global $wpdb;
 		if ( '' !== (string) $wpdb->last_error ) {
-			throw $this->database_exception( $operation );
+			throw $this->database_exception( $operation ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Internal operation label, never an HTML sink; controllers return a generic JSON failure.
 		}
 	}
 

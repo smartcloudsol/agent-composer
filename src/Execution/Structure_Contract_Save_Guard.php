@@ -341,7 +341,8 @@ final class Structure_Contract_Save_Guard {
 
 	private function reject_admin_save( \WP_Error $error ): never {
 		$data = $error->get_error_data();
-		wp_die( esc_html( $error->get_error_message() ), esc_html( $error->get_error_code() ), array( 'response' => is_array( $data ) ? (int) ( $data['status'] ?? 409 ) : 409, 'back_link' => ! wp_doing_ajax() ) );
+		$options = array( 'response' => is_array( $data ) ? (int) ( $data['status'] ?? 409 ) : 409, 'back_link' => ! wp_doing_ajax() );
+		wp_die( esc_html( $error->get_error_message() ), esc_html( $error->get_error_code() ), $options ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Both HTML arguments are escaped; the third argument contains only integer/boolean response options, not output.
 	}
 
 	/** Only an opted-in, cookie-authenticated wp-admin editor may bypass the agent proposal gate. */

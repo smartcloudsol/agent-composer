@@ -2,6 +2,10 @@
 
 namespace SmartCloud\AgentComposer\Admin;
 
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 use SmartCloud\AgentComposer\Infrastructure\WordPress\Activation;
 
 require_once __DIR__ . '/surface.php';

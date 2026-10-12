@@ -31,9 +31,9 @@ final class Config_Repository {
 			'No active Composer blueprint exists for this page type.',
 			0,
 			array(
-				'requested_page_type'  => $page_type,
-				'active_config_set'    => $this->active_source?->active_config_set() ?? '',
-				'available_page_types' => $this->list_page_types(),
+				'requested_page_type'  => $page_type, // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Structured Execution_Exception details become WP_Error/MCP JSON, not HTML.
+				'active_config_set'    => $this->active_source?->active_config_set() ?? '', // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Preserve the machine-readable configuration identifier in JSON.
+				'available_page_types' => $this->list_page_types(), // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Preserve the structured page-type array in JSON; no HTML output occurs here.
 			)
 		);
 	}

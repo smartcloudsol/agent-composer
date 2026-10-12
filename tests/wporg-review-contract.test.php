@@ -47,4 +47,20 @@ foreach ($preset_files as $file) {
     $assert(!str_contains((string) $json, '"core_html_javascript": true'), basename($file) . ' must not enable arbitrary JavaScript.');
 }
 
+$admin = $read('admin/php/admin.php');
+$assert(str_contains($admin, "if ( ! defined( 'ABSPATH' ) )") && strpos($admin, "if ( ! defined( 'ABSPATH' ) )") < strpos($admin, 'require_once'), 'Admin entry must reject direct access before loading dependencies.');
+$approval = $read('src/Infrastructure/WordPress/PublishApprovalController.php');
+$assert(str_contains($approval, 'echo esc_html( $message )'), 'Approval HTML error messages must be escaped at their final sink.');
+$security = $read('src/Security/McpSecuritySettings.php');
+$assert(str_contains($security, 'wp_parse_url( $value )') && !str_contains($security, '= parse_url('), 'Security URI parsing must use the WordPress compatibility wrapper.');
+$readme = $read('readme.txt');
+$notice = explode('== Upgrade Notice ==', $readme, 2)[1] ?? '';
+preg_match_all('/\n= ([0-9.]+) =\n(.*?)(?=\n= [0-9.]+ =\n|\z)/s', $notice, $matches, PREG_SET_ORDER);
+foreach ($matches as $match) {
+    $assert(strlen(trim($match[2])) <= 300, 'Upgrade summary exceeds WordPress.org limit: ' . $match[1]);
+    if (str_contains($match[2], 'UPGRADE-HISTORY.md')) {
+        $assert(str_contains($read('UPGRADE-HISTORY.md'), '## ' . $match[1]), 'Full historical upgrade guidance must be retained: ' . $match[1]);
+    }
+}
+
 echo "wporg-review-contract: ok\n";

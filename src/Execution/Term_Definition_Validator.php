@@ -19,7 +19,7 @@ final class Term_Definition_Validator {
 			$maximum = 'description' === $field ? 2000 : 200;
 			$length = function_exists( 'mb_strlen' ) ? mb_strlen( $value ) : strlen( $value );
 			if ( '' === $value || $length > $maximum || ( 'slug' === $field && $slug !== $raw_slug ) ) {
-				throw new Execution_Exception( 'taxonomy_term_' . $field . '_invalid', 'A bounded public taxonomy-term ' . $field . ' is required; slugs must be durable lowercase values.' );
+				throw new Execution_Exception( 'taxonomy_term_' . $field . '_invalid', 'A bounded public taxonomy-term ' . $field . ' is required; slugs must be durable lowercase values.' ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Field is from the literal local allowlist; this is a WP_Error/MCP JSON diagnostic.
 			}
 		}
 		$copy = array();

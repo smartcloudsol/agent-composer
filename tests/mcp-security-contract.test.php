@@ -15,6 +15,7 @@ namespace {
 	function get_option(string $key, mixed $default = false): mixed { global $options; return $options[$key] ?? $default; }
 	function update_option(string $key, mixed $value, bool $autoload = false): bool { global $options; $options[$key] = $value; return true; }
 	function sanitize_text_field(string $value): string { return trim(strip_tags($value)); }
+	function wp_parse_url(string $url, int $component = -1): mixed { return parse_url($url, $component); }
 	function wp_unslash(string $value): string { return stripslashes($value); }
 	function sanitize_key(string $value): string { return strtolower((string) preg_replace('/[^a-z0-9_\-]/i', '', $value)); }
 	function sanitize_email(string $value): string { return filter_var($value, FILTER_SANITIZE_EMAIL) ?: ''; }

@@ -185,4 +185,11 @@ check(in_array('smartcloud_composer_audit_error', $GLOBALS['actions'], true), 'S
 $result = $execute->invoke($abilities, 'read', [], fn() => throw new Execution_Exception('blueprint_not_found', 'Missing blueprint.'));
 check($result instanceof WP_Error && $result->code === 'smartcloud_agent_blueprint_not_found', 'Secondary audit failure preserves original domain error.');
 
+$raw_message = '<img src=x onerror=alert(1)> & "diagnostic"';
+$raw_details = ['meta_key' => '<raw>&identifier', 'page_types' => ['service', 'examination']];
+$result = $execute->invoke($abilities, 'read', [], fn() => throw new Execution_Exception('raw_contract_diagnostic', $raw_message, 0, $raw_details));
+check($result instanceof WP_Error && $result->message === $raw_message, 'Execution diagnostics must retain raw machine messages in WP_Error, not HTML entities.');
+$decoded = json_decode(json_encode(['message' => $result->message, 'data' => $result->data], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), true);
+check($decoded['message'] === $raw_message && $decoded['data']['meta_key'] === $raw_details['meta_key'] && $decoded['data']['page_types'] === $raw_details['page_types'], 'JSON encoding preserves diagnostic values and structured details without an HTML sink.');
+
 echo "Composer audit transaction contract: {$checks} checks passed.\n";

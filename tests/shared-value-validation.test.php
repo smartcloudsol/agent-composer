@@ -79,7 +79,7 @@ namespace {
 	function wp_unslash(mixed $value): mixed { return is_array($value) ? array_map('wp_unslash', $value) : stripslashes((string) $value); }
 	function wp_slash(string $value): string { return addslashes($value); }
 	function esc_html(string $value): string { return htmlspecialchars($value); }
-	function wp_die(string $message, string $title, array $args): never { throw new NativeSaveRejected($title); }
+	function wp_die(string $message, string $title, array $args): never { $GLOBALS['native_die'] = array($message, $title, $args); throw new NativeSaveRejected($title); }
 	function add_filter(string $hook, callable $callback, int $priority = 10, int $args = 1): void { $GLOBALS['hooks'][$hook][] = $callback; }
 	function add_action(string $hook, callable $callback, int $priority = 10, int $args = 1): void { add_filter($hook, $callback, $priority, $args); }
 	function apply_filters(string $hook, mixed $value, mixed ...$args): mixed {
@@ -115,6 +115,23 @@ namespace {
 	$relation = array('semantic_type' => 'relation', 'cardinality' => 'many', 'maximum_items' => 2, 'target_post_types' => array('service'), 'target_post_statuses' => array('publish'));
 	Relation_Value_Validator::assert_value(array(), $relation, 'related');
 	Relation_Value_Validator::assert_value(array(2), $relation, 'related');
+	$raw_key = '<unsafe>&"related';
+	try {
+		Relation_Value_Validator::assert_value('invalid', $relation, $raw_key);
+		throw new RuntimeException('Invalid relation must reject.');
+	} catch (Execution_Exception $error) {
+		same('A relation field does not match its declared cardinality: ' . $raw_key, $error->getMessage(), 'Machine diagnostic must not be prematurely HTML escaped');
+	}
+	$native_guard = (new ReflectionClass(Structure_Contract_Save_Guard::class))->newInstanceWithoutConstructor();
+	foreach (array(false, true) as $ajax) {
+		$GLOBALS['ajax'] = $ajax;
+		try {
+			(new ReflectionMethod(Structure_Contract_Save_Guard::class, 'reject_admin_save'))->invoke($native_guard, new WP_Error('<unsafe>&"code', '<unsafe>&"message', array('status' => 403)));
+		} catch (NativeSaveRejected $error) {
+			same(array(esc_html('<unsafe>&"message'), esc_html('<unsafe>&"code'), array('response' => 403, 'back_link' => !$ajax)), $GLOBALS['native_die'], 'Escape HTML message/title exactly at wp_die; retain boolean options');
+		}
+	}
+	$GLOBALS['ajax'] = false;
 	foreach (array('relation_self_reference' => array(array(2), array(2)), 'relation_duplicate_target' => array(array(2, 2), array()), 'relation_target_id_invalid' => array(array('2'), array()), 'relation_target_missing' => array(array(99), array()), 'relation_target_type_mismatch' => array(array(1), array()), 'relation_target_status_mismatch' => array(array(3), array())) as $code => [$values, $excluded]) {
 		rejection($code, fn() => Relation_Value_Validator::assert_value($values, $relation, 'related', $excluded));
 	}

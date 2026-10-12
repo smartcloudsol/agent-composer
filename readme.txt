@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.4.1
+Stable tag: 1.4.2
 License: MIT
 License URI: https://mit-license.org/
 
@@ -151,6 +151,11 @@ https://www.npmjs.com/package/@smart-cloud/agent-composer-core
 The distributed JavaScript and CSS are built from public `admin/src`, `blocks/src`, and `core` sources. PHP owns registration, authorization, persistence, audit, portability, and execution. The release assembler adds the shared Hub runtime, verifies the package, normalizes timestamps, and records SHA-256 checksums.
 
 == Changelog ==
+
+= 1.4.2 =
+* Compatibility: Bundle shared Hub 2.6.1 with correctly scoped PHP translations and literal configuration-reset messages, preserving capability, nonce, revision and ownership safeguards.
+* PHP compatibility: Protect direct admin-file access, use WordPress URL parsing and preserve raw structured diagnostics while keeping actual HTML output escaped.
+* Documentation: Preserve complete historical upgrade guidance alongside concise directory notices.
 
 = 1.4.1 =
 * Serialize concurrent audit appends to preserve the audit hash chain and reduce database deadlocks.
@@ -328,6 +333,9 @@ The distributed JavaScript and CSS are built from public `admin/src`, `blocks/sr
 
 == Upgrade Notice ==
 
+= 1.4.2 =
+Updates the bundled shared Hub translation handling. Existing Composer content, configurations, permissions and audit format remain unchanged; no migration is required.
+
 = 1.4.1 =
 Improves audit reliability during concurrent MCP requests. No content or configuration migration is required.
 
@@ -338,31 +346,31 @@ WP Suite admin navigation now groups everyday tasks by capability and detailed s
 Install this update when upgrading WordPress MCP Adapter to 0.7.0. Restart the MCP tunnel and reconnect clients after installation. No content migration is required.
 
 = 1.3.8 =
-Partial native saves now enforce the same title, excerpt, SEO description, language, and document rules as agent edits. Review and correct invalid existing editorial metadata before editing; omitting content no longer bypasses validation or the published proposal gate. Native consumer plugins can use the shared validators without granting agents additional permissions.
+Native and agent saves enforce the same editorial and document rules. Correct invalid existing metadata before editing; partial saves cannot bypass validation or proposal gates. Native plugins may use shared validators without expanding agent permissions. Full guidance: UPGRADE-HISTORY.md.
 
 = 1.3.7 =
-Native editing remains blocked until a new, validated Config Set explicitly enables `native_published_edit_policy: browser-editor` on a proposal-only Blueprint. Existing published posts with stale synced-pattern attestations also require exact `native_pattern_revisions` entries in that Config Set; unknown revisions remain blocked and require a reviewed migration.
+Native editing requires a validated Config Set opting into browser-editor for a proposal-only Blueprint. Stale synced patterns need exact native_pattern_revisions attestations; unknown revisions remain blocked pending reviewed migration. Full guidance: UPGRADE-HISTORY.md.
 
 = 1.3.6 =
-Reload open block editors after updating. Content controls are available in the right Block sidebar's List View tab. Existing per-instance content is retained; no shared-pattern rewrite is required. Registered Blueprint migrations remain proposal-only and require human review before merge. Available blocks remain governed by the site's contract.
+Reload editors. Content controls are in Block sidebar List View. Existing instance content is retained; shared patterns need no rewrite. Blueprint migrations remain proposal-only with human review; available blocks remain site-contract governed. Full guidance: UPGRADE-HISTORY.md.
 
 = 1.3.5 =
 Restart Composer's MCP runtime and refresh client tools and resources to discover the update-proposal approval card. Composer creates its proposal-approval table automatically. Additional shared stylesheet URLs are optional; no content migration is required.
 
 = 1.3.4 =
-Restart MCP and refresh client tools and resources to load the v8 preview and publication-review cards with CSP-compatible images. Composer adds a rendered-preview hash to its approval table automatically; pending approval requests created before this update need to be requested again. No content migration is required.
+Restart MCP and refresh tools/resources for v8 preview and review cards. The approval table adds a rendered-preview hash; recreate pending approval requests. No content migration is required. Full guidance: UPGRADE-HISTORY.md.
 
 = 1.3.3 =
 Update to restore saved instance-slot content in public bodies and rendered previews. No content migration is required; clear page caches after installation.
 
 = 1.3.2 =
-Restart MCP and refresh client tools and resources so clients load the v6 preview Apps and the new `field_id` plus `pattern_instance_id` semantic schemas. Existing synced-pattern instances remain readable; Composer persists their compatibility instance ID on the first targeted update. Clone, validate, and activate a new Config Set before using slot `allowed_patterns`, `pattern_occurrences`, or optional pinned `content_hash` values. No content is published or migrated automatically.
+Restart MCP and refresh tools/resources for v6 previews and semantic slot IDs. Existing instances remain readable. Clone, validate and activate a Config Set before new slot pattern policies or pinned hashes. No automatic publication or migration. Full guidance: UPGRADE-HISTORY.md.
 
 = 1.3.1 =
-Restart MCP and refresh client tools after installing the matching Static Publisher update. In Protected or Protected Required mode, map publish/content-sync operators and their status checks plus Publisher target/rule discovery to Publisher; Contributor remains sufficient for crawl/deploy scheduling and status checks. Existing Config Sets keep Publisher media upload disabled. To enable it, clone the active set, enable **Allow Publisher media uploads**, review the shared MIME and size limits, validate and activate it, then restart MCP and refresh the Publisher connector's tools. No new Cognito resource-server scope is required: the operation reuses the existing resource-bound `publish.request` scope. Readers, Contributors, and Open mode remain unable to upload.
+Install matching Static Publisher; restart MCP and refresh tools. Protected publish/content-sync and rule discovery require Publisher; crawl/deploy use Contributor. Media upload needs explicit validated Config Set approval and publish.request scope. Full setup and restrictions: UPGRADE-HISTORY.md.
 
 = 1.3.0 =
-Install MCP Adapter 0.6.1+. The upgrade adds approval storage/capability but leaves MCP protection Open. Validate and activate a Structure Contract Config Set, synchronize its local patterns, restart MCP, reconnect compatible clients so they discover the inline approval App, and refresh tools. Existing content is not migrated automatically. Before enabling Protected Required, configure a Cognito Hosted UI domain and public code-plus-PKCE client with the exact callback, map groups and client ceilings, migrate any external tunnel from STDIO to HTTP, copy the exact external MCP resource URI into Composer, and complete a test OAuth round trip. Enable scope enforcement only after Cognito uses that same URI as its resource-server identifier and App Client scopes.
+Install MCP Adapter 0.6.1+. Validate and activate the Structure Contract and sync patterns; restart MCP and refresh clients. Protection remains Open. Configure Cognito/resource URI and test OAuth before Protected Required or scope enforcement. Full setup: UPGRADE-HISTORY.md.
 
 = 1.2.6 =
 To enable Solution update proposals, activate the bundled theme 1.0.59 Config Set, restart MCP, and refresh tools. The restart also enables rendered-preview language recovery for localized proposals.

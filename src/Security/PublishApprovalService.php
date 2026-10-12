@@ -252,7 +252,7 @@ final class PublishApprovalService {
 			|| 'publisher' !== $actor->role()
 			|| ! hash_equals( (string) $row['requester_principal'], $actor->principal_id() )
 			|| ! hash_equals( (string) $row['requester_client'], $actor->client_id() ) ) {
-			throw new Execution_Exception( 'publish_approver_mismatch', $message );
+			throw new Execution_Exception( 'publish_approver_mismatch', $message ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Raw WP_Error/MCP JSON diagnostic; PublishApprovalController::render_message() escapes its HTML sink.
 		}
 		return $actor;
 	}

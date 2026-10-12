@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+define('ABSPATH', dirname(__DIR__) . '/');
+
 require dirname(__DIR__) . '/src/Infrastructure/WordPress/Activation.php';
 require dirname(__DIR__) . '/admin/php/admin.php';
 use SmartCloud\AgentComposer\Infrastructure\WordPress\Activation;

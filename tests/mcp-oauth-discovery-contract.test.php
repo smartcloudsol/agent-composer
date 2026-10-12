@@ -20,6 +20,7 @@ namespace {
 	}
 	function get_option(string $key, mixed $default = false): mixed { global $options; return $options[$key] ?? $default; }
 	function sanitize_text_field(string $value): string { return trim(strip_tags($value)); }
+	function wp_parse_url(string $url, int $component = -1): mixed { return parse_url($url, $component); }
 	function sanitize_key(string $value): string { return strtolower((string) preg_replace('/[^a-z0-9_\-]/i', '', $value)); }
 	function apply_filters(string $name, mixed $value, mixed ...$args): mixed {
 		global $filters;
