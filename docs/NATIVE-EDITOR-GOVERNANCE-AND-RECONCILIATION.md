@@ -69,6 +69,8 @@ For every managed document, the native Gutenberg REST save runs the same page an
 
 Existing unmanaged records are not silently adopted. They remain legacy content until an operator previews and confirms adoption or migration.
 
+Native browser saves may carry HTTP Basic authentication used by a web-server access gate. Composer still requires a valid WordPress logged-in cookie belonging to the current user, the native save nonce, and the applicable editing capabilities. Basic authentication alone does not authorize a save. Bearer and other authorization schemes, authenticated WordPress Application Password requests, and Composer/MCP actor contexts remain excluded from the browser-editor exception. This applies to Classic, Quick Edit, Bulk Edit, and the Gutenberg published-editor exception.
+
 ## Reconciliation workflow
 
 There is no silent two-way synchronization. Use the following sequence after any privileged change:

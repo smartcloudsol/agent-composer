@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.4.2
+Stable tag: 1.4.3
 License: MIT
 License URI: https://mit-license.org/
 
@@ -154,6 +154,10 @@ https://www.npmjs.com/package/@smart-cloud/agent-composer-core
 The distributed JavaScript and CSS are built from public `admin/src`, `blocks/src`, and `core` sources. PHP owns registration, authorization, persistence, audit, portability, and execution. The release assembler adds the shared Hub runtime, verifies the package, normalizes timestamps, and records SHA-256 checksums.
 
 == Changelog ==
+
+= 1.4.3 =
+* Fix native Classic, Quick Edit, Bulk Edit and opted-in Gutenberg published saves on sites protected by web-server HTTP Basic Auth.
+* Retain same-user WordPress cookie, native nonce, capability and Blueprint checks; continue excluding Bearer, MCP and authenticated Application Password requests from browser-editor authorization.
 
 = 1.4.2 =
 * Compatibility: Bundle shared Hub 2.6.1 with correctly scoped PHP translations and literal configuration-reset messages, preserving capability, nonce, revision and ownership safeguards.
@@ -335,6 +339,9 @@ The distributed JavaScript and CSS are built from public `admin/src`, `blocks/sr
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.4.3 =
+Restores native browser saves behind HTTP Basic Auth while retaining WordPress session and Blueprint safeguards. No configuration or content migration is required.
 
 = 1.4.2 =
 Updates the bundled shared Hub translation handling. Existing Composer content, configurations, permissions and audit format remain unchanged; no migration is required.

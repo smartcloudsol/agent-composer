@@ -31,7 +31,7 @@
     "Rendered_Preview_Service.php": "sha256:133e697f27155e92e0d7f180f96d969807eeb565c7287e5a104a7f161d31fc95",
     "Semantic_Document_Service.php": "sha256:9f99380a99321320f275a0ba6173471a88efcbcccf3f911840c194ce845e25a8",
     "Semantic_Slot_Materializer.php": "sha256:09f92b076f8b423f7650fe30bd011d0c10f692d0ac5a6691fc18644669790c3e",
-    "Structure_Contract_Save_Guard.php": "sha256:d52e35f975d41be741c437a6254e2c094f87f23ee1c460a1be236691c44c5c67",
+    "Structure_Contract_Save_Guard.php": "sha256:205111bbe7c4b70e6f027312a8fd8263edb986cfd9683d2dc5e3a4db5ba21012",
     "Structure_Editor_Projector.php": "sha256:4469771dffde081d55466c91a76e9e75cdc18d5a8865414249c79ca86943e153",
     "Synced_Structural_Pattern_Service.php": "sha256:aaeca7cc4b2d7eeb011be3ae49ffe836c8815499461b7a6ae418d3a9092647b9",
     "Target_Resolver.php": "sha256:86a417c583a1276822365bce810a676b51bd8b56f8cbec61b9d58ebc79bc7657",

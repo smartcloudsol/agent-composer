@@ -322,7 +322,7 @@ final class Structure_Contract_Save_Guard {
 
 	private function authenticated_admin_route( int $post_id, array $route ): bool {
 		if ( null !== ActorIdentity::context() || ! defined( 'LOGGED_IN_COOKIE' )
-			|| '' !== (string) ( $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '' ) ) {
+			|| $this->has_non_browser_authorization() ) {
 			return false;
 		}
 		$user_id = get_current_user_id();
@@ -331,6 +331,27 @@ final class Structure_Contract_Save_Guard {
 			&& $user_id === (int) wp_validate_auth_cookie( $cookie, 'logged_in' )
 			&& false !== wp_verify_nonce( (string) wp_unslash( $route['nonce'] ), $route['action'] )
 			&& current_user_can( 'edit_post', $post_id );
+	}
+
+	/** Basic Auth may protect the web server; it never replaces the cookie and nonce checks. */
+	private function has_non_browser_authorization( ?\WP_REST_Request $request = null ): bool {
+		if ( ( $GLOBALS['wp_rest_application_password_status'] ?? null ) instanceof \WP_User ) {
+			return true;
+		}
+		$headers = array(
+			(string) ( $_SERVER['HTTP_AUTHORIZATION'] ?? '' ),
+			(string) ( $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '' ),
+		);
+		if ( null !== $request ) {
+			$headers[] = (string) $request->get_header( 'authorization' );
+		}
+		foreach ( $headers as $header ) {
+			$header = trim( $header );
+			if ( '' !== $header && 1 !== preg_match( '/^Basic[ \t]+[A-Za-z0-9+\/]+={0,2}$/iD', $header ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private function allows_admin_published_edit( \WP_Post $post, array $blueprint ): bool {
@@ -349,7 +370,7 @@ final class Structure_Contract_Save_Guard {
 	private function allows_native_published_edit( \WP_REST_Request $request, \WP_Post $post, array $blueprint ): bool {
 		if ( 'browser-editor' !== (string) ( $blueprint['native_published_edit_policy'] ?? 'blocked' )
 			|| null !== ActorIdentity::context()
-			|| '' !== (string) $request->get_header( 'authorization' )
+			|| $this->has_non_browser_authorization( $request )
 			|| ! defined( 'LOGGED_IN_COOKIE' ) ) {
 			return false;
 		}

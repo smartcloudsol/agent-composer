@@ -32,6 +32,7 @@ namespace {
 	$skip_boundary = isset($argv[1]) && preg_match('/^--skip=(WP_CLI|REST_REQUEST|DOING_CRON|DOING_AUTOSAVE)$/D', $argv[1], $skip_match);
 	if ($skip_boundary) { define($skip_match[1], true); }
 	class NativeSaveRejected extends RuntimeException {}
+	class WP_User {}
 	class WP_Post {
 		public function __construct(public int $ID, public string $post_type = 'post', public string $post_status = 'draft', public string $post_title = 'Example title', public string $post_excerpt = '', public string $post_content = 'valid') {}
 	}
@@ -73,7 +74,7 @@ namespace {
 	function wp_is_post_revision(int $id): bool { return $GLOBALS['revision'] ?? false; }
 	function wp_is_post_autosave(int $id): bool { return $GLOBALS['autosave'] ?? false; }
 	function get_current_user_id(): int { return 7; }
-	function wp_validate_auth_cookie(string $cookie, string $scheme): int|false { return 'valid-cookie' === $cookie && 'logged_in' === $scheme ? 7 : false; }
+	function wp_validate_auth_cookie(string $cookie, string $scheme): int|false { return 'logged_in' === $scheme ? (array('valid-cookie' => 7, 'other-user-cookie' => 8)[$cookie] ?? false) : false; }
 	function wp_verify_nonce(string $nonce, string $action): int|false { return $nonce === 'nonce:' . $action ? 1 : false; }
 	function get_post_type_object(string $type): WP_Post_Type { return new WP_Post_Type(); }
 	function wp_unslash(mixed $value): mixed { return is_array($value) ? array_map('wp_unslash', $value) : stripslashes((string) $value); }
@@ -232,8 +233,13 @@ namespace {
 		throw new RuntimeException('Missing native rejection: ' . $code);
 	};
 	$classic();
+	$basic = 'Basic ' . base64_encode('proxy-user:proxy-password');
+	$_SERVER['HTTP_AUTHORIZATION'] = $basic;
 	$postarr = array('ID' => 1, 'post_title' => "Editor's title", 'post_content' => 'stale-body');
-	same(false, apply_filters('wp_insert_post_empty_content', false, $postarr), 'Classic partial save accepted');
+	foreach (array('draft', 'publish') as $status) {
+		$GLOBALS['posts'][1]->post_status = $status;
+		same(false, apply_filters('wp_insert_post_empty_content', false, $postarr), 'Classic ' . $status . ' save accepted behind proxy Basic Auth');
+	}
 	same(0, $GLOBALS['state_writes'], 'Early preflight does not record state');
 	$data = $guard->persist_admin_content(array('post_content' => 'stale-body'), $postarr, $postarr, true);
 	same('refreshed-body', wp_unslash($data['post_content']), 'Exact normalized pattern body reaches core write');
@@ -253,15 +259,34 @@ namespace {
 	$_POST['_wpnonce'] = 'invalid';
 	$reject_native('smartcloud_agent_native_auth_required', array('ID' => 1));
 	$classic();
-	$_COOKIE[LOGGED_IN_COOKIE] = 'invalid-cookie';
+	foreach (array('invalid-cookie', 'other-user-cookie', '') as $cookie) {
+		$_COOKIE[LOGGED_IN_COOKIE] = $cookie;
+		$reject_native('smartcloud_agent_native_auth_required', array('ID' => 1));
+	}
+	unset($_COOKIE[LOGGED_IN_COOKIE]);
 	$reject_native('smartcloud_agent_native_auth_required', array('ID' => 1));
 	$_COOKIE[LOGGED_IN_COOKIE] = 'valid-cookie';
 	$GLOBALS['native_can_edit'] = false;
 	$reject_native('smartcloud_agent_native_auth_required', array('ID' => 1));
 	$GLOBALS['native_can_edit'] = true;
-	$_SERVER['HTTP_AUTHORIZATION'] = 'Bearer test-value';
+	foreach (array('HTTP_AUTHORIZATION', 'REDIRECT_HTTP_AUTHORIZATION') as $header) {
+		foreach (array('Bearer test-value', 'Digest test-value', 'Basic', 'Basic !!!', 'Basic abc:def') as $authorization) {
+			$_SERVER['HTTP_AUTHORIZATION'] = '';
+			$_SERVER[$header] = $authorization;
+			$reject_native('smartcloud_agent_native_auth_required', array('ID' => 1));
+			unset($_SERVER[$header]);
+		}
+	}
+	$_SERVER['HTTP_AUTHORIZATION'] = '';
+	$_SERVER['REDIRECT_HTTP_AUTHORIZATION'] = $basic;
+	same(false, apply_filters('wp_insert_post_empty_content', false, array('ID' => 1)), 'Redirected proxy Basic Auth accepted');
+	$_SERVER['HTTP_AUTHORIZATION'] = $basic;
+	$_SERVER['REDIRECT_HTTP_AUTHORIZATION'] = 'Bearer test-value';
 	$reject_native('smartcloud_agent_native_auth_required', array('ID' => 1));
-	unset($_SERVER['HTTP_AUTHORIZATION']);
+	unset($_SERVER['REDIRECT_HTTP_AUTHORIZATION']);
+	$GLOBALS['wp_rest_application_password_status'] = new WP_User();
+	$reject_native('smartcloud_agent_native_auth_required', array('ID' => 1));
+	unset($GLOBALS['wp_rest_application_password_status']);
 	SmartCloud\AgentComposer\Security\ActorIdentity::set(new SmartCloud\AgentComposer\Security\ActorContext('agent:1', '', '', '', array(), '', array(), 'agent', '', 'mcp'));
 	$reject_native('smartcloud_agent_native_auth_required', array('ID' => 1));
 	SmartCloud\AgentComposer\Security\ActorIdentity::set(null);
@@ -271,12 +296,14 @@ namespace {
 	$_POST = array('action' => 'inline-save', 'post_ID' => 1, '_inline_edit' => 'nonce:inlineeditnonce');
 	$_REQUEST = $_POST;
 	$GLOBALS['ajax'] = true;
-	same(false, apply_filters('wp_insert_post_empty_content', false, array('ID' => 1, 'post_title' => 'Quick title')), 'Real Quick Edit nonce accepted');
+	same(false, apply_filters('wp_insert_post_empty_content', false, array('ID' => 1, 'post_title' => 'Quick title')), 'Real Quick Edit nonce accepted behind proxy Basic Auth');
 	$reject_native('smartcloud_agent_invalid_excerpt_length', array('ID' => 1, 'post_excerpt' => 'short'));
+	$_POST['_inline_edit'] = 'invalid';
+	$reject_native('smartcloud_agent_native_auth_required', array('ID' => 1));
 	$_POST = array();
 	$_REQUEST = array('action' => 'edit', 'post' => array(1, 2), '_wpnonce' => 'nonce:bulk-posts');
 	$GLOBALS['ajax'] = false;
-	same(false, apply_filters('wp_insert_post_empty_content', false, array('ID' => 1)), 'Bulk Edit validates stored complete document');
+	same(false, apply_filters('wp_insert_post_empty_content', false, array('ID' => 1)), 'Bulk Edit validates stored complete document behind proxy Basic Auth');
 	$reject_native('smartcloud_agent_invalid_title', array('ID' => 1, 'post_title' => ''));
 	$GLOBALS['hooks']['smartcloud_composer_admin_pre_save_validation'][] = static fn(mixed $prepared, array $postarr, int $id): WP_Error => new WP_Error('adapter_rejected', 'Rejected before writes.');
 	$reject_native('adapter_rejected', array('ID' => 1));
