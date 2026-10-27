@@ -11,7 +11,7 @@ use SmartCloud\WPSuite\Hub\ConfigurationReset;
 trait EditingConfigurationReset {
 	public function editingConfigurationReset(): array {
 		return array(
-			'options' => array('smartcloud_composer_active_config_set', 'smartcloud_composer_previous_config_set', 'smartcloud_composer_activation_receipt', 'smartcloud_composer_active_snapshot', 'smartcloud_composer_last_discovery', 'smartcloud_composer_mcp_security'),
+			'options' => array('smartcloud_composer_active_config_set', 'smartcloud_composer_previous_config_set', 'smartcloud_composer_activation_receipt', 'smartcloud_composer_active_snapshot', 'smartcloud_composer_last_discovery', (function_exists('apply_filters') ? apply_filters('smartcloud_wpsuite_backend_profile_option_name', 'smartcloud_composer_mcp_security') : 'smartcloud_composer_mcp_security')),
 			'title' => __('Reset all AI Editing configuration?', 'smartcloud-agent-composer'),
 			'consequences' => array(
 				__('All Config Sets, site contracts, blueprints, components, style mappings, provider policies and discovery snapshots will be permanently deleted, including active and inactive configurations.', 'smartcloud-agent-composer'),

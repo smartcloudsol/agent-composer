@@ -42,6 +42,7 @@ final class McpAccessGuard {
 	}
 
 	public function mode(): string {
+		if ( McpSecuritySettings::backend_profile_enabled() ) { return self::MODE_REQUIRED; }
 		$required = false;
 		try {
 			$required = $this->config->is_mcp_authentication_required();

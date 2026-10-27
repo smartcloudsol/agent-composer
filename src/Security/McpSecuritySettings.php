@@ -7,14 +7,23 @@ final class McpSecuritySettings {
 	public const ROLES  = array( 'reader', 'contributor', 'publisher' );
 	public const RESOURCE_SCOPE_NAMES = array( 'read', 'draft', 'propose', 'publish.request' );
 
+	public static function option_name(): string {
+		return function_exists( 'apply_filters' ) ? apply_filters( 'smartcloud_wpsuite_backend_profile_option_name', self::OPTION ) : self::OPTION;
+	}
+
+	public static function backend_profile_enabled(): bool {
+		$value = function_exists( 'apply_filters' ) ? apply_filters( 'smartcloud_wpsuite_backend_profile_context', null ) : null;
+		return is_array( $value ) && true === ( $value['enabled'] ?? false );
+	}
+
 	public function get(): array {
-		$stored = get_option( self::OPTION, array() );
+		$stored = get_option( self::option_name(), array() );
 		return $this->normalize( is_array( $stored ) ? $stored : array() );
 	}
 
 	public function save( array $value ): array {
 		$normalized = $this->normalize( $value );
-		update_option( self::OPTION, $normalized, false );
+		update_option( self::option_name(), $normalized, false );
 		do_action( 'smartcloud_agent_composer_mcp_security_updated', $normalized );
 		return $normalized;
 	}
@@ -23,6 +32,11 @@ final class McpSecuritySettings {
 		$settings = null === $settings ? $this->get() : $this->normalize( $settings );
 		$provided = apply_filters( 'smartcloud_agent_composer_cognito_config', null, $settings );
 		$provided = apply_filters( 'smartcloud_agent_composer_cognito_configuration', $provided, $settings );
+		if ( self::backend_profile_enabled() ) {
+			// External providers may still expose a global DEV pool. Use only the selected profile's validated bootstrap.
+			$identity = apply_filters( 'smartcloud_wpsuite_backend_profile_identity_config', null );
+			$provided = is_array( $identity ) ? array( 'region' => $identity['awsRegion'] ?? '', 'user_pool_id' => $identity['userPoolId'] ?? '' ) : null;
+		}
 		if ( is_array( $provided ) ) {
 			$region = $this->region( $provided['region'] ?? '' );
 			$pool   = $this->pool_id( $provided['user_pool_id'] ?? '' );

@@ -21,6 +21,7 @@ namespace SmartCloud\AgentComposer\Infrastructure\Persistence {
 namespace {
     define('ARRAY_A', 'ARRAY_A');
     function __($s, $domain = '') { return $s; }
+    function apply_filters($name, $value) { return $name === 'smartcloud_wpsuite_backend_profile_option_name' && !empty($GLOBALS['profile_namespace']) ? 'wpsuite-profile/production/' . $value : $value; }
     function current_user_can($cap) { return !empty($GLOBALS['caps'][$cap]); }
     function wp_json_encode($value) { return json_encode($value); }
     function wp_generate_uuid4() { return bin2hex(random_bytes(16)); }
@@ -88,5 +89,9 @@ namespace {
     foreach ($fixture->editingConfigurationReset()['options'] as $key) check(!isset($GLOBALS['options'][$key]), 'Every owned configuration option removed.');
     check($GLOBALS['audit']===array('existing-history','configuration-reset'), 'History retained with reset event appended.');
     check(!isset($GLOBALS['options']['smartcloud_composer_activation_lock']), 'Success releases lock.');
+    $GLOBALS['profile_namespace'] = true;
+    $profile_options = $fixture->editingConfigurationReset()['options'];
+    check(in_array('wpsuite-profile/production/smartcloud_composer_mcp_security', $profile_options, true) && !in_array('smartcloud_composer_mcp_security', $profile_options, true), 'Reset scopes the active backend MCP access policy.');
+    check(in_array('smartcloud_composer_active_config_set', $profile_options, true), 'CMS-authored active configuration remains shared.');
     echo "Composer configuration reset: $checks checks passed.\n";
 }

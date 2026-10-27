@@ -174,5 +174,41 @@ namespace {
 	security_assert(str_contains($approval_source, 'smartcloud_composer_publish_approval_asset'), 'Approval preview assets must use a bounded token-authorized endpoint.');
 	security_assert(str_contains($approval_source, 'rewrite_asset_references'), 'Approval HTML and CSS must reuse rewritten rendered-preview assets.');
 
+	// A profile switch may never inherit the other backend's manual issuer/client policy or become OPEN.
+	$backend_profile = array('enabled' => true, 'id' => 'development', 'namespace' => '');
+	$backend_identity = array('awsRegion' => 'eu-central-1', 'userPoolId' => 'eu-central-1_DevProfile');
+	add_filter('smartcloud_wpsuite_backend_profile_context', static function () use (&$backend_profile) { return $backend_profile; });
+	add_filter('smartcloud_wpsuite_backend_profile_identity_config', static function () use (&$backend_identity) { return $backend_identity; });
+	add_filter('smartcloud_wpsuite_backend_profile_option_name', static function ($name) use (&$backend_profile) {
+		return ($backend_profile['namespace'] ?? '') === '' ? $name : 'wpsuite-profile/' . $backend_profile['id'] . '/' . $name;
+	});
+	$dev_policy = $normalized;
+	$dev_policy['identity_provider']['prefer_manual'] = true;
+	$dev_policy['identity_provider']['manual'] = array('region' => 'eu-central-1', 'user_pool_id' => 'eu-central-1_DevManual');
+	$settings->save($dev_policy);
+	$owner_saved = serialize($options[\SmartCloud\AgentComposer\Security\McpSecuritySettings::OPTION]);
+	security_assert($settings->identity_configuration()['user_pool_id'] === 'eu-central-1_DevManual', 'Owner retains its manual Cognito configuration.');
+	$backend_profile = array('enabled' => true, 'id' => 'production', 'namespace' => 'production');
+	$backend_identity = array('awsRegion' => 'us-east-1', 'userPoolId' => 'us-east-1_ProdProfile');
+	security_assert($settings->get()['clients'] === array() && $settings->get()['group_roles'] === array(), 'Fresh production policy must not inherit DEV client IDs/scopes/group mappings.');
+	security_assert($settings->identity_configuration()['user_pool_id'] === 'us-east-1_ProdProfile', 'Authoritative profile bootstrap overrides unscoped external provider identity.');
+	$fresh_profile_guard = new \SmartCloud\AgentComposer\Security\McpAccessGuard($settings, new \SmartCloud\AgentComposer\Security\CognitoJwtValidator(), $config);
+	security_assert($fresh_profile_guard->mode() === 'PROTECTED_REQUIRED', 'Missing profile policy must never enable anonymous Open mode.');
+	security_assert($fresh_profile_guard->authenticate()->code === 'smartcloud_composer_security_configuration_incomplete', 'Missing profile mappings fail closed before token use.');
+	$header = rtrim(strtr(base64_encode(json_encode(array('alg' => 'RS256', 'kid' => 'fixture'))), '+/', '-_'), '=');
+	$claims = rtrim(strtr(base64_encode(json_encode(array('iss' => 'https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_DevManual'))), '+/', '-_'), '=');
+	$wrong_issuer = (new \SmartCloud\AgentComposer\Security\CognitoJwtValidator())->validate($header . '.' . $claims . '.eA', $settings->identity_configuration());
+	security_assert($wrong_issuer->code === 'smartcloud_composer_token_issuer_mismatch', 'Production rejects a DEV issuer before any public-key/network lookup.');
+	$prod_policy = $normalized;
+	$prod_policy['identity_provider']['manual'] = array('region' => '', 'user_pool_id' => '');
+	$prod_policy['group_roles'] = array('prod-editors' => 'contributor');
+	$prod_policy['clients'] = array(array('client_id' => 'prodclient', 'role_ceiling' => 'contributor', 'scopes' => array('composer.read')));
+	$settings->save($prod_policy);
+	security_assert($settings->get()['clients'][0]['client_id'] === 'prodclient' && serialize($options[\SmartCloud\AgentComposer\Security\McpSecuritySettings::OPTION]) === $owner_saved, 'Production policy saves separately without mutating owner policy.');
+	$backend_identity = null;
+	security_assert($settings->identity_configuration()['source'] === 'none', 'Missing trusted bootstrap never falls back to a global external DEV provider.');
+	$backend_profile = array('enabled' => true, 'id' => 'development', 'namespace' => '');
+	security_assert($settings->get()['identity_provider']['manual']['user_pool_id'] === 'eu-central-1_DevManual', 'Switching back restores exact owner manual issuer.');
+
 	echo "mcp-security-contract: ok\n";
 }
