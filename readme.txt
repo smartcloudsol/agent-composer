@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.5.3
+Stable tag: 1.5.4
 License: MIT
 License URI: https://mit-license.org/
 
@@ -154,6 +154,10 @@ https://www.npmjs.com/package/@smart-cloud/agent-composer-core
 The distributed JavaScript and CSS are built from public `admin/src`, `blocks/src`, and `core` sources. PHP owns registration, authorization, persistence, audit, portability, and execution. The release assembler adds the shared Hub runtime, verifies the package, normalizes timestamps, and records SHA-256 checksums.
 
 == Changelog ==
+
+= 1.5.4 =
+* Refresh compatible administration and editor dependencies.
+* Update the shared WP Suite Hub and its UI dependencies.
 
 = 1.5.3 =
 
@@ -357,6 +361,9 @@ The distributed JavaScript and CSS are built from public `admin/src`, `blocks/sr
 * Fixed guided rule-list editing so spaces and new lines remain available while typing, and added pointer feedback to enabled switches.
 
 == Upgrade Notice ==
+
+= 1.5.4 =
+When using multiple WP Suite plugins, update them together and reload open administration pages. Existing configurations are preserved.
 
 = 1.5.3 =
 Update installed WP Suite plugins together and reload open administration pages. Reconnect the existing site if prompted.

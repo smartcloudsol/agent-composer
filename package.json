@@ -1,6 +1,6 @@
 {
   "name": "smartcloud-agent-composer-source",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "private": true,
   "workspaces": [
     "core",
@@ -30,6 +30,9 @@
     "tsup": "^8.5.1"
   },
   "overrides": {
+    "markdownlint-cli": {
+      "minimatch": "^3.1.5"
+    },
     "esbuild": "$esbuild",
     "yaml": "$yaml",
     "proxy-addr": "2.0.8",
