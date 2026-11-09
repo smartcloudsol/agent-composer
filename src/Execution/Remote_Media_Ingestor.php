@@ -147,6 +147,7 @@ final class Remote_Media_Ingestor {
 				'no_found_rows'          => true,
 				'update_post_meta_cache' => false,
 				'update_post_term_cache' => false,
+				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Single-result metadata lookup enforces media idempotency and access is checked after retrieval.
 				'meta_query'             => array(
 					array( 'key' => $meta_key, 'value' => $meta_value, 'compare' => '=' ),
 				),

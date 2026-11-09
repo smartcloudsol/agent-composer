@@ -22,6 +22,8 @@ class WP_REST_Request {
 
 $GLOBALS['native_editor_can_edit'] = true;
 function get_current_user_id(): int { return 7; }
+function wp_unslash( mixed $value ): mixed { return is_array( $value ) ? array_map( 'wp_unslash', $value ) : stripslashes( (string) $value ); }
+function sanitize_text_field( string $value ): string { return trim( strip_tags( $value ) ); }
 function wp_validate_auth_cookie( string $cookie, string $scheme ): int|false { return 'logged_in' === $scheme ? ( array( 'valid-cookie' => 7, 'other-user-cookie' => 8 )[ $cookie ] ?? false ) : false; }
 function wp_verify_nonce( string $nonce, string $action ): int|false { return 'valid-nonce' === $nonce && 'wp_rest' === $action ? 1 : false; }
 function current_user_can( string $capability, mixed ...$args ): bool { return $GLOBALS['native_editor_can_edit']; }
@@ -61,7 +63,7 @@ unset( $_COOKIE[ LOGGED_IN_COOKIE ] );
 $expect( false, $check->invoke( $guard, $request, $post, $allowed ), 'Basic Auth alone is not a browser session' );
 $_COOKIE[ LOGGED_IN_COOKIE ] = 'valid-cookie';
 foreach ( array( 'authorization', 'HTTP_AUTHORIZATION', 'REDIRECT_HTTP_AUTHORIZATION' ) as $header ) {
-	foreach ( array( 'Bearer token', 'Digest token', 'Basic', 'Basic !!!', 'Basic abc:def' ) as $authorization ) {
+	foreach ( array( 'Bearer token', 'Digest token', 'Basic', 'Basic !!!', 'Basic abc:def', 'Basic <b>YWJjOmRlZg==</b>' ) as $authorization ) {
 		$_SERVER['HTTP_AUTHORIZATION'] = '';
 		$headers = array( 'x_wp_nonce' => 'valid-nonce', 'authorization' => $basic );
 		if ( 'authorization' === $header ) {

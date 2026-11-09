@@ -273,6 +273,7 @@ final class Publisher_Media_Uploader {
 				'no_found_rows'          => true,
 				'update_post_meta_cache' => false,
 				'update_post_term_cache' => false,
+				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Single-result lookup of plugin-owned idempotency metadata prevents duplicate media.
 				'meta_query'             => array(
 					array( 'key' => self::IDEMPOTENCY_META, 'value' => $idempotency_hash, 'compare' => '=' ),
 				),

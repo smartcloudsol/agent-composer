@@ -302,9 +302,11 @@ final class Content_Proposal_Service {
 		$query = new \WP_Query( array(
 			'post_type' => 'any', 'post_status' => 'draft', 'posts_per_page' => -1,
 			'orderby' => 'modified', 'order' => 'DESC', 'no_found_rows' => true,
+			// phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters_suppress_filters -- Proposal enumeration and deduplication must cover all languages despite ambient filters.
 			'suppress_filters' => true,
 			'cache_results' => false, 'update_post_meta_cache' => false, 'update_post_term_cache' => false,
 			'fields' => 'ids',
+			// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Plugin-owned proposal metadata selects review state and source; IDs are revalidated before use.
 			'meta_query' => array( array( 'key' => self::STATE_META, 'value' => $states, 'compare' => 'IN' ) ),
 		) );
 		$items = array();
@@ -950,9 +952,11 @@ final class Content_Proposal_Service {
 	private function find_active( int $source_id, string $page_type, array $context ): ?\WP_Post {
 		$query = new \WP_Query( array(
 			'post_type' => $this->targets->registered_allowed_post_types(), 'post_status' => 'draft', 'posts_per_page' => 10, 'no_found_rows' => true,
+			// phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters_suppress_filters -- Proposal enumeration and deduplication must cover all languages despite ambient filters.
 			'suppress_filters' => true,
 			'cache_results' => false, 'update_post_meta_cache' => false, 'update_post_term_cache' => false,
 			'fields' => 'ids',
+			// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Plugin-owned proposal metadata selects review state and source; IDs are revalidated before use.
 			'meta_query' => array(
 				array( 'key' => self::SOURCE_META, 'value' => $source_id, 'type' => 'NUMERIC' ),
 				array( 'key' => Draft_Service::PAGE_TYPE_META, 'value' => $page_type ),

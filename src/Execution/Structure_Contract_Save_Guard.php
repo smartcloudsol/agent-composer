@@ -257,10 +257,11 @@ final class Structure_Contract_Save_Guard {
 		}
 		$meta = isset( $postarr['meta_input'] ) && is_array( $postarr['meta_input'] ) ? wp_unslash( $postarr['meta_input'] ) : array();
 		// Match the existing SEO provider's classic metabox field and its real nonce.
-		if ( isset( $_POST['yoast_wpseo_metadesc'], $_POST['yoast_free_metabox_nonce'], $_POST['ID'] )
-			&& $post_id === absint( $_POST['ID'] )
-			&& false !== wp_verify_nonce( (string) wp_unslash( $_POST['yoast_free_metabox_nonce'] ), 'yoast_free_metabox' ) ) {
-			$meta[ Draft_Service::YOAST_METADESC_META ] = wp_unslash( $_POST['yoast_wpseo_metadesc'] );
+		if ( isset( $_POST['yoast_wpseo_metadesc'], $_POST['yoast_free_metabox_nonce'], $_POST['ID'] ) // phpcs:ignore WordPress.Security.NonceVerification.Missing -- The native save nonce was verified above; the Yoast nonce is verified immediately below.
+			&& $post_id === absint( $_POST['ID'] ) // phpcs:ignore WordPress.Security.NonceVerification.Missing -- The native save nonce was verified above; the Yoast nonce is independently verified below.
+			&& is_string( $_POST['yoast_free_metabox_nonce'] ) && is_string( $_POST['yoast_wpseo_metadesc'] )
+			&& false !== wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['yoast_free_metabox_nonce'] ) ), 'yoast_free_metabox' ) ) {
+			$meta[ Draft_Service::YOAST_METADESC_META ] = sanitize_text_field( wp_unslash( $_POST['yoast_wpseo_metadesc'] ) );
 		}
 		try {
 			$result = $this->validate_existing_save( $prepared, $post_id, null, $meta, true );
@@ -306,16 +307,21 @@ final class Structure_Contract_Save_Guard {
 			|| wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) {
 			return null;
 		}
-		$action = (string) ( $_REQUEST['action'] ?? $_POST['action'] ?? '' );
+		// Route discovery does not authorize a write. The returned nonce is verified
+		// by authenticated_admin_route before any native save validation/persistence.
+		$action = isset( $_REQUEST['action'] ) && is_string( $_REQUEST['action'] ) ? sanitize_key( wp_unslash( $_REQUEST['action'] ) ) : ( isset( $_POST['action'] ) && is_string( $_POST['action'] ) ? sanitize_key( wp_unslash( $_POST['action'] ) ) : '' ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.NonceVerification.Missing -- Discover the native nonce action; verification follows before persistence.
 		if ( '-1' === $action ) {
-			$action = (string) ( $_REQUEST['action2'] ?? '' );
+			$action = isset( $_REQUEST['action2'] ) && is_string( $_REQUEST['action2'] ) ? sanitize_key( wp_unslash( $_REQUEST['action2'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Discover the native nonce action; verification follows before persistence.
 		}
 		if ( in_array( $action, array( 'editpost', 'inline-save' ), true )
-			&& $post_id === absint( $_POST['post_ID'] ?? $_POST['ID'] ?? 0 ) ) {
-			return array( 'nonce' => (string) ( $_POST[ 'inline-save' === $action ? '_inline_edit' : '_wpnonce' ] ?? '' ), 'action' => 'inline-save' === $action ? 'inlineeditnonce' : 'update-post_' . $post_id );
+			&& $post_id === absint( $_POST['post_ID'] ?? $_POST['ID'] ?? 0 ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Discover the native nonce action; verification follows before persistence.
+			$nonce_key = 'inline-save' === $action ? '_inline_edit' : '_wpnonce';
+			$nonce = isset( $_POST[ $nonce_key ] ) && is_string( $_POST[ $nonce_key ] ) ? sanitize_text_field( wp_unslash( $_POST[ $nonce_key ] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- This nonce is returned for verification by authenticated_admin_route.
+			return array( 'nonce' => $nonce, 'action' => 'inline-save' === $action ? 'inlineeditnonce' : 'update-post_' . $post_id );
 		}
-		if ( 'edit' === $action && in_array( $post_id, array_map( 'absint', (array) ( $_REQUEST['post'] ?? array() ) ), true ) ) {
-			return array( 'nonce' => (string) ( $_REQUEST['_wpnonce'] ?? '' ), 'action' => 'bulk-posts' );
+		if ( 'edit' === $action && in_array( $post_id, array_map( 'absint', (array) ( $_REQUEST['post'] ?? array() ) ), true ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Discover the native bulk nonce action; verification follows before persistence.
+			$nonce = isset( $_REQUEST['_wpnonce'] ) && is_string( $_REQUEST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['_wpnonce'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- This nonce is returned for verification by authenticated_admin_route.
+			return array( 'nonce' => $nonce, 'action' => 'bulk-posts' );
 		}
 		return null; // Internal draft, proposal and unrelated admin operations are not form saves.
 	}
@@ -326,7 +332,7 @@ final class Structure_Contract_Save_Guard {
 			return false;
 		}
 		$user_id = get_current_user_id();
-		$cookie = (string) ( $_COOKIE[ LOGGED_IN_COOKIE ] ?? '' );
+		$cookie = isset( $_COOKIE[ LOGGED_IN_COOKIE ] ) && is_string( $_COOKIE[ LOGGED_IN_COOKIE ] ) ? wp_unslash( $_COOKIE[ LOGGED_IN_COOKIE ] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Exact authentication bytes are validated by wp_validate_auth_cookie below, never rendered or interpolated into SQL.
 		return $user_id > 0 && '' !== $cookie
 			&& $user_id === (int) wp_validate_auth_cookie( $cookie, 'logged_in' )
 			&& false !== wp_verify_nonce( (string) wp_unslash( $route['nonce'] ), $route['action'] )
@@ -338,10 +344,20 @@ final class Structure_Contract_Save_Guard {
 		if ( ( $GLOBALS['wp_rest_application_password_status'] ?? null ) instanceof \WP_User ) {
 			return true;
 		}
-		$headers = array(
-			(string) ( $_SERVER['HTTP_AUTHORIZATION'] ?? '' ),
-			(string) ( $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '' ),
-		);
+		$headers = array();
+		foreach ( array( 'HTTP_AUTHORIZATION', 'REDIRECT_HTTP_AUTHORIZATION' ) as $server_key ) {
+			if ( ! isset( $_SERVER[ $server_key ] ) ) {
+				continue;
+			}
+			if ( ! is_string( $_SERVER[ $server_key ] ) ) {
+				return true;
+			}
+			$header = sanitize_text_field( wp_unslash( $_SERVER[ $server_key ] ) );
+			if ( $header !== $_SERVER[ $server_key ] ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.MissingUnslash -- Reject any normalization of authentication bytes; only validated Basic syntax can pass below.
+				return true;
+			}
+			$headers[] = $header;
+		}
 		if ( null !== $request ) {
 			$headers[] = (string) $request->get_header( 'authorization' );
 		}
@@ -375,7 +391,7 @@ final class Structure_Contract_Save_Guard {
 			return false;
 		}
 		$user_id = get_current_user_id();
-		$cookie = (string) ( $_COOKIE[ LOGGED_IN_COOKIE ] ?? '' );
+		$cookie = isset( $_COOKIE[ LOGGED_IN_COOKIE ] ) && is_string( $_COOKIE[ LOGGED_IN_COOKIE ] ) ? wp_unslash( $_COOKIE[ LOGGED_IN_COOKIE ] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Exact authentication bytes are validated by wp_validate_auth_cookie below, never rendered or interpolated into SQL.
 		$post_type = get_post_type_object( $post->post_type );
 		return $user_id > 0
 			&& '' !== $cookie

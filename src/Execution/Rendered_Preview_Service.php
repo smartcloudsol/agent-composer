@@ -313,7 +313,7 @@ final class Rendered_Preview_Service {
 			$GLOBALS['wp_the_query'] = $query;
 			$query->the_post();
 			$resolved = 'page' === $post->post_type ? get_page_template() : get_single_template();
-			$selected = apply_filters( 'template_include', $resolved );
+			$selected = apply_filters( 'template_include', $resolved ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Invoke WordPress core's template selection hook, preserving theme behavior.
 			$template = (string) ( $GLOBALS['_wp_current_template_content'] ?? '' );
 			if ( '' !== trim( $template ) && $selected === $resolved && function_exists( 'wp_is_block_theme' ) && wp_is_block_theme() ) {
 				$rendered = do_blocks( $template );
@@ -339,7 +339,7 @@ final class Rendered_Preview_Service {
 			remove_filter( 'smartcloud_composer_rendered_preview_content_language', $language_filter, PHP_INT_MAX );
 			foreach ( $previous as $name => $state ) {
 				if ( $state[0] ) {
-					$GLOBALS[ $name ] = $state[1];
+					$GLOBALS[ $name ] = $state[1]; // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound -- Restore the exact WordPress core query/template globals captured above.
 				} else {
 					unset( $GLOBALS[ $name ] );
 				}

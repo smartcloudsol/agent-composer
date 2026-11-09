@@ -832,6 +832,7 @@ final class Draft_Service {
 			'fields'                 => 'all',
 			'update_post_meta_cache' => true,
 			'update_post_term_cache' => false,
+			// phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.SuppressFilters_suppress_filters -- Enumerate authorized content across languages independently of ambient filters.
 			'suppress_filters'       => true,
 		);
 

@@ -47,12 +47,14 @@ trait EditingConfigurationReset {
 		$ids = array();
 		$transaction = false;
 		try {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Atomic configuration reset must keep its transaction boundaries; no cached replacement exists.
 			if (false === $wpdb->query('START TRANSACTION')) throw new \RuntimeException('Cannot start configuration reset.');
 			$transaction = true;
 			$ids = $wpdb->get_col($wpdb->prepare("SELECT ID FROM {$wpdb->posts} WHERE post_type = %s ORDER BY ID FOR UPDATE", EntityPostType::POST_TYPE)); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Locks only plugin configuration rows against concurrent edits.
 			if ($wpdb->last_error) throw new \RuntimeException('Cannot lock configuration records.');
 			foreach ($ids as $id) clean_post_cache((int) $id);
 			if (!hash_equals($revision, ConfigurationReset::revision($this->editingConfigurationReset()))) {
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Atomic configuration reset must keep its transaction boundaries; no cached replacement exists.
 				$wpdb->query('ROLLBACK');
 				$transaction = false;
 				return new \WP_Error('composer_reset_conflict', __('Composer configuration changed. Review the reset again.', 'smartcloud-agent-composer'), array('status' => 409));
@@ -64,10 +66,12 @@ trait EditingConfigurationReset {
 				if (!wp_delete_post((int) $id, true) instanceof \WP_Post) throw new \RuntimeException('Cannot delete configuration record.');
 			}
 			(new AuditTable())->record('configuration-reset', 'success', array('configuration_entities_deleted' => count($ids)), 0, 0, null, false);
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Atomic configuration reset must keep its transaction boundaries; no cached replacement exists.
 			if (false === $wpdb->query('COMMIT')) throw new \RuntimeException('Cannot commit configuration reset.');
 			$transaction = false;
 			return true;
 		} catch (\Throwable $error) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Atomic configuration reset must keep its transaction boundaries; no cached replacement exists.
 			if ($transaction) $wpdb->query('ROLLBACK');
 			return new \WP_Error('composer_reset_failed', __('Composer configuration could not be completely reset. Reload the settings before trying again.', 'smartcloud-agent-composer'), array('status' => 500));
 		} finally {

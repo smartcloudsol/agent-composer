@@ -37,6 +37,7 @@ final class Bulk_Blueprint_Migration_Service {
 				'no_found_rows'          => false,
 				'update_post_meta_cache' => false,
 				'update_post_term_cache' => false,
+				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Bounded page of plugin-owned blueprint metadata for an explicit migration plan.
 				'meta_query'             => $this->source_meta_query( $page_type, (array) $route['from'] ),
 			)
 		);
