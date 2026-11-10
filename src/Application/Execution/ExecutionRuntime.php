@@ -99,7 +99,7 @@ final class ExecutionRuntime {
 		$migrations         = new Blueprint_Migration_Service( $config, $validator, $document_state, $this->synced_patterns, $editor, $this->proposals, new StructureDocumentValidator() );
 		$bulk_migrations    = new Bulk_Blueprint_Migration_Service( $config, $migrations, $this->localization );
 		$query_loops        = new Query_Loop_Materializer( $config );
-		$content_fields     = new Content_Field_Materializer( $config, $this->drafts, $language );
+		$content_fields     = new Content_Field_Materializer( $config, $this->drafts, $language, $this->mcp_access );
 		$taxonomy_terms     = new Taxonomy_Term_Service( $config, $this->drafts, $language );
 		$remote_media       = new Remote_Media_Ingestor( $config, $this->drafts );
 		$publisher_media    = new Publisher_Media_Uploader( $config );

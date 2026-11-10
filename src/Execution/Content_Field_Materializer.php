@@ -26,7 +26,8 @@ final class Content_Field_Materializer {
 	public function __construct(
 		private readonly Config_Repository $config,
 		private readonly Draft_Service $drafts,
-		private readonly Content_Language_Validator $language
+		private readonly Content_Language_Validator $language,
+		private readonly ?\SmartCloud\AgentComposer\Security\McpAccessGuard $access_guard = null
 	) {}
 
 	public function contract( array $input ): array {
@@ -114,7 +115,7 @@ final class Content_Field_Materializer {
 
 		$values = array();
 		foreach ( $this->allowed_fields( $post->post_type, false ) as $meta_key => $registration ) {
-			if ( ! $proposal_read && ! current_user_can( 'edit_post_meta', $post_id, $meta_key ) ) {
+			if ( ! $proposal_read && ! $this->can_edit_field( $post_id, $meta_key, $page_type ) ) {
 				continue;
 			}
 			$values[ $meta_key ] = get_post_meta( $post_id, $meta_key, true );
@@ -261,7 +262,7 @@ final class Content_Field_Materializer {
 			if ( ! isset( $allowed[ $meta_key ] ) ) {
 				throw new Execution_Exception( 'content_field_write_denied', 'A submitted field is not explicitly writable in the active Site Contract: ' . $meta_key ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Ability error, not HTML.
 			}
-			if ( $post_id > 0 && ! current_user_can( 'edit_post_meta', $post_id, $meta_key ) ) {
+			if ( $post_id > 0 && ! $this->can_edit_field( $post_id, $meta_key, $page_type ) ) {
 				throw new Execution_Exception( 'content_field_capability_denied', 'The current WordPress user cannot edit an approved content field: ' . $meta_key ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Ability error, not HTML.
 			}
 			$this->assert_value( $value, $allowed[ $meta_key ], $meta_key );
@@ -278,7 +279,27 @@ final class Content_Field_Materializer {
 		return $values;
 	}
 
-	/** @return array<string,array<string,mixed>> */
+	/** Author-only WordPress capabilities do not identify a Cognito principal's assigned draft. */
+	private function can_edit_field( int $post_id, string $meta_key, string $page_type ): bool {
+		$actor = $this->access_guard?->current_actor();
+		if ( ! $actor || ! in_array( $actor->source(), array( 'cognito', 'open' ), true ) ) { return current_user_can( 'edit_post_meta', $post_id, $meta_key ); }
+		if ( true !== $this->access_guard->authorize_ability( self::FIELD_UPDATE_ABILITY ) ) { return false; }
+		$post = $this->drafts->get_owned_draft( $post_id );
+		if ( $page_type !== (string) get_post_meta( $post_id, Draft_Service::PAGE_TYPE_META, true ) ) { return false; }
+		if ( current_user_can( 'edit_post_meta', $post_id, $meta_key ) ) { return true; }
+		$user_id = get_current_user_id();
+		// Scoped to this one permission evaluation. Provider auth callbacks still run and may deny the field.
+		$map = static function ( array $caps, string $cap, int $checked_user, array $args ) use ( $post, $user_id ): array {
+			if ( 'edit_post' === $cap && $checked_user === $user_id && (int) ( $args[0] ?? 0 ) === (int) $post->ID && ! in_array( 'do_not_allow', $caps, true ) ) {
+				return array( Activation::CAP_EXECUTE_DRAFTS );
+			}
+			return $caps;
+		};
+		add_filter( 'map_meta_cap', $map, 20, 4 );
+		try { return current_user_can( 'edit_post_meta', $post_id, $meta_key ); }
+		finally { remove_filter( 'map_meta_cap', $map, 20 ); }
+	}
+
 	private function allowed_fields( string $post_type, bool $write ): array {
 		$registered = $this->registered_fields( $post_type );
 		$policy     = $this->config->get_content_field_access( $post_type );

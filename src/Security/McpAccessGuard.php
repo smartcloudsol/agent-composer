@@ -280,6 +280,7 @@ final class McpAccessGuard {
 		ActorIdentity::set( $actor );
 		if ( ! $this->capability_filter_registered && in_array( $actor->source(), array( 'cognito', 'open' ), true ) ) {
 			add_filter( 'user_has_cap', array( $this, 'grant_request_capabilities' ), 20, 4 );
+			add_filter( 'smartcloud_agent_composer_can_propose_content', array( $this, 'filter_proposal_source_access' ), 20, 2 );
 			$this->capability_filter_registered = true;
 		}
 		do_action( 'smartcloud_agent_composer_actor_resolved', $actor );
@@ -287,7 +288,7 @@ final class McpAccessGuard {
 	}
 
 	public function grant_request_capabilities( array $allcaps, array $caps, array $args, \WP_User $user ): array {
-		unset( $caps, $args, $user );
+		unset( $caps, $args );
 		if ( ! $this->actor || ! in_array( $this->actor->source(), array( 'cognito', 'open' ), true ) ) { return $allcaps; }
 		$granted = array(
 			'read', 'edit_posts', 'edit_pages', 'create_posts', 'create_pages',
@@ -299,8 +300,59 @@ final class McpAccessGuard {
 			$granted[] = Activation::CAP_PUBLISH_MEDIA;
 		}
 		foreach ( $granted as $capability ) { $allcaps[ $capability ] = true; }
+		if ( 'cognito' === $this->actor->source()
+			&& (int) ( $user->ID ?? -1 ) === get_current_user_id()
+			&& ( $this->actor_allows( $this->actor, 'draft' ) || $this->actor_allows( $this->actor, 'propose' ) )
+		) {
+			foreach ( $this->mapped_content_capabilities() as $capability ) { $allcaps[ $capability ] = true; }
+		}
 		foreach ( array( 'publish_posts', 'publish_pages', 'delete_posts', 'delete_pages', Activation::CAP_MERGE_PROPOSALS ) as $denied ) { $allcaps[ $denied ] = false; }
 		return $allcaps;
+	}
+
+	/** A Cognito principal may propose changes to another author only through an explicit CMS editor mapping. */
+	public function filter_proposal_source_access( bool $allowed, \WP_Post $post ): bool {
+		if ( ! $allowed || ! $this->actor || 'cognito' !== $this->actor->source() ) { return $allowed; }
+		if ( ! $this->actor_allows( $this->actor, 'propose' ) ) { return false; }
+		if ( '1' === (string) get_post_meta( $post->ID, \SmartCloud\AgentComposer\Execution\Draft_Service::OWNED_META, true )
+			&& ActorIdentity::is_current(
+				(string) get_post_meta( $post->ID, \SmartCloud\AgentComposer\Execution\Draft_Service::ASSIGNED_PRINCIPAL_META, true ),
+				(int) get_post_meta( $post->ID, \SmartCloud\AgentComposer\Execution\Draft_Service::ASSIGNED_AGENT_META, true )
+			)
+		) { return true; }
+		$capabilities = $this->mapped_content_capabilities();
+		$required = map_meta_cap( 'edit_post', get_current_user_id(), $post->ID );
+		return ! empty( $required ) && empty( array_diff( $required, $capabilities ) );
+	}
+
+	/** Keep native content checks consistent with the selected identity provider's CMS role mapping. */
+	private function mapped_content_capabilities(): array {
+		$mapping = apply_filters( 'smartcloud_agent_composer_wordpress_roles', null, $this->actor->issuer(), $this->actor->groups() );
+		if ( ! is_array( $mapping ) || 1 !== ( $mapping['schema_version'] ?? null )
+			|| get_current_blog_id() !== ( $mapping['blog_id'] ?? null )
+			|| $this->actor->issuer() !== ( $mapping['issuer'] ?? null ) || ! is_array( $mapping['roles'] ?? null )
+		) { return array(); }
+		$capabilities = array();
+		foreach ( $mapping['roles'] as $role_name ) {
+			$role = is_string( $role_name ) ? get_role( $role_name ) : null;
+			if ( $role instanceof \WP_Role ) { $capabilities = array_merge( $capabilities, $role->capabilities ); }
+		}
+		$granted = array();
+		$reserved = array( 'edit_users', 'create_users', 'edit_plugins', 'edit_themes', 'edit_files', 'edit_theme_options', 'edit_dashboard', 'edit_css', 'edit_site_options', 'create_sites' );
+		foreach ( $this->config->get_allowed_post_types() as $post_type ) {
+			$object = get_post_type_object( $post_type );
+			if ( ! $object instanceof \WP_Post_Type || ! $object->public || ! $object->show_in_rest ) { continue; }
+			foreach ( array( 'edit_posts', 'create_posts', 'edit_others_posts', 'edit_published_posts', 'edit_private_posts' ) as $name ) {
+				$capability = $object->cap->$name ?? '';
+				// Never import administrator, publication, deletion or arbitrary custom privileges.
+				if ( is_string( $capability ) && preg_match( '/^(?:edit|create)_[a-z0-9_]+$/D', $capability )
+					&& ! in_array( $capability, $reserved, true ) && ! empty( $capabilities[ $capability ] )
+				) {
+					$granted[] = $capability;
+				}
+			}
+		}
+		return array_values( array_unique( $granted ) );
 	}
 
 	private function authorization_header( mixed $request ): string {
@@ -503,6 +555,6 @@ final class McpAccessGuard {
 	}
 	private function error( string $code, string $message, int $status ): \WP_Error { return new \WP_Error( 'smartcloud_composer_' . $code, $message, array( 'status' => $status ) ); }
 	private static function read_slugs(): array {
-		return array( 'get-page-blueprint', 'get-contract', 'get-document', 'get-design-context', 'get-runtime-capabilities', 'list-supported-content-languages', 'list-approved-patterns', 'read-reference-page', 'search-media', 'materialize-media-image', 'materialize-query-loop', 'get-content-field-contract', 'search-relation-targets', 'inspect-content-fields', 'get-taxonomy-contract', 'search-taxonomy-terms', 'inspect-taxonomy-terms', 'list-content-drafts', 'inspect-content-item', 'inspect-draft-for-adoption', 'validate-content-draft', 'validate-page-draft', 'get-draft', 'get-preview', 'get-rendered-preview', 'get-rendered-preview-asset', 'preview-blueprint-migration', 'plan-blueprint-migration', 'validate-proposal' );
+		return array( 'get-page-blueprint', 'get-contract', 'get-document', 'get-design-context', 'get-runtime-capabilities', 'list-supported-content-languages', 'list-approved-patterns', 'read-reference-page', 'search-media', 'materialize-media-image', 'materialize-query-loop', 'get-content-field-contract', 'search-relation-targets', 'inspect-content-fields', 'get-taxonomy-contract', 'search-taxonomy-terms', 'inspect-taxonomy-terms', 'inspect-published-taxonomy-terms', 'list-content-drafts', 'inspect-content-item', 'inspect-draft-for-adoption', 'validate-content-draft', 'validate-page-draft', 'get-draft', 'get-preview', 'get-rendered-preview', 'get-rendered-preview-asset', 'preview-blueprint-migration', 'plan-blueprint-migration', 'validate-proposal' );
 	}
 }

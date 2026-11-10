@@ -925,7 +925,8 @@ final class Draft_Service {
 			'meta_description' => (string) get_post_meta( $post_id, self::YOAST_METADESC_META, true ),
 			'composer_owned' => $composer_owned,
 			'cloneable'     => ! $composer_owned && $access['clone'],
-			'proposable'    => 'publish' === $post->post_status && ! empty( $access['propose_updates'] ),
+			'proposable'    => 'publish' === $post->post_status && ! empty( $access['propose_updates'] )
+				&& (bool) apply_filters( 'smartcloud_agent_composer_can_propose_content', true, $post ),
 			'validation'    => $validation,
 			'managed_document' => $this->document_state->public_state( $post_id ),
 		);

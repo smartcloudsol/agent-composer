@@ -69,6 +69,9 @@ final class Content_Proposal_Service {
 		if ( ! current_user_can( 'read_post', $source_id ) ) {
 			throw new Execution_Exception( 'proposal_source_read_denied', 'The current agent cannot read the proposal source.' );
 		}
+		if ( ! apply_filters( 'smartcloud_agent_composer_can_propose_content', true, $source ) ) {
+			throw new Execution_Exception( 'proposal_source_edit_denied', 'Proposing changes to another author requires the current identity provider to grant WordPress editor permissions.' );
+		}
 		$source_modified = $this->time_token( $source->post_modified_gmt );
 		$source_content_hash = hash( 'sha256', (string) $source->post_content );
 		if ( ! hash_equals( $source_modified, (string) ( $input['expected_modified_gmt'] ?? '' ) )

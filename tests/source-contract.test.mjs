@@ -405,7 +405,8 @@ test("Composer execution contract is checksum-pinned and canonical names are fro
   const surface = JSON.parse(read("tests/fixtures/execution-ability-surface.json"));
   assert.equal(surface.contract, manifest.contract);
   const aliases = read("src/Integration/Abilities/ExecutionAbilityAliases.php");
-  assert.equal(surface.operations.length, 57);
+  assert.equal(surface.operations.length, 58);
+  assert.ok(surface.operations.includes("inspect-published-taxonomy-terms"));
   for (const alias of surface.preferred_aliases) {
     assert.match(aliases, new RegExp(alias.replaceAll("-", "\\-")));
   }

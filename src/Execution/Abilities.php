@@ -117,6 +117,7 @@ final class Abilities {
 			self::PREFIX . 'create-taxonomy-term',
 			self::PREFIX . 'assign-taxonomy-terms',
 			self::PREFIX . 'inspect-taxonomy-terms',
+			self::PREFIX . 'inspect-published-taxonomy-terms',
 			self::PREFIX . 'list-content-drafts',
 			self::PREFIX . 'inspect-content-item',
 			self::PREFIX . 'clone-content-item',
@@ -492,6 +493,15 @@ final class Abilities {
 			$this->taxonomy_inspection_output_schema()
 		);
 		$this->register_ability(
+			'inspect-published-taxonomy-terms',
+			'Inspect published taxonomy assignments',
+			'Reads actual term assignments on one public, unprotected published record permitted by the active Site Contract. Returns term IDs, names, slugs and an assignment fingerprint without content or private metadata. It never creates a proposal or changes assignments.',
+			$this->published_taxonomy_inspection_schema(),
+			array( $this, 'inspect_published_taxonomy_terms' ),
+			true,
+			$this->published_taxonomy_inspection_output_schema()
+		);
+		$this->register_ability(
 			'list-content-drafts',
 			'List editable content',
 			'Lists only editable or adoptable content by status, post type, Blueprint, and Composer assignment state. A returned update proposal includes its reviewer change_request_reason and must be revised in the same working draft. Never use this ability to resolve relation target IDs; use search-relation-targets instead.',
@@ -846,6 +856,7 @@ final class Abilities {
 							'search_before_create_required'    => true,
 							'composer_owned_draft_writes_only' => true,
 							'explicit_confirmation_required'   => true,
+							'published_read_ability'           => self::PREFIX . 'inspect-published-taxonomy-terms',
 							'term_edit_supported'              => false,
 							'term_delete_supported'            => false,
 						),
@@ -1260,6 +1271,10 @@ final class Abilities {
 		return $this->execute( 'assign-taxonomy-terms', $input, fn() => $this->taxonomy_terms->assign( $input ) );
 	}
 
+	public function inspect_published_taxonomy_terms( array $input ): array|\WP_Error {
+		return $this->execute( 'inspect-published-taxonomy-terms', $input, fn() => $this->taxonomy_terms->inspect_published( $input ) );
+	}
+
 	public function inspect_taxonomy_terms( array $input ): array|\WP_Error {
 		return $this->execute( 'inspect-taxonomy-terms', $input, fn() => $this->taxonomy_terms->inspect( $input ) );
 	}
@@ -1540,6 +1555,9 @@ final class Abilities {
 	public function check_permission_for( string $ability_name ): bool|\WP_Error {
 		if ( null !== $this->access_guard ) {
 			return $this->access_guard->authorize_ability( $ability_name );
+		}
+		if ( self::PREFIX . 'inspect-published-taxonomy-terms' === $ability_name ) {
+			return is_user_logged_in() && current_user_can( \SmartCloud\AgentComposer\Infrastructure\WordPress\Activation::CAP_USE ) && current_user_can( 'read' );
 		}
 		return is_user_logged_in()
 			&& current_user_can( \SmartCloud\AgentComposer\Infrastructure\WordPress\Activation::CAP_USE )
@@ -2006,7 +2024,7 @@ HTML;
 				true
 			);
 			$this->audit->log_failure( $operation, 'error', $input, $post_id, $error->get_execution_code(), array( 'conflict' => $conflict ) );
-			$denied = in_array( $error->get_execution_code(), array( 'taxonomy_term_create_denied', 'taxonomy_assignment_denied', 'proposal_create_denied', 'proposal_source_read_denied', 'localization_content_read_denied', 'localized_content_edit_forbidden', 'migration_permission_denied', 'publisher_media_upload_denied' ), true );
+			$denied = in_array( $error->get_execution_code(), array( 'content_field_capability_denied', 'taxonomy_term_create_denied', 'taxonomy_assignment_denied', 'proposal_create_denied', 'proposal_source_read_denied', 'proposal_source_edit_denied', 'localization_content_read_denied', 'localized_content_edit_forbidden', 'migration_permission_denied', 'publisher_media_upload_denied' ), true );
 			$status = $conflict ? 409 : ( $denied ? 403 : 400 );
 			return new \WP_Error(
 				'smartcloud_agent_' . $error->get_execution_code(),
@@ -2895,6 +2913,36 @@ HTML;
 			'required'             => array( 'post_id', 'page_type' ),
 			'additionalProperties' => false,
 		);
+	}
+
+	public function published_taxonomy_inspection_output_schema(): array {
+		return array(
+			'type' => 'object',
+			'properties' => array(
+				'post_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+				'page_type' => array( 'type' => 'string' ), 'post_type' => array( 'type' => 'string' ),
+				'status' => array( 'type' => 'string', 'enum' => array( 'publish' ) ),
+				'read_mode' => array( 'type' => 'string', 'enum' => array( 'published-taxonomy-assignments' ) ),
+				'read_only' => array( 'type' => 'boolean', 'enum' => array( true ) ),
+				'content_included' => array( 'type' => 'boolean', 'enum' => array( false ) ),
+				'blog_id' => array( 'type' => 'integer', 'minimum' => 1 ), 'modified_gmt' => array( 'type' => 'string' ),
+				'assignments_sha256' => array( 'type' => 'string', 'pattern' => '^[a-f0-9]{64}$' ),
+				'taxonomies' => array( 'type' => 'array', 'items' => array(
+					'type' => 'object', 'properties' => array(
+						'taxonomy' => array( 'type' => 'string' ),
+						'terms' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'additionalProperties' => true ) ),
+					), 'required' => array( 'taxonomy', 'terms' ), 'additionalProperties' => false,
+				) ),
+			),
+			'required' => array( 'post_id', 'page_type', 'post_type', 'status', 'read_only', 'read_mode', 'content_included', 'blog_id', 'modified_gmt', 'assignments_sha256', 'taxonomies' ),
+			'additionalProperties' => true,
+		);
+	}
+
+	public function published_taxonomy_inspection_schema(): array {
+		$schema = $this->taxonomy_inspection_schema();
+		$schema['properties']['page_type']['description'] = 'Active Blueprint whose target post type and public taxonomy read policy apply to this published record.';
+		return $schema;
 	}
 
 	public function taxonomy_contract_output_schema(): array {

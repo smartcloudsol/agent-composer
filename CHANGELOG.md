@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.7 - 2026-11-10
+
+- Inspect actual published taxonomy assignments through a read-only ability with assignment fingerprints.
+- Apply explicit WordPress editor role mappings from enabled Gatey integration to other-author proposals, while retaining principal-bound drafts, OAuth limits and human approval.
+- Repair approved metadata access for assigned Cognito drafts without creating WordPress accounts or bypassing field-provider permissions and revision checks.
+
 ## 1.4.1 - 2026-10-11
 
 - Serialize audit appends with a permanent per-site database row lock before reading the audit indexes, preserving the existing hash-chain format without a schema migration.

@@ -1,7 +1,7 @@
 {
   "contract": "smartcloud-agent-composer-execution",
   "files": {
-    "Abilities.php": "sha256:037afbf979829b6b834d21fb7022d84058a9eea846bc2049d99365d2abeaacd7",
+    "Abilities.php": "sha256:6657f94a84ab5e7ab97e9c9bdf84152750d962477d14d3bada5335aec2d06c8b",
     "Ability_Provider_Registry.php": "sha256:fd37d499af3bfb20355735f00b47208eb9b7b0f36e348439fb44b1df551d1354",
     "Admin_Managed_Document_Service.php": "sha256:a904b5a073b5bc85592abff1dd0c4965006c9f3e8fec86e5152b5422460bc4b9",
     "Audit_Logger.php": "sha256:401e07835b31f855d8674075801007c4da6a4c22b906e468270b7cf18478424f",
@@ -10,10 +10,10 @@
     "Blueprint_Migration_Service.php": "sha256:d8e69715701c1d2f06dd5a7a6d8ce215710783705eaa1009deef9da18b25ca5f",
     "Bulk_Blueprint_Migration_Service.php": "sha256:88f9d34258a7e9c44943129cf50ac1cc2037071736a7abde2ca0dea0ebd2226c",
     "Config_Repository.php": "sha256:5ae44e6d4a9e09f0612d48b80295369a9c19ee9d07b1ce27e634afca4c0a4f1f",
-    "Content_Field_Materializer.php": "sha256:0b2c28cf91c8c0aa51d896622f023b92d6413a82241cff86f646e5ffa8cc2159",
+    "Content_Field_Materializer.php": "sha256:b06d7d8280d70d68ab5b37d23c599e53546a4815086cb2054e6974b967dd3860",
     "Content_Language_Validator.php": "sha256:f983e1f0eb9ecee37016a9aeaed84e9c7af74c76f4a5d557c2ac6779ef0ae63e",
-    "Content_Proposal_Service.php": "sha256:d105d47277ec2db6862bf6a286351ff75906834ef6ed97058383cae8f032ce91",
-    "Draft_Service.php": "sha256:3ae21d1365470a584c77e4d152467aeff232ccae9f524b93c3319596d3502b7e",
+    "Content_Proposal_Service.php": "sha256:0587a5af52c3b122cc400106cbe316598a0246467431f8ce2727833b350d6f1c",
+    "Draft_Service.php": "sha256:e1da8ff85e5498b71c54a6db541abcabe7bf6f938648aebcb3608cd95edc7acc",
     "Editorial_Field_Validator.php": "sha256:0cbd3dc6a7b47c067cc07bd8e5fec3871296947b38e89af6089e6e4b82009911",
     "Excerpt_Policy.php": "sha256:eb061a192291b68e9b25c14361ad880a8fd6e2d75cf65892137ebd1bf758f5d9",
     "Execution_Exception.php": "sha256:96a3b558f10f1b15239bcb44bdadba54c442065c74cb4e83144860f3c757b043",
@@ -35,7 +35,7 @@
     "Structure_Editor_Projector.php": "sha256:4469771dffde081d55466c91a76e9e75cdc18d5a8865414249c79ca86943e153",
     "Synced_Structural_Pattern_Service.php": "sha256:aaeca7cc4b2d7eeb011be3ae49ffe836c8815499461b7a6ae418d3a9092647b9",
     "Target_Resolver.php": "sha256:86a417c583a1276822365bce810a676b51bd8b56f8cbec61b9d58ebc79bc7657",
-    "Taxonomy_Term_Service.php": "sha256:317fd3597d6b6b9ceaf1ad00d5619cc327e4412e52223fab3227703cce1efa5f",
+    "Taxonomy_Term_Service.php": "sha256:5a7ef4cdd3bce77b6caea9e9b6ee3bfe4b7360bc59f43d229659b5ab35425885",
     "Taxonomy_Value_Validator.php": "sha256:8f84a7b50950cd801c8e64b16084af2b6752c80d4f1adcc646eae74057a55aed",
     "Term_Definition_Validator.php": "sha256:2497eb26cf9f50c6d9c134eaff61281f0bb23fff8cbec1eb117255e13494bd49"
   }

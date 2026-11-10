@@ -260,6 +260,42 @@ final class Taxonomy_Term_Service {
 		return $result;
 	}
 
+	/** Public read projection only; draft ownership and all write paths remain unchanged. */
+	public function inspect_published( array $input ): array {
+		$page_type = sanitize_key( (string) ( $input['page_type'] ?? '' ) );
+		$blueprint = $this->config->get_blueprint( $page_type );
+		$post_id = absint( $input['post_id'] ?? 0 );
+		$post = get_post( $post_id );
+		if ( ! $post instanceof \WP_Post || $post->post_type !== (string) $blueprint['target_post_type'] ) {
+			throw new Execution_Exception( 'taxonomy_target_mismatch', 'The content item does not match the selected Blueprint target.' );
+		}
+		$access = $this->config->get_content_access( $post->post_type );
+		if ( empty( $access['read'] ) || 'publish' !== $post->post_status || ! is_post_publicly_viewable( $post ) || '' !== (string) $post->post_password || ! current_user_can( 'read_post', $post_id ) ) {
+			throw new Execution_Exception( 'taxonomy_published_read_denied', 'Only readable, public, unprotected published content enabled by the Site Contract may be inspected.' );
+		}
+		$requested = sanitize_key( (string) ( $input['taxonomy'] ?? '' ) );
+		$items = array();
+		foreach ( $this->config->get_content_taxonomy_access( $post->post_type ) as $taxonomy => $rule ) {
+			if ( ! is_array( $rule ) || empty( $rule['search'] ) || ( '' !== $requested && $requested !== $taxonomy ) ) { continue; }
+			$object = $this->taxonomy_object( (string) $taxonomy, $post->post_type );
+			if ( empty( $object->public ) || false === ( $object->publicly_queryable ?? true ) ) {
+				throw new Execution_Exception( 'taxonomy_unavailable', 'Only public, queryable taxonomy assignments may be inspected.' );
+			}
+			$items[] = array( 'taxonomy' => (string) $taxonomy, 'terms' => $this->terms_for_post( $post_id, (string) $taxonomy ) );
+		}
+		if ( '' !== $requested && ! $items ) {
+			throw new Execution_Exception( 'taxonomy_not_allowed', 'The active Site Contract does not allow this taxonomy for the selected Blueprint.' );
+		}
+		usort( $items, static fn( array $a, array $b ): int => $a['taxonomy'] <=> $b['taxonomy'] );
+		return array(
+			'post_id' => $post_id, 'page_type' => $page_type, 'post_type' => $post->post_type,
+			'status' => 'publish', 'read_mode' => 'published-taxonomy-assignments', 'read_only' => true,
+			'blog_id' => get_current_blog_id(), 'modified_gmt' => mysql_to_rfc3339( $post->post_modified_gmt ),
+			'taxonomies' => $items, 'assignments_sha256' => hash( 'sha256', wp_json_encode( $items, JSON_THROW_ON_ERROR ) ),
+			'content_included' => false,
+		);
+	}
+
 	/** @return array{page_type:string,post_type:string,taxonomy:string,rule:array,object:object} */
 	private function context( array $input, string $operation ): array {
 		$page_type = sanitize_key( (string) ( $input['page_type'] ?? '' ) );

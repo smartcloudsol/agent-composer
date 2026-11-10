@@ -48,6 +48,13 @@ namespace SmartCloud\AgentComposer\Execution {
 	$inspect = $abilities->taxonomy_inspection_schema();
 	taxonomy_same(array('post_id', 'page_type'), $inspect['required'] ?? null, 'Taxonomy inspection must identify an assigned Blueprint draft.');
 
+	$published = $abilities->published_taxonomy_inspection_schema();
+	taxonomy_same(array('post_id', 'page_type'), $published['required'], 'Published inspection remains explicitly Blueprint scoped.');
+	taxonomy_assert(in_array(Abilities::PREFIX . 'inspect-published-taxonomy-terms', Abilities::names(), true), 'Published inspection must be discoverable.');
+	$published_output = $abilities->published_taxonomy_inspection_output_schema();
+	taxonomy_same(array(true), $published_output['properties']['read_only']['enum'], 'Published inspection must remain read-only.');
+	taxonomy_same(array(false), $published_output['properties']['content_included']['enum'], 'Published inspection must not expose content.');
+
 	$contract_output = $abilities->taxonomy_contract_output_schema();
 	taxonomy_same(array(false), $contract_output['properties']['term_edit_supported']['enum'] ?? null, 'The contract must prohibit term edits.');
 	taxonomy_same(array(false), $contract_output['properties']['term_delete_supported']['enum'] ?? null, 'The contract must prohibit term deletion.');

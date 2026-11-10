@@ -36,6 +36,7 @@
     "create-taxonomy-term",
     "assign-taxonomy-terms",
     "inspect-taxonomy-terms",
+    "inspect-published-taxonomy-terms",
     "list-content-drafts",
     "inspect-content-item",
     "clone-content-item",
