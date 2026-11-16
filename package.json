@@ -1,6 +1,6 @@
 {
   "name": "smartcloud-agent-composer-source",
-  "version": "1.5.9",
+  "version": "1.5.10",
   "private": true,
   "workspaces": [
     "core",
