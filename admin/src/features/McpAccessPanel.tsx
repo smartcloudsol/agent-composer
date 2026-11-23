@@ -125,7 +125,7 @@ export function McpAccessPanel({ showDocs }: Pick<SectionProps, "showDocs">) {
       <Text size="sm" c="dimmed">{__("Enter the exact, case-sensitive Cognito User Pool group name found in the access token's cognito:groups claim. Map groups, not individual users; if a person belongs to several mapped groups, the highest mapped role wins.", TEXT_DOMAIN)}</Text>
       <List size="sm" withPadding spacing={2}>
         <List.Item>{__("Reader can inspect Composer configuration and content but cannot create drafts.", TEXT_DOMAIN)}</List.Item>
-        <List.Item>{__("Contributor can also create governed drafts and update proposals.", TEXT_DOMAIN)}</List.Item>
+        <List.Item>{__("Contributor can create governed drafts and update proposals for published content allowed by the Site Contract and Blueprint.", TEXT_DOMAIN)}</List.Item>
         <List.Item>{__("Publisher can additionally request human publication approval, but can never publish directly.", TEXT_DOMAIN)}</List.Item>
       </List>
       {groupRows.map((row) => <Group key={row.id} align="end" wrap="nowrap">
@@ -163,6 +163,12 @@ export function McpAccessPanel({ showDocs }: Pick<SectionProps, "showDocs">) {
 
     <Card withBorder radius="md" p="md"><Stack gap="sm">
       <Title order={3}>{__("Human approval", TEXT_DOMAIN)}</Title>
+      {config.invariants.can_manage_proposal_restriction && <Switch
+        label={__("Restrict proposals on other authors’ content", TEXT_DOMAIN)}
+        description={__("Require the source to be assigned to the current Composer principal or editable with a mapped WordPress role before an OAuth user can propose changes.", TEXT_DOMAIN)}
+        checked={settings.restrict_cross_author_proposals === true}
+        onChange={(event) => update({ ...settings, restrict_cross_author_proposals: event.currentTarget.checked })}
+      />}
       <Text size="sm">{__("Explicit human confirmation is always required and cannot be disabled.", TEXT_DOMAIN)}</Text>
       <NumberInput label={__("Approval expiry (minutes)", TEXT_DOMAIN)} description={__("How long a human-approved publish request remains valid for the exact reviewed revision. Allowed range: 2–60 minutes; 15 minutes is recommended. Expiry never enables direct agent publishing.", TEXT_DOMAIN)} min={2} max={60} value={Math.round(settings.approval_ttl_seconds / 60)} onChange={(value) => update({ ...settings, approval_ttl_seconds: Math.max(2, Math.min(60, Number(value) || 15)) * 60 })} />
     </Stack></Card>

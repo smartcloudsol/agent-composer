@@ -45,6 +45,7 @@ export interface McpSecuritySettings {
   clients: Array<{ label: string; client_id: string; role_ceiling: "reader" | "contributor" | "publisher"; scopes: string[] }>;
   oauth_resource_uri: string;
   enforce_scopes: boolean;
+  restrict_cross_author_proposals?: boolean;
   unknown_client_policy: "deny" | "human-role";
   approval_ttl_seconds: number;
 }
@@ -52,7 +53,7 @@ export interface McpSecuritySettings {
 export interface McpAccessConfiguration {
   settings: McpSecuritySettings;
   status: McpSecurityStatus;
-  invariants: { direct_agent_publish: false; human_confirmation_required: true; supported_roles: string[]; supported_scopes: string[] };
+  invariants: { direct_agent_publish: false; human_confirmation_required: true; can_manage_proposal_restriction?: boolean; supported_roles: string[]; supported_scopes: string[] };
 }
 
 export interface ConfigEntity {

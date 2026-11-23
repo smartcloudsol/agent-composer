@@ -560,10 +560,10 @@ final class Abilities {
 		);
 		$this->register_ability(
 			'create-content-proposal',
-			'Create published-content update proposal',
+			'Start or resume a published-content update proposal',
 			$rendered_preview_required
-				? 'Creates a separate agent-owned working copy of one published item when both the Site Contract and Blueprint opt in. The source remains unchanged and merge is not exposed to the agent. This only starts the workflow: after all updates and validation, you MUST call smartcloud-agent-composer/get-rendered-preview with the freshest post_id, modified_gmt, and revision and let the inline rendered HTML preview be delivered. After that preview, you MUST call submit-content-proposal with the same concurrency tokens and the exact rendered_preview_token returned by that preview. Do not report the proposal as ready while its state is working.'
-				: 'Creates a separate agent-owned working copy of one published item when both the Site Contract and Blueprint opt in. The source remains unchanged and merge is not exposed to the agent. After all updates and validation, rendered HTML preview is the recommended default. If the user explicitly asks to skip it, submit-content-proposal may be called with the freshest concurrency tokens and without rendered_preview_token. Do not report the proposal as ready while its state is working.',
+				? 'Starts a separate working copy for a published item when the Site Contract and Blueprint allow it. Can resume the current agent’s proposal or take over an unchanged working copy returned by a human reviewer. Use the returned proposal ID, revision and change request reason. After all updates and validation, you MUST call smartcloud-agent-composer/get-rendered-preview with the freshest post_id, modified_gmt, and revision and deliver its HTML preview. Then you MUST call submit-content-proposal with the same concurrency tokens and the exact rendered_preview_token. A working proposal is not ready for review.'
+				: 'Starts a separate working copy for a published item when the Site Contract and Blueprint allow it. Can resume the current agent’s proposal or take over an unchanged working copy returned by a human reviewer. Use the returned proposal ID, revision and change request reason. After all updates and validation, rendered HTML preview is the recommended default. If the user explicitly asks to skip it, call submit-content-proposal with the freshest concurrency tokens and without rendered_preview_token. A working proposal is not ready for review.',
 			$this->content_proposal_create_schema(),
 			array( $this, 'create_content_proposal' ),
 			false
@@ -2020,7 +2020,7 @@ HTML;
 			$post_id  = absint( $input['post_id'] ?? 0 );
 			$conflict = in_array(
 				$error->get_execution_code(),
-				array( 'edit_conflict', 'document_read_conflict', 'draft_assigned_to_other_agent', 'taxonomy_term_conflict', 'proposal_creation_conflict', 'proposal_assigned_to_other_agent', 'localization_context_conflict', 'localized_content_group_conflict', 'localized_group_snapshot_conflict', 'localized_group_language_slot_conflict', 'localized_group_member_conflict' ),
+				array( 'edit_conflict', 'document_read_conflict', 'draft_assigned_to_other_agent', 'taxonomy_term_conflict', 'proposal_creation_conflict', 'proposal_assigned_to_other_agent', 'proposal_source_conflict', 'localization_context_conflict', 'localized_content_group_conflict', 'localized_group_snapshot_conflict', 'localized_group_language_slot_conflict', 'localized_group_member_conflict' ),
 				true
 			);
 			$this->audit->log_failure( $operation, 'error', $input, $post_id, $error->get_execution_code(), array( 'conflict' => $conflict ) );

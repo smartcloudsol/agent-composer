@@ -268,7 +268,7 @@ export function ContentProposalsPanel({ showDocs }: Pick<SectionProps, "showDocs
     </Modal>
     <Modal opened={returnOpened} onClose={() => { if (!busy) setReturnOpened(false); }} title={selected?.state === "rejected" ? __("Reopen proposal for changes?", TEXT_DOMAIN) : __("Return proposal for changes?", TEXT_DOMAIN)} centered>
       <Stack gap="md">
-        <Alert color="yellow">{__("The same proposal draft will become editable by its assigned agent again. Its published source will remain unchanged.", TEXT_DOMAIN)}</Alert>
+        <Alert color="yellow">{__("This reopens the same proposal draft. Its assigned agent can continue editing, or an authorized OAuth agent can take it over before editing resumes.", TEXT_DOMAIN)}</Alert>
         <Textarea label={__("Requested changes", TEXT_DOMAIN)} description={__("The request is stored in the proposal audit trail and shown on the working proposal.", TEXT_DOMAIN)} value={changeRequestReason} onChange={(event) => setChangeRequestReason(event.currentTarget.value)} minRows={4} maxLength={1000} data-autofocus required />
         <Group justify="flex-end">
           <Button variant="default" disabled={busy} onClick={() => setReturnOpened(false)}>{__("Cancel", TEXT_DOMAIN)}</Button>

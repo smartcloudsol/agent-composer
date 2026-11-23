@@ -330,7 +330,17 @@ try {
 	$identity = $mcp_settings->identity_configuration();
 	$token_fixture = new SmartCloud_Composer_Cognito_Jwt_Fixture();
 	$jwks_cache_key = $token_fixture->prime_jwks( (string) $identity['issuer'] );
-	$runtime_for = static function ( array $claims ) use ( $token_fixture, $identity ): array {
+	$active_guard = null;
+	$end_request = static function () use ( &$active_guard ): void {
+		if ( null !== $active_guard ) {
+			remove_filter( 'user_has_cap', array( $active_guard, 'grant_request_capabilities' ), 20 );
+			remove_filter( 'smartcloud_agent_composer_can_propose_content', array( $active_guard, 'filter_proposal_source_access' ), 20 );
+			$active_guard = null;
+		}
+		\SmartCloud\AgentComposer\Security\ActorIdentity::set( null );
+	};
+	$runtime_for = static function ( array $claims ) use ( $token_fixture, $identity, $end_request, &$active_guard ): array {
+		$end_request();
 		$token = $token_fixture->access_token(
 			array_merge(
 				array(
@@ -345,6 +355,7 @@ try {
 		$request = new WP_REST_Request( 'POST', '/wp-json/mcp/smartcloud-agent-composer' );
 		$request->set_header( 'Authorization', 'Bearer ' . $token );
 		$permission = $runtime->mcp_access()->transport_permission( $request );
+		$active_guard = $runtime->mcp_access();
 		$abilities_property = new ReflectionProperty( $runtime, 'abilities' );
 		$abilities_property->setAccessible( true );
 		return array( $runtime, $abilities_property->getValue( $runtime ), $permission );
@@ -590,7 +601,7 @@ try {
 			'confirm_proposal'             => true,
 		)
 	);
-	$assert( is_array( $proposal ) && (int) ( $proposal['proposal_id'] ?? 0 ) > 0, 'The single migration must create a separate proposal draft.' );
+	$assert( is_array( $proposal ) && (int) ( $proposal['proposal_id'] ?? 0 ) > 0, 'The single migration must create a separate proposal draft. ' . ( is_wp_error( $proposal ) ? $proposal->get_error_code() . ': ' . $proposal->get_error_message() : '' ) );
 	$proposal_id   = (int) $proposal['proposal_id'];
 	$proposal_ids[] = $proposal_id;
 	$post_ids[]     = $proposal_id;
@@ -652,6 +663,64 @@ try {
 	$bulk_replay = $ability_boundary->create_blueprint_migration_proposals( array( 'page_type' => $page_type, 'migration_id' => $migration_id, 'confirm_bulk_proposals' => true, 'items' => array( $bulk_request_item ) ) );
 	$assert( 1 === (int) ( $bulk_replay['counts']['idempotent'] ?? 0 ), 'Retrying the same bulk item must be idempotent.' );
 	$assert( count( array_unique( $proposal_ids ) ) === 2, 'The fixture must create exactly one single and one bulk proposal.' );
+
+	// A valid new source exercises the ordinary confirmed proposal entry point.
+	$end_request();
+	wp_set_current_user( (int) $admins[0]->ID );
+	$handoff_body = (string) $proposal_post->post_content;
+	$handoff_source = wp_insert_post( wp_slash( array(
+		'post_type' => 'page', 'post_status' => 'publish', 'post_title' => 'Proposal handoff fixture',
+		'post_content' => $handoff_body, 'post_name' => 'proposal-handoff-' . $suffix,
+		'meta_input' => array( '_yoast_wpseo_metadesc' => 'Review the workflow for a published WordPress page and confirm that a returned update proposal can be resumed by an authorized editor.' ),
+	) ), true );
+	$assert( ! is_wp_error( $handoff_source ) && $handoff_source > 0, 'The handoff fixture needs a published source.' );
+	$post_ids[] = $handoff_source;
+	$handoff_request = array(
+		'post_id' => $handoff_source, 'page_type' => $page_type, 'content_language' => 'en-US',
+		'expected_modified_gmt' => get_post_modified_time( 'Y-m-d\TH:i:s\Z', true, $handoff_source ),
+		'expected_content_hash' => hash( 'sha256', $handoff_body ),
+		'idempotency_key' => 'handoff-' . $suffix, 'confirm_proposal' => true,
+	);
+	wp_set_current_user( 0 );
+	list( $original_runtime, $original_abilities, $original_permission ) = $runtime_for( array( 'client_id' => 'contributor-client', 'sub' => 'original-handoff-agent', 'cognito:groups' => array( 'editors' ) ) );
+	$assert( true === $original_permission, 'The original Contributor must authenticate.' );
+	$working = $original_abilities->create_content_proposal( $handoff_request );
+	$assert( is_array( $working ), 'The Contributor must create an ordinary proposal: ' . ( is_wp_error( $working ) ? $working->get_error_message() : '' ) );
+	$working_id = (int) $working['post_id'];
+	$post_ids[] = $working_id;
+	$working_author = (int) get_post_field( 'post_author', $working_id );
+	$review_token = static fn( array $proposal ): array => array(
+		'post_id' => $proposal['post_id'], 'expected_modified_gmt' => $proposal['modified_gmt'], 'expected_revision' => $proposal['revision'],
+	);
+	list( $next_runtime, $next_abilities, $next_permission ) = $runtime_for( array( 'client_id' => 'contributor-client', 'sub' => 'next-handoff-agent', 'cognito:groups' => array( 'editors' ) ) );
+	$assert( true === $next_permission, 'The next Contributor must authenticate.' );
+	$before_return = $next_abilities->create_content_proposal( $handoff_request );
+	$assert( is_wp_error( $before_return ) && 'smartcloud_agent_proposal_assigned_to_other_agent' === $before_return->get_error_code(), 'An ordinary working proposal must not be taken over.' );
+
+	list( $original_runtime, $original_abilities, $original_permission ) = $runtime_for( array( 'client_id' => 'contributor-client', 'sub' => 'original-handoff-agent', 'cognito:groups' => array( 'editors' ) ) );
+	$submitted = $original_abilities->submit_content_proposal( $review_token( $working ) );
+	$assert( is_array( $submitted ) && 'ready-for-review' === $submitted['state'], 'The original proposal must be ready for human review. ' . ( is_wp_error( $submitted ) ? $submitted->get_error_code() . ': ' . $submitted->get_error_message() : '' ) );
+	$proposals_property = new ReflectionProperty( $original_runtime, 'proposals' );
+	$proposals = $proposals_property->getValue( $original_runtime );
+	$end_request();
+	wp_set_current_user( (int) $admins[0]->ID );
+	$returned = $proposals->return_for_changes( $working_id, 'Please revise the title.', $review_token( $submitted ) );
+	// Emulate records returned before this plugin stored the return revision.
+	delete_post_meta( $working_id, Content_Proposal_Service::RETURNED_REVISION_META );
+
+	wp_set_current_user( 0 );
+	list( $next_runtime, $next_abilities, $next_permission ) = $runtime_for( array( 'client_id' => 'contributor-client', 'sub' => 'next-handoff-agent', 'cognito:groups' => array( 'editors' ) ) );
+	$handoff = $next_abilities->create_content_proposal( $handoff_request );
+	$assert( is_array( $handoff ) && true === ( $handoff['taken_over'] ?? false ) && $working_id === (int) $handoff['post_id'], 'The next Contributor must take over the same legacy returned copy. ' . ( is_wp_error( $handoff ) ? $handoff->get_error_code() . ': ' . $handoff->get_error_message() : '' ) );
+	$assert( 'Please revise the title.' === $handoff['change_request_reason'] && $returned['revision'] !== $handoff['revision'], 'Handoff must retain the review note and rotate the revision.' );
+	$assert( $handoff_body === get_post_field( 'post_content', $working_id ) && $working_author === (int) get_post_field( 'post_author', $working_id ), 'Handoff must preserve the draft body and author.' );
+	$assert( $handoff_body === get_post_field( 'post_content', $handoff_source ) && 'publish' === get_post_status( $handoff_source ), 'Handoff must preserve the published source.' );
+	$repeat = $next_abilities->create_content_proposal( $handoff_request );
+	$assert( true === ( $repeat['idempotent_replay'] ?? false ) && $handoff['revision'] === $repeat['revision'], 'A retry by the new assignee must be idempotent.' );
+	list( $original_runtime, $original_abilities ) = $runtime_for( array( 'client_id' => 'contributor-client', 'sub' => 'original-handoff-agent', 'cognito:groups' => array( 'editors' ) ) );
+	$claim_back = $original_abilities->create_content_proposal( $handoff_request );
+	$assert( is_wp_error( $claim_back ) && 'smartcloud_agent_proposal_assigned_to_other_agent' === $claim_back->get_error_code(), 'One human return may only authorize one cross-agent transfer.' );
+	$end_request();
 
 	echo wp_json_encode(
 		array(

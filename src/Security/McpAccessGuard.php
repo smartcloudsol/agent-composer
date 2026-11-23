@@ -310,10 +310,11 @@ final class McpAccessGuard {
 		return $allcaps;
 	}
 
-	/** A Cognito principal may propose changes to another author only through an explicit CMS editor mapping. */
+	/** A proposal is a separate draft and uses the actor's Composer authorization. */
 	public function filter_proposal_source_access( bool $allowed, \WP_Post $post ): bool {
 		if ( ! $allowed || ! $this->actor || 'cognito' !== $this->actor->source() ) { return $allowed; }
-		if ( ! $this->actor_allows( $this->actor, 'propose' ) ) { return false; }
+		if ( 'publish' !== $post->post_status || ! $this->actor_allows( $this->actor, 'propose' ) ) { return false; }
+		if ( ! $this->settings->get()['restrict_cross_author_proposals'] ) { return true; }
 		if ( '1' === (string) get_post_meta( $post->ID, \SmartCloud\AgentComposer\Execution\Draft_Service::OWNED_META, true )
 			&& ActorIdentity::is_current(
 				(string) get_post_meta( $post->ID, \SmartCloud\AgentComposer\Execution\Draft_Service::ASSIGNED_PRINCIPAL_META, true ),

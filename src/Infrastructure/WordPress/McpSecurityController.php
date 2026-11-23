@@ -43,7 +43,17 @@ final class McpSecurityController {
 	public function save( WP_REST_Request $request ): WP_REST_Response {
 		$value = $request->get_json_params();
 		$value = is_array( $value ) ? $value : array();
+		$restriction = $this->settings->get()['restrict_cross_author_proposals'];
+		if ( ! array_key_exists( 'restrict_cross_author_proposals', $value ) ) {
+			$value['restrict_cross_author_proposals'] = $restriction;
+		}
 		$normalized = $this->settings->normalize( $value );
+		if ( $restriction !== $normalized['restrict_cross_author_proposals'] && ! current_user_can( 'manage_options' ) ) {
+			return new WP_REST_Response(
+				array( 'code' => 'smartcloud_composer_proposal_policy_forbidden', 'message' => 'Only a WordPress site administrator can change the proposal ownership restriction.' ),
+				403
+			);
+		}
 		$provider   = $this->settings->provider_configuration( $normalized );
 		$manual     = $normalized['identity_provider']['manual'];
 		$manual_complete = '' !== $manual['region'] && '' !== $manual['user_pool_id'];
@@ -73,6 +83,7 @@ final class McpSecurityController {
 				'group_role_count' => count( $saved['group_roles'] ),
 				'client_count'     => count( $saved['clients'] ),
 				'enforce_scopes'   => $saved['enforce_scopes'],
+				'restrict_cross_author_proposals' => $saved['restrict_cross_author_proposals'],
 				'oauth_resource_configured' => '' !== $saved['oauth_resource_uri'],
 				'oauth_resource_sha256' => '' !== $saved['oauth_resource_uri'] ? hash( 'sha256', $saved['oauth_resource_uri'] ) : '',
 			)
@@ -87,6 +98,7 @@ final class McpSecurityController {
 			'invariants' => array(
 				'direct_agent_publish'       => false,
 				'human_confirmation_required'=> true,
+				'can_manage_proposal_restriction' => current_user_can( 'manage_options' ),
 				'supported_roles'            => McpSecuritySettings::ROLES,
 				'supported_scopes'           => array( 'composer.read', 'composer.draft', 'composer.propose', 'composer.publish.request' ),
 			),

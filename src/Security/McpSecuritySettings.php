@@ -130,6 +130,7 @@ final class McpSecuritySettings {
 			'clients'              => $clients,
 			'oauth_resource_uri'   => $this->resource_uri( $value['oauth_resource_uri'] ?? '' ),
 			'enforce_scopes'       => true === ( $value['enforce_scopes'] ?? false ),
+			'restrict_cross_author_proposals' => true === ( $value['restrict_cross_author_proposals'] ?? false ),
 			'unknown_client_policy'=> in_array( (string) ( $value['unknown_client_policy'] ?? '' ), array( 'human-role', 'reader' ), true ) ? 'human-role' : 'deny',
 			'approval_ttl_seconds' => min( 3600, max( 120, (int) ( $value['approval_ttl_seconds'] ?? 900 ) ) ),
 		);

@@ -6,12 +6,23 @@ namespace {
 	$options = array();
 	$filters = array();
 	$actions = array();
+	$post_metadata = array();
 	class WP_Error {
 		public function __construct( public string $code = '', public string $message = '', public mixed $data = null ) {}
 		public function get_error_code(): string { return $this->code; }
 		public function get_error_message(): string { return $this->message; }
 	}
 	class WP_User { public string $user_email = ''; }
+	class WP_Post {
+		public function __construct(public int $ID = 10, public string $post_status = 'publish') {}
+	}
+	class WP_REST_Request {
+		public function __construct(private array $body) {}
+		public function get_json_params(): array { return $this->body; }
+	}
+	class WP_REST_Response {
+		public function __construct(public array $data, public int $status) {}
+	}
 	function get_option(string $key, mixed $default = false): mixed { global $options; return $options[$key] ?? $default; }
 	function update_option(string $key, mixed $value, bool $autoload = false): bool { global $options; $options[$key] = $value; return true; }
 	function sanitize_text_field(string $value): string { return trim(strip_tags($value)); }
@@ -20,6 +31,9 @@ namespace {
 	function sanitize_key(string $value): string { return strtolower((string) preg_replace('/[^a-z0-9_\-]/i', '', $value)); }
 	function sanitize_email(string $value): string { return filter_var($value, FILTER_SANITIZE_EMAIL) ?: ''; }
 	function get_current_user_id(): int { return 0; }
+	function current_user_can(string $capability): bool { return false; }
+	function get_post_meta(int $id, string $key, bool $single): mixed { global $post_metadata; return $post_metadata[$id][$key] ?? ''; }
+	function map_meta_cap(string $capability, int $user_id, int $post_id): array { return array('edit_others_pages', 'edit_published_pages'); }
 	function wp_get_current_user(): WP_User { return new WP_User(); }
 	function is_wp_error(mixed $value): bool { return $value instanceof WP_Error; }
 	function add_filter(string $name, callable $callback, int $priority = 10, int $accepted = 1): void { global $filters; $filters[$name][] = $callback; }
@@ -36,6 +50,7 @@ namespace {
 
 	require_once dirname(__DIR__) . '/src/Execution/Execution_Exception.php';
 	require_once dirname(__DIR__) . '/src/Execution/Config_Repository.php';
+	require_once dirname(__DIR__) . '/src/Execution/Draft_Service.php';
 	require_once dirname(__DIR__) . '/src/Execution/Abilities.php';
 	require_once dirname(__DIR__) . '/src/Infrastructure/WordPress/Activation.php';
 	require_once dirname(__DIR__) . '/src/Integration/Mcp/ComposerMcpServer.php';
@@ -44,6 +59,8 @@ namespace {
 	require_once dirname(__DIR__) . '/src/Security/McpSecuritySettings.php';
 	require_once dirname(__DIR__) . '/src/Security/CognitoJwtValidator.php';
 	require_once dirname(__DIR__) . '/src/Security/McpAccessGuard.php';
+	require_once dirname(__DIR__) . '/src/Infrastructure/Persistence/AuditTable.php';
+	require_once dirname(__DIR__) . '/src/Infrastructure/WordPress/McpSecurityController.php';
 
 	$settings = new \SmartCloud\AgentComposer\Security\McpSecuritySettings();
 	$normalized = $settings->normalize(array(
@@ -56,6 +73,7 @@ namespace {
 	security_assert(120 === $normalized['approval_ttl_seconds'], 'Approval TTL must be clamped to the safe minimum.');
 	security_assert(2 === count($normalized['group_roles']), 'Only valid bounded group mappings may survive normalization.');
 	security_assert(false === $normalized['identity_provider']['prefer_manual'], 'Automatic provider discovery must remain the default.');
+	security_assert(false === $normalized['restrict_cross_author_proposals'], 'Existing settings must use Composer role-based proposal permissions by default.');
 	security_assert('https://tunnel-service.example.test/v1/mcp/tunnel_example' === $normalized['oauth_resource_uri'], 'The external resource URI must be normalized without a trailing slash.');
 	security_assert(
 		array('https://tunnel-service.example.test/v1/mcp/tunnel_example/read', 'https://tunnel-service.example.test/v1/mcp/tunnel_example/draft', 'https://tunnel-service.example.test/v1/mcp/tunnel_example/propose', 'https://tunnel-service.example.test/v1/mcp/tunnel_example/publish.request') === $settings->resource_bound_scopes($normalized),
@@ -163,6 +181,43 @@ namespace {
 		public function get_server_id(): string { return \SmartCloud\AgentComposer\Integration\Mcp\ComposerMcpServer::SERVER_ID; }
 	};
 	security_assert($tool_result === $protected->filter_tool_result($tool_result, array(), 'smartcloud-agent-composer/get-contract', new \stdClass(), $composer_server), 'MCP audit logging must not mutate successful tool results.');
+
+	$proposal_policy = $normalized;
+	$proposal_policy['enforce_scopes'] = true;
+	$settings->save($proposal_policy);
+	$published = new WP_Post();
+	$proposal_actor = static function (string $role, array $scopes = array('composer.propose')) {
+		return new \SmartCloud\AgentComposer\Security\ActorContext('cognito:editor', 'issuer', 'sub', '', array('editors'), 'client-1', $scopes, $role, 'PROTECTED', 'cognito');
+	};
+	foreach (array('contributor', 'publisher') as $role) {
+		$set_actor->invoke($protected, $proposal_actor($role));
+		security_assert($protected->filter_proposal_source_access(true, $published), 'Contributor and Publisher can propose a published update without a Gatey or WordPress role mapping.');
+	}
+	security_assert(!$protected->filter_proposal_source_access(false, $published), 'The new grant must respect a prior denial.');
+	security_assert(!$protected->filter_proposal_source_access(true, new WP_Post(11, 'draft')), 'The grant must be restricted to published sources.');
+	$capabilities = $protected->grant_request_capabilities(array(), array(), array(), new WP_User());
+	security_assert(empty($capabilities['edit_others_pages']) && empty($capabilities['edit_published_pages']) && empty($capabilities['publish_pages']) && empty($capabilities[\SmartCloud\AgentComposer\Infrastructure\WordPress\Activation::CAP_MERGE_PROPOSALS]), 'Proposal authority must not grant native editing, publishing or merging.');
+	foreach (array($proposal_actor('reader'), $proposal_actor('publisher', array('composer.read'))) as $denied_actor) {
+		$set_actor->invoke($protected, $denied_actor);
+		security_assert(!$protected->filter_proposal_source_access(true, $published), 'Reader or missing enforced scope must deny cross-author proposals.');
+	}
+	$controller = new \SmartCloud\AgentComposer\Infrastructure\WordPress\McpSecurityController(
+		$settings, $protected, new \SmartCloud\AgentComposer\Infrastructure\Persistence\AuditTable()
+	);
+	$proposal_policy['restrict_cross_author_proposals'] = true;
+	$denied_change = $controller->save(new WP_REST_Request($proposal_policy));
+	security_assert(403 === $denied_change->status && !$settings->get()['restrict_cross_author_proposals'], 'A caller without the WordPress site administrator capability may not switch on this restriction.');
+	$settings->save($proposal_policy);
+	$set_actor->invoke($protected, $proposal_actor('publisher'));
+	security_assert(!$protected->filter_proposal_source_access(true, $published), 'With the restriction enabled, an unrelated source requires a WordPress editor mapping.');
+	$post_metadata[$published->ID] = array(
+		\SmartCloud\AgentComposer\Execution\Draft_Service::OWNED_META => '1',
+		\SmartCloud\AgentComposer\Execution\Draft_Service::ASSIGNED_PRINCIPAL_META => 'cognito:editor',
+	);
+	security_assert($protected->filter_proposal_source_access(true, $published), 'The original assignment rule must still allow the assigned principal.');
+	$set_actor->invoke($protected, new \SmartCloud\AgentComposer\Security\ActorContext('open:anonymous', '', '', '', array(), 'open', array(), 'contributor', 'OPEN', 'open'));
+	security_assert($protected->filter_proposal_source_access(true, $published), 'The restriction does not change the legacy Open request path.');
+	$settings->save($normalized);
 
 	$abilities_source = file_get_contents(dirname(__DIR__) . '/src/Execution/Abilities.php');
 	$approval_source = file_get_contents(dirname(__DIR__) . '/src/Infrastructure/WordPress/PublishApprovalController.php');

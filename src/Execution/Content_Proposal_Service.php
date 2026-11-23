@@ -20,6 +20,7 @@ final class Content_Proposal_Service {
 	public const CHANGE_REQUEST_REASON_META = '_wpsuite_agent_proposal_change_request_reason';
 	public const RETURNED_BY_META = '_wpsuite_agent_proposal_returned_by';
 	public const RETURNED_GMT_META = '_wpsuite_agent_proposal_returned_gmt';
+	public const RETURNED_REVISION_META = '_wpsuite_agent_proposal_returned_revision';
 	public const TARGET_SLUG_META = '_wpsuite_agent_proposal_target_slug';
 	public const MIGRATION_META = '_wpsuite_agent_proposal_migration';
 
@@ -70,7 +71,7 @@ final class Content_Proposal_Service {
 			throw new Execution_Exception( 'proposal_source_read_denied', 'The current agent cannot read the proposal source.' );
 		}
 		if ( ! apply_filters( 'smartcloud_agent_composer_can_propose_content', true, $source ) ) {
-			throw new Execution_Exception( 'proposal_source_edit_denied', 'Proposing changes to another author requires the current identity provider to grant WordPress editor permissions.' );
+			throw new Execution_Exception( 'proposal_source_edit_denied', 'The current Composer actor cannot propose changes to this published source.' );
 		}
 		$source_modified = $this->time_token( $source->post_modified_gmt );
 		$source_content_hash = hash( 'sha256', (string) $source->post_content );
@@ -119,12 +120,16 @@ final class Content_Proposal_Service {
 		try {
 		$active = $this->find_active( $source_id, $page_type, $context );
 		if ( $active instanceof \WP_Post ) {
-			if ( ! $this->drafts->is_assigned_to_current_actor( $active->ID ) ) {
-				throw new Execution_Exception( 'proposal_assigned_to_other_agent', 'Another agent already owns the active proposal for this localized item.' );
-			}
 			$active_migration = $this->migration_meta( $active->ID );
 			if ( ( null === $migration_plan ) !== empty( $active_migration ) || ( null !== $migration_plan && ! hash_equals( (string) ( $migration_plan['migration']['plan_hash'] ?? '' ), (string) ( $active_migration['plan_hash'] ?? '' ) ) ) ) {
 				throw new Execution_Exception( 'proposal_creation_conflict', 'A different active proposal already exists for this source and Blueprint.' );
+			}
+			if ( ! $this->drafts->is_assigned_to_current_actor( $active->ID ) ) {
+				if ( null !== $migration_plan || 'cognito' !== ActorIdentity::context()?->source() ) {
+					throw new Execution_Exception( 'proposal_assigned_to_other_agent', 'Another agent already owns the active proposal for this localized item.' );
+				}
+				$this->targets->assert_current_user_can_adopt( $active, $target );
+				return $this->take_over_returned_proposal( $active->ID, $source_id, $page_type );
 			}
 			$result = $this->describe( $active );
 			$result['idempotent_replay'] = true;
@@ -222,7 +227,25 @@ final class Content_Proposal_Service {
 	}
 
 	public function submit( array $input ): array {
-		$proposal = $this->proposal( absint( $input['post_id'] ?? 0 ) );
+		$proposal_id = absint( $input['post_id'] ?? 0 );
+		return $this->with_active_proposal_lock( $proposal_id, fn( \WP_Post $proposal ): array => $this->submit_current_proposal( $proposal, $input ) );
+	}
+
+	private function with_active_proposal_lock( int $proposal_id, callable $operation ): array {
+		$this->proposal( $proposal_id );
+		$lock = $this->acquire_creation_lock(
+			absint( get_post_meta( $proposal_id, self::SOURCE_META, true ) ),
+			sanitize_key( (string) get_post_meta( $proposal_id, Draft_Service::PAGE_TYPE_META, true ) ),
+			$this->localization_context( $proposal_id )
+		);
+		try {
+			return $operation( $this->proposal( $proposal_id ) );
+		} finally {
+			$this->release_creation_lock( $lock );
+		}
+	}
+
+	private function submit_current_proposal( \WP_Post $proposal, array $input ): array {
 		if ( ! $this->drafts->is_assigned_to_current_actor( $proposal->ID ) ) {
 			throw new Execution_Exception( 'proposal_not_editable', 'Only the assigned agent can submit this proposal.' );
 		}
@@ -528,7 +551,7 @@ final class Content_Proposal_Service {
 		return $this->describe( $proposal );
 	}
 
-	/** Return the same review copy to its assigned agent for another editing pass. */
+	/** Reopen the same review copy for another editing pass. */
 	public function return_for_changes( int $proposal_id, string $reason, array $input, bool $approved_in_app = false ): array {
 		if ( ! $approved_in_app && ! current_user_can( Activation::CAP_MERGE_PROPOSALS ) ) {
 			throw new Execution_Exception( 'proposal_return_denied', 'Only an authorized human reviewer can return this proposal for changes.' );
@@ -538,7 +561,11 @@ final class Content_Proposal_Service {
 			throw new Execution_Exception( 'proposal_change_request_reason_required', 'A non-empty change request is required.' );
 		}
 
-		$proposal = $this->proposal( $proposal_id );
+		return $this->with_active_proposal_lock( $proposal_id, fn( \WP_Post $proposal ): array => $this->return_current_proposal( $proposal, $reason, $input ) );
+	}
+
+	private function return_current_proposal( \WP_Post $proposal, string $reason, array $input ): array {
+		$proposal_id = $proposal->ID;
 		$this->assert_proposal_token( $proposal, $input );
 		$state = sanitize_key( (string) get_post_meta( $proposal_id, self::STATE_META, true ) );
 		if ( ! in_array( $state, array( 'ready-for-review', 'rejected' ), true ) ) {
@@ -560,13 +587,15 @@ final class Content_Proposal_Service {
 		if ( $updated instanceof \WP_Error ) {
 			throw new Execution_Exception( 'proposal_return_failed', $updated->get_error_message() ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Sanitized REST error data; never rendered as HTML.
 		}
-		update_post_meta( $proposal_id, Draft_Service::REVISION_META, wp_generate_uuid4() );
+		$revision = wp_generate_uuid4();
+		update_post_meta( $proposal_id, Draft_Service::REVISION_META, $revision );
 		if ( false === update_post_meta( $proposal_id, self::STATE_META, 'working', $state ) ) {
 			throw new Execution_Exception( 'proposal_state_conflict', 'The proposal state changed before the change request could be recorded.' );
 		}
 		update_post_meta( $proposal_id, self::CHANGE_REQUEST_REASON_META, $reason );
 		update_post_meta( $proposal_id, self::RETURNED_BY_META, get_current_user_id() );
 		update_post_meta( $proposal_id, self::RETURNED_GMT_META, gmdate( 'Y-m-d H:i:s' ) );
+		update_post_meta( $proposal_id, self::RETURNED_REVISION_META, $revision );
 		$this->audit->record(
 			'content-proposal-returned-for-changes',
 			'success',
@@ -576,6 +605,67 @@ final class Content_Proposal_Service {
 		);
 		clean_post_cache( $proposal_id );
 		return $this->inspect( $proposal_id );
+	}
+
+	/** Take over a human-returned working copy without changing its document. */
+	private function take_over_returned_proposal( int $proposal_id, int $source_id, string $page_type ): array {
+		global $wpdb;
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Takeover must serialize with edits to the working copy.
+			throw new Execution_Exception( 'locking_unavailable', 'The database could not start a safe proposal handoff.' );
+		}
+		try {
+			$locked = $wpdb->get_var( $wpdb->prepare( "SELECT ID FROM {$wpdb->posts} WHERE ID = %d FOR UPDATE", $proposal_id ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Lock the same row as the draft update path.
+			if ( $proposal_id !== (int) $locked ) {
+				throw new Execution_Exception( 'proposal_not_found', 'The requested content proposal does not exist.' );
+			}
+			$proposal = $this->proposal( $proposal_id );
+			$revision = (string) get_post_meta( $proposal_id, Draft_Service::REVISION_META, true );
+			$returned_revision = (string) get_post_meta( $proposal_id, self::RETURNED_REVISION_META, true );
+			$returned = (string) get_post_meta( $proposal_id, self::RETURNED_GMT_META, true );
+			$reason = (string) get_post_meta( $proposal_id, self::CHANGE_REQUEST_REASON_META, true );
+			// Older returned copies did not store the revision current at the time of return.
+			$unchanged_since_return = '' === $returned_revision
+				? strcmp( $proposal->post_modified_gmt, $returned ) <= 0
+				: hash_equals( $returned_revision, $revision );
+			if ( 'working' !== (string) get_post_meta( $proposal_id, self::STATE_META, true )
+				|| '' === $revision || '' === $returned || '' === trim( $reason ) || ! $unchanged_since_return
+				|| $source_id !== absint( get_post_meta( $proposal_id, self::SOURCE_META, true ) )
+				|| $page_type !== (string) get_post_meta( $proposal_id, Draft_Service::PAGE_TYPE_META, true )
+			) {
+				throw new Execution_Exception( 'proposal_assigned_to_other_agent', 'Another agent owns this proposal. Only an unchanged working copy explicitly returned for changes can be taken over.' );
+			}
+			$source = $this->fresh_post( $source_id );
+			$base = (string) get_post_meta( $proposal_id, self::BASE_FINGERPRINT_META, true );
+			if ( ! $source instanceof \WP_Post || 'publish' !== $source->post_status || ! hash_equals( $base, $this->source_fingerprint( $this->projection( $source, $page_type ) ) ) ) {
+				throw new Execution_Exception( 'proposal_source_conflict', 'The published source changed after this proposal was created.' );
+			}
+			$this->localization->validate_proposal( $this->localization_context( $proposal_id ), $source_id, $proposal_id );
+
+			$previous_principal = (string) get_post_meta( $proposal_id, Draft_Service::ASSIGNED_PRINCIPAL_META, true );
+			$assignment = array(
+				self::RETURNED_REVISION_META => $revision,
+				Draft_Service::ASSIGNED_AGENT_META => (string) get_current_user_id(),
+				Draft_Service::ASSIGNED_PRINCIPAL_META => ActorIdentity::principal_id(),
+				Draft_Service::ASSIGNMENT_SOURCE_META => 'returned-proposal-takeover',
+				Draft_Service::REVISION_META => wp_generate_uuid4(),
+			);
+			foreach ( $assignment as $key => $value ) {
+				if ( $value !== (string) get_post_meta( $proposal_id, $key, true ) && false === update_post_meta( $proposal_id, $key, $value ) ) {
+					throw new Execution_Exception( 'proposal_takeover_failed', 'The proposal assignment could not be saved.' );
+				}
+			}
+			$this->audit->record( 'content-proposal-taken-over', 'success', array( 'source_post_id' => $source_id, 'previous_principal' => $previous_principal ), 0, $proposal_id, null, false );
+			if ( false === $wpdb->query( 'COMMIT' ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Commit the assignment and audit together.
+				throw new Execution_Exception( 'commit_failed', 'The database could not safely commit the proposal handoff.' );
+			}
+		} catch ( \Throwable $error ) {
+			$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Roll back the atomic proposal handoff.
+			clean_post_cache( $proposal_id );
+			throw $error;
+		}
+		$result = $this->describe( $this->proposal( $proposal_id ) );
+		$result['taken_over'] = true;
+		return $result;
 	}
 
 	private function projection( \WP_Post $post, string $page_type ): array {
