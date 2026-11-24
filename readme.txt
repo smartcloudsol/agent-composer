@@ -4,7 +4,7 @@ Tags: agents, gutenberg, automation, workflow, abilities
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 8.1
-Stable tag: 1.5.14
+Stable tag: 1.5.15
 License: MIT
 License URI: https://mit-license.org/
 
@@ -154,6 +154,9 @@ https://www.npmjs.com/package/@smart-cloud/agent-composer-core
 The distributed JavaScript and CSS are built from public `admin/src`, `blocks/src`, and `core` sources. PHP owns registration, authorization, persistence, audit, portability, and execution. The release assembler adds the shared Hub runtime, verifies the package, normalizes timestamps, and records SHA-256 checksums.
 
 == Changelog ==
+
+= 1.5.15 =
+* Update the shared WP Suite Hub with WordPress asset enqueueing and translatable validation messages.
 
 = 1.5.14 =
 * Allow authorized MCP contributors and publishers to propose changes to content by other authors. Site administrators can require WordPress edit permissions for source content.
