@@ -36,6 +36,7 @@ final class Plugin {
 		add_action( 'init', array( BlockRegistry::class, 'register' ), 11 );
 		add_action( 'init', array( PresetPatternRegistry::class, 'register' ), 12 );
 		add_action( 'init', array( Activation::class, 'maybe_upgrade' ), 20 );
+		add_filter( 'smartcloud_wpsuite_deployment_candidate_adapters', array( \SmartCloud\AgentComposer\Security\DeploymentCandidate::class, 'register' ) );
 		$this->execution = new ExecutionRuntime();
 		add_action( 'rest_api_init', array( new StatusController( $this->execution->localization(), $this->execution->mcp_access() ), 'register_routes' ) );
 		add_action( 'rest_api_init', array( new ConfigurationController(), 'register_routes' ) );
